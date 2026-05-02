@@ -19,9 +19,6 @@ unstable).
   correction history + counter-moves + 2-ply continuation history.
 - **Adaptive strength**: `UCI_LimitStrength` + `UCI_Elo` map a target
   rating from ~500 to ~3200 to a depth cap and move-selection noise.
-- **Lichess bot**: Python wrapper that auto-matches its strength to the
-  opponent's rating (full strength vs other bots and ≥2500 humans, weaker
-  vs lower-rated humans, smarter handling for provisional ratings).
 - **Build**: single Makefile, AVX2 default, optional AVX-VNNI / AVX-512
   / native-arch targets, optional 2-pass PGO.
 - **Tablebases**: Syzygy probing via the bundled Fathom library.
@@ -94,13 +91,6 @@ After building and dropping the two `.nnue` files next to the executable:
 It speaks UCI 1.0; any UCI-compatible GUI (Cute Chess, Arena, BanksiaGUI,
 ChessBase, Scid, Fritz, …) will drive it.
 
-## Lichess bot
-
-`lichess_bot/` contains a Python wrapper that connects Hypersion to the
-Lichess BOT API. It includes adaptive-strength matching, simple chat,
-crash auto-restart, and W/D/L stats. See
-[docs/LICHESS-BOT.md](docs/LICHESS-BOT.md).
-
 ## UCI options
 
 | Option | Default | Range | Notes |
@@ -127,9 +117,8 @@ Hypersion/
 ├── src/                  C++ engine source
 │   └── fathom/           bundled Syzygy probe (Fathom)
 ├── tools/tuner/          Texel-style tuner for classical eval
-├── lichess_bot/          Python wrapper for the Lichess BOT API
 ├── testing/              cutechess-cli launchers (edit paths to your env)
-├── docs/                 build, NNUE-download, lichess-bot guides
+├── docs/                 build + NNUE-download guides
 ├── .github/workflows/    CI build job
 ├── Makefile
 ├── LICENSE               GPL-3.0-or-later

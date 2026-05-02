@@ -30,11 +30,9 @@ hypersion.txt
 *.token
 *.key
 
-# Lichess bot venv + bot-side log files.
-lichess_bot/venv/
-lichess_bot/__pycache__/
-lichess_bot/*.log
-bot.log
+# Lichess bot — kept locally, not part of the public repo.
+lichess_bot/
+docs/LICHESS-BOT.md
 
 # Python
 __pycache__/
