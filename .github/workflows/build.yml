@@ -1,0 +1,45 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86-64-avx2, x86-64-bmi2]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+      - name: Build (${{ matrix.arch }})
+        run: make build ARCH=${{ matrix.arch }}
+      - name: Run UCI smoke test (no NNUE; classical fallback)
+        run: |
+          printf 'uci\nposition startpos\ngo depth 6\nquit\n' | ./Hypersion | tee out.txt
+          grep -q '^bestmove ' out.txt
+      - name: Run perft suite (correctness)
+        run: |
+          printf 'perftsuite\nquit\n' | ./Hypersion
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc make
+      - name: Build (avx2)
+        run: make build ARCH=x86-64-avx2
+      - name: Run UCI smoke test
+        run: |
+          printf 'uci\nposition startpos\ngo depth 6\nquit\n' | ./Hypersion.exe > out.txt
+          grep -q '^bestmove ' out.txt

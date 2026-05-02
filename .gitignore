@@ -1,0 +1,68 @@
+# Build artefacts
+obj/
+pgo/
+Hypersion
+Hypersion.exe
+*.exe
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+*.gcda
+*.gcno
+
+# NNUE network files — distributed separately, see docs/NNUE.md.
+*.nnue
+
+# Opening books
+*.bin
+
+# Datasets and tournament logs (not part of the engine source).
+*.pgn
+*.pgn.gz
+tuner_positions.txt
+2025 Database.pgn
+
+# Secrets — NEVER commit. Token file lives at the project root by default.
+Hypersion.txt
+hypersion.txt
+*.token
+*.key
+
+# Lichess bot venv + bot-side log files.
+lichess_bot/venv/
+lichess_bot/__pycache__/
+lichess_bot/*.log
+bot.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build-system caches
+.cache/
+.ccache/
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# Test-run artefacts
+testing/*.pgn
+testing/*.log
+testing/Hypersion_*.exe
+testing/Hypersion_v0.exe
+testing/gauntlet_results.pgn
+testing/sprt_results.pgn

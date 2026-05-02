@@ -1,0 +1,18 @@
+Hypersion authors
+=================
+
+RenCopp <https://github.com/RenCopp>
+
+
+Acknowledgements
+----------------
+
+Hypersion's NNUE network files and inference algorithm are derived from
+the Stockfish project (https://stockfishchess.org). Stockfish is the
+work of the Stockfish team and many contributors; Hypersion benefits
+from but is not affiliated with that project.
+
+The bundled Fathom Syzygy probe (src/fathom/) was originally written by
+Ronald de Man with substantial contributions by Basil Falcinelli, Jon
+Dart, and others. See src/fathom/ for the upstream project and its
+license terms.
