@@ -34,6 +34,11 @@ hypersion.txt
 lichess_bot/
 docs/LICHESS-BOT.md
 
+# Release-build staging area + the binary release zips themselves.
+release_staging/
+Hypersion-*-windows-*.zip
+Hypersion-*-linux-*.tar.gz
+
 # Python
 __pycache__/
 *.pyc
