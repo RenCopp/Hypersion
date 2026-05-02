@@ -128,10 +128,16 @@ Hypersion/
 
 ## Acknowledgements
 
+- **Anthropic's [Claude](https://claude.com)** — Hypersion was developed
+  with substantial implementation help from Claude, including the NNUE
+  port from Stockfish 18, incremental accumulator updates, the Finny
+  refresh cache, search-margin retuning for NNUE, and many other parts
+  of the engine. Architectural direction was RenCopp's; Claude wrote and
+  audited the code under that direction.
 - **Stockfish** — Hypersion uses Stockfish 18's NNUE network files
   (`nn-c288c895ea92.nnue`, `nn-37f18f62d772.nnue`) and ports its NNUE
-  inference algorithm (HalfKAv2_hm + FullThreats). Both are GPL-3 licensed
-  and Hypersion inherits that license.
+  inference algorithm (HalfKAv2_hm + FullThreats). Both are GPL-3
+  licensed and Hypersion inherits that license.
 - **Fathom** — Syzygy tablebase probing (bundled in `src/fathom/`).
 - The chess-programming community at <https://www.chessprogramming.org>.
 

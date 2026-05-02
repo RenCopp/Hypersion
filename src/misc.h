@@ -44,8 +44,8 @@ public:
 
 // Engine metadata — bumped each release.
 constexpr const char* ENGINE_NAME    = "Hypersion";
-constexpr const char* ENGINE_VERSION = "0.1";
-constexpr const char* ENGINE_AUTHOR  = "User";
+constexpr const char* ENGINE_VERSION = "1";
+constexpr const char* ENGINE_AUTHOR  = "RenCopp";
 
 std::string engine_id();
 

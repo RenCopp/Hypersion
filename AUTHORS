@@ -4,6 +4,17 @@ Hypersion authors
 RenCopp <https://github.com/RenCopp>
 
 
+Development assistance
+----------------------
+
+Hypersion was developed with substantial implementation help from
+Anthropic's Claude (https://claude.com), in a long pair-programming
+session covering the NNUE port, incremental accumulator updates, the
+Finny refresh cache, search-margin retuning for NNUE, and other parts
+of the engine. The architectural decisions and direction were RenCopp's;
+Claude wrote and audited the code under that direction.
+
+
 Acknowledgements
 ----------------
 
