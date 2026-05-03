@@ -92,6 +92,28 @@ Tested-but-no-effect (kept off):
     limit doesn't carry over to the next bot game
   - Default off; bench 648,118 unchanged in cutechess testing
 
+- **`UCI_GameRated`** (commit `3f4f920`): per-game rated/casual flag set
+  by lichess-bot's `extra_game_handlers.py`. When true, opponent matching
+  is suppressed and the engine plays at full strength regardless of
+  opponent — rated games count for ELO and shouldn't be deliberately
+  weakened. Decision matrix:
+        rated game (any opp)   -> full strength
+        casual + bot opp       -> full strength
+        casual + human opp     -> matched UCI_Elo
+
+- **Bug-fix sweep + SMP diversity** (commit `a6e9e17`):
+  - `position.cpp` 50-move-rule now correctly excludes checkmate
+    (`if (rule50 > 99 && (!checkers() || MoveList<LEGAL>(*this).size() > 0))`)
+  - `position.cpp` repetition walk now null-checks the StateInfo chain
+  - SMP works at Threads >= 2 (the "buggy" warning was stale). Default
+    bumped from 1 -> 2. Helpers diversify via Stockfish-style depth
+    skipping (SKIP_SIZE/SKIP_PHASE arrays from SF18). Bench at Threads=1
+    still 648,118 nodes (canonical baseline preserved). Bench at
+    Threads=2: 596,944 nodes / 564k NPS / 1.06s wall (vs 360k / 1.8s
+    single-threaded) = ~1.7x speedup.
+  - 4 standard UCI options added for Stockfish/GUI compatibility:
+    SyzygyProbeDepth, Syzygy50MoveRule, SyzygyProbeLimit, UCI_Chess960
+
 ---
 
 ## Known issues / diagnostics from game-mining tools
