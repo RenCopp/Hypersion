@@ -178,22 +178,25 @@ Move probe(const Position& pos, bool pickBest) {
         return best ? decode_polyglot_move(best->move, pos) : Move::none();
     }
 
-    // Find the highest weight, keep all moves with weight >= 25 % of it. This
-    // filters out "garbage" entries while still giving real variety in openings.
+    // Find the highest weight, then keep all moves with weight >= 1/12 of it.
+    // The previous /4 threshold + sqrt weighting was too aggressive — first
+    // book move varied but follow-ups converged on the same line, so playing
+    // the same opponent twice gave near-identical games. Looser threshold
+    // surfaces minority lines; uniform weighting then picks among the
+    // surviving "playable" moves with no preference. Result: same opening
+    // family but real shuffle within the lines the book considers reasonable.
     std::uint16_t bestW = 0;
     for (auto p = it; p != end; ++p) if (p->weight > bestW) bestW = p->weight;
-    std::uint16_t threshold = std::max<std::uint16_t>(1, bestW / 4);
+    std::uint16_t threshold = std::max<std::uint16_t>(1, bestW / 12);
 
-    // Weighted-random selection over the surviving moves — but with a *flatter*
-    // curve than the raw weights (sqrt) so even minority lines see real play.
     struct Cand { Move m; double w; };
     std::vector<Cand> cands;
-    cands.reserve(8);
+    cands.reserve(16);
     for (auto p = it; p != end; ++p) {
         if (p->weight < threshold) continue;
         Move m = decode_polyglot_move(p->move, pos);
         if (m == Move::none()) continue;
-        cands.push_back({ m, std::sqrt(double(p->weight)) });
+        cands.push_back({ m, 1.0 });   // uniform — any surviving move equally likely
     }
     if (cands.empty()) return Move::none();
 
