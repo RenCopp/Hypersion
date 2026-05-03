@@ -930,8 +930,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 bestMove = m;
                 if (isPv) update_pv(pv, m, childPv);
                 if (v >= beta) {
-                    // ---- History updates on beta cutoff ----
+                    // ---- History updates on beta cutoff (Lynx-style split) ----
+                    // Cutoff move gets `bonus`, failed siblings get `-malus`.
+                    // Lynx tunes them independently: malus has steeper d²
+                    // (7 vs 3) but a lower cap (1473 vs 2440).
                     int bonus = history_bonus(depth);
+                    int malus = history_malus(depth);
                     if (!isCapture) {
                         killers.update(ply, m);
                         mainHist.update(pos.side_to_move(), m, bonus);
@@ -939,7 +943,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Demote tried-but-failed quiets.
                         for (int i = 0; i < quietCount; ++i)
-                            mainHist.update(pos.side_to_move(), quietsTried[i], -bonus);
+                            mainHist.update(pos.side_to_move(), quietsTried[i], -malus);
                         // Continuation history.
                         if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                             contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(), bonus);
@@ -950,9 +954,9 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             Move qm = quietsTried[i];
                             Piece qp = pos.piece_on(qm.from_sq());
                             if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
-                                contHist[0]->update(prevPiece1, prevMove1.to_sq(), qp, qm.to_sq(), -bonus);
+                                contHist[0]->update(prevPiece1, prevMove1.to_sq(), qp, qm.to_sq(), -malus);
                             if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
-                                contHist[1]->update(prevPiece2, prevMove2.to_sq(), qp, qm.to_sq(), -bonus / 2);
+                                contHist[1]->update(prevPiece2, prevMove2.to_sq(), qp, qm.to_sq(), -malus / 2);
                         }
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));
@@ -964,7 +968,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                         Piece cmp = pos.piece_on(cm.from_sq());
                         PieceType victim = type_of(pos.piece_on(cm.to_sq()));
                         if (cm.type_of() == MT_EN_PASSANT) victim = PAWN;
-                        captureHist.update(cmp, cm.to_sq(), victim, -bonus);
+                        captureHist.update(cmp, cm.to_sq(), victim, -malus);
                     }
                     break;
                 }
