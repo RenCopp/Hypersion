@@ -46,6 +46,14 @@ struct {
     std::string evalFile      = "nn-c288c895ea92.nnue";   // SF18 big default
     std::string evalFileSmall = "nn-37f18f62d772.nnue";   // SF18 small default
     std::string syzygyPath = "<empty>";
+    // Opponent-aware strength matching. When matchOpponent=true and the GUI
+    // sends UCI_Opponent (lichess-bot does this automatically), Hypersion
+    // auto-sets UCI_LimitStrength=true and UCI_Elo to the opponent's rating
+    // (clamped to [matchFloor, matchCeiling]). Lets the bot give a fair game
+    // to weak human players instead of crushing 100% of them.
+    bool matchOpponent = false;
+    int  matchFloor    = 800;
+    int  matchCeiling  = 3200;
 } Options;
 
 void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
@@ -103,6 +111,12 @@ void cmd_uci() {
               << "option name UCI_AnalyseMode type check default false\n"
               << "option name UCI_ShowWDL type check default false\n"
               << "option name Contempt type spin default 0 min -200 max 200\n"
+              // Opponent-aware play: declaring UCI_Opponent makes lichess-bot
+              // (via python-chess) send opponent info as `<title> <rating>
+              // <player_type> <name>` after `ucinewgame`. UCI_MatchOpponent=true
+              // tells Hypersion to extract the rating and auto-weaken to it.
+              << "option name UCI_Opponent type string default <empty>\n"
+              << "option name UCI_MatchOpponent type check default false\n"
               << "uciok" << std::endl;
 }
 
@@ -280,6 +294,33 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_ShowWDL"))     parse_bool(Options.showWDL);
     else if (eq("Contempt"))       { parse_int(Options.contempt);
                                      Options.contempt = std::clamp(Options.contempt, -200, 200); }
+    else if (eq("UCI_MatchOpponent")) parse_bool(Options.matchOpponent);
+    else if (eq("UCI_Opponent"))   {
+        // python-chess sends: "<title> <rating> <player_type> <name>"
+        // (e.g. "none 600 human RisotPlayer" or "GM 2700 human Magnus").
+        // We scan tokens for the first integer in [100, 4000] = the rating.
+        if (Options.matchOpponent) {
+            std::istringstream iss(value);
+            std::string tok;
+            int rating = -1;
+            while (iss >> tok) {
+                // Manual parse (compiled with -fno-exceptions, no std::stoi).
+                char* endp = nullptr;
+                long n = std::strtol(tok.c_str(), &endp, 10);
+                if (endp && *endp == '\0' && n >= 100 && n <= 4000) {
+                    rating = int(n);
+                    break;
+                }
+            }
+            if (rating > 0) {
+                Options.limitStrength = true;
+                Options.uciElo = std::clamp(rating, Options.matchFloor, Options.matchCeiling);
+                std::cerr << "info string UCI_MatchOpponent: rating=" << rating
+                          << " -> UCI_Elo=" << Options.uciElo << '\n';
+            }
+        }
+        // value also kept silently for diagnostics (e.g. UCI_Opponent "GM 2700 ...")
+    }
 }
 
 void cmd_perft(std::istringstream& is) {
