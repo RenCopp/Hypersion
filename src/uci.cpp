@@ -30,10 +30,10 @@ int       statePly = 0;
 
 // UCI options. Stored as plain values; setoption updates them and applies side-effects.
 struct {
-    int  hashMB       = 16;
-    int  threads      = 1;
+    int  hashMB       = 64;          // bumped from 16 — fast TC works fine, slow TC benefits
+    int  threads      = 1;            // lazy-SMP currently unstable, leave at 1
     int  multiPV      = 1;
-    int  moveOverhead = 30;
+    int  moveOverhead = 100;         // bumped from 30 — modern net latency budget
     int  skillLevel   = 20;          // 0 = weakest, 20 = full strength
     bool limitStrength= false;
     int  uciElo       = 1500;
@@ -76,10 +76,11 @@ Move parse_uci_move(const std::string& str, const Position& p) {
 void cmd_uci() {
     std::cout << "id name " << ENGINE_NAME << ' ' << ENGINE_VERSION << '\n'
               << "id author " << ENGINE_AUTHOR << '\n'
-              << "option name Hash type spin default 16 min 1 max 65536\n"
+              << "option name Hash type spin default 64 min 1 max 65536\n"
               << "option name Threads type spin default 1 min 1 max 1024\n"
               << "option name MultiPV type spin default 1 min 1 max 256\n"
-              << "option name Move Overhead type spin default 30 min 0 max 5000\n"
+              << "option name Move Overhead type spin default 100 min 0 max 5000\n"
+              << "option name UCI_Variant type combo default standard var standard\n"
               << "option name Clear Hash type button\n"
               << "option name Ponder type check default false\n"
               << "option name OwnBook type check default true\n"
@@ -328,6 +329,7 @@ void cmd_bench(std::istringstream& is) {
 
     TimePoint t0 = now();
     std::uint64_t totalNodes = 0;
+    int posIdx = 0;
     for (const char* fen : BenchFENs) {
         statePly = 0;
         pos.set(fen, &states[statePly++]);
@@ -336,20 +338,44 @@ void cmd_bench(std::istringstream& is) {
         Search::Threads.clear_all();
         Search::Threads.start(pos, lim);
         Search::Threads.wait_all();
-        totalNodes += Search::Threads.total_nodes();
+        std::uint64_t posN = Search::Threads.total_nodes();
+        std::cout << "\ninfo string position " << ++posIdx
+                  << " nodes " << posN << std::endl;
+        totalNodes += posN;
     }
     int64_t elapsed = std::max<int64_t>(1, now() - t0);
+    std::uint64_t nps = (totalNodes * 1000) / std::uint64_t(elapsed);
+    // OpenBench-compatible final line: tools that scrape `bench` output look
+    // for a "Nodes searched: N" or similar signature on the LAST line. Print
+    // both the human-readable summary AND a one-line signature for tools.
     std::cout << "\n==========================="
               << "\nTotal time : " << elapsed << " ms"
               << "\nNodes      : " << totalNodes
-              << "\nNodes/sec  : " << (totalNodes * 1000) / std::uint64_t(elapsed)
-              << "\n===========================" << std::endl;
+              << "\nNodes/sec  : " << nps
+              << "\n===========================\n"
+              << "info string Nodes searched: " << totalNodes << '\n'
+              << "Nodes searched : " << totalNodes
+              << std::endl;
 }
 
 }  // namespace
 
 void loop(int argc, char** argv) {
     std::cout << engine_id() << " by " << ENGINE_AUTHOR << std::endl;
+    // Surface compiled SIMD level so users / tournament managers can see
+    // which build is running. Helps debugging "why is bench different on
+    // your machine" reports.
+#if defined(__AVX512F__)
+    std::cerr << "info string compiled with AVX-512" << std::endl;
+#elif defined(__AVXVNNI__) || defined(__AVX512VNNI__)
+    std::cerr << "info string compiled with AVX-VNNI" << std::endl;
+#elif defined(__AVX2__)
+    std::cerr << "info string compiled with AVX2" << std::endl;
+#elif defined(__SSE2__)
+    std::cerr << "info string compiled with SSE2" << std::endl;
+#else
+    std::cerr << "info string compiled scalar" << std::endl;
+#endif
     apply_hash();
     reset_position();
 

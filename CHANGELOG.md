@@ -1,55 +1,45 @@
 # Hypersion CHANGELOG
 
-## Hypersion 2 (2026-05-03)
+## Release policy
 
-### Eval
+Don't tag a new GitHub release until **at least 8 verified improvements**
+have stacked on `main` AND a head-to-head A/B match against the previous
+release shows **non-regressing strength** (≥ −10 ELO, ideally ≥ +20).
+Bigger ELO swings (+50, +200) are bonus targets, not gates.
 
-- `Position::is_draw()` now detects insufficient-material draws:
-  - K vs K
-  - K + (one minor) vs K
-  - K + B vs K + B with same-colour bishops
-  Returns true *before* NNUE is called, saving inference cost and
-  preventing the engine from trading down into known draws.
+This keeps releases meaningful for casual users who download the zip,
+without holding shipping hostage to multi-month ELO grinds. Daily dev
+work stays on `main` (no release needed).
 
-### UCI / protocol
+---
 
-- `go searchmoves m1 m2 ...` now restricts the root search to the
-  specified moves. Required by some tournament managers and
-  OpenBench-style tooling.
+## Unreleased (in progress on `main`)
 
-### Lichess bot
+Currently stacked, not yet tagged:
 
-- Removed the in-tree `lichess_bot/` mini-bot from the public repo and
-  switched local runs to the official `lichess-bot-devs/lichess-bot`
-  framework with `config-hypersion.yml`.
-- Pondering enabled in the framework config (`ponder: true`) — the bot
-  thinks on the opponent's clock. Hypersion's engine already handled
-  `go ponder` / `ponderhit` correctly, the framework just needed to
-  send those commands.
+1. Insufficient-material instant draw (KvK, KvKB, KvKN, KBvKB-same-colour)
+2. `go searchmoves` UCI command
+3. Bishop same-colour bug fix (was buggy across ranks)
+4. PSQT bucket SIMD (`_mm256_add_epi32` / `_mm256_sub_epi32` for the 8
+   PSQT bucket entries) — +7 % bench NPS, NNUE-validated bitwise neutral
+5. `UCI_ShowWDL` option — outputs `wdl W D L` (per-mille) in info lines
 
-### Investigated and reverted
+Tested-but-reverted (logged so they don't get retried blind):
+- Worsening flag in LMR
+- Score-drop time extension
+- History decay on `ucinewgame`
 
-The following changes were tested but regressed −35 ELO when bundled,
-so they were reverted before shipping. Likely root cause: each one
-needs careful per-parameter tuning that wasn't done in this pass.
+---
 
-- **Worsening flag in LMR** — `staticEval < (ss-2)->staticEval - 25`
-  loosening reductions in deteriorating positions. Reverted.
-- **Score-drop time extension** — extending optimum time by 1.15× /
-  1.3× / 1.6× when this iteration's score dropped 40 / 80 / 150 cp.
-  Reverted.
-- **History decay on `ucinewgame`** — halving instead of zeroing.
-  Reverted; full clear retained.
+## Hypersion 2 (deprecated — never publicly released)
 
-### Strength
+A v2.0 tag and GitHub release briefly existed (2026-05-03) but were
+deleted. The +17 ELO over v1 was within statistical noise and not enough
+to warrant a casual-player-facing release under the new policy. Code
+changes that were in v2 are now part of "Unreleased" above.
 
-A/B vs Hypersion 1.0 at TC 10+0.1 (40 games):
-**v2 wins +17 ELO** (9W / 24D / 7L, 52.5%).
+---
 
-### Build / release
-
-- Released as `v2.0` on 2026-05-03 with `Hypersion-2-windows-x64.zip`
-  (Hypersion.exe + both NNUE files + LICENSE + README.txt).
 
 ---
 
