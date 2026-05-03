@@ -437,13 +437,21 @@ void Worker::iterative_deepen(Position& pos) {
         }
         prevBestMove = bestMove;
 
-        // Soft-stop: scale optimum budget by stability. Stable for 4+ iterations
-        // → take only ~50 % of optimum; volatile (recent move changes) → 1.4 ×.
+        // Soft-stop: scale optimum budget by best-move stability. Lynx-style
+        // 5-bucket lookup (TimeManager.cs:14, originally "from Stash"). Index
+        // by consecutive-same-move iterations:
+        //    [0]=2.50  just changed → spend more
+        //    [1]=1.20  one ply stable
+        //    [2]=0.90
+        //    [3]=0.80
+        //    [4+]=0.75 very stable → commit
+        // Replaces Hypersion's prior 2-bucket {>=2 →0.75, >=4 →0.5} scheme
+        // and the +1.4× bestmove-changes bonus (now subsumed: 0 bucket value
+        // 2.50 is already the "volatile" extension).
         if (isMain && !limits.infinite && limits.depth == 0) {
-            double scale = 1.0;
-            if (stableIters >= 4) scale = 0.5;
-            else if (stableIters >= 2) scale = 0.75;
-            if (bestMoveChanges >= 3 && d <= 12) scale *= 1.4;
+            static constexpr double LYNX_BM_STAB[5] = { 2.50, 1.20, 0.90, 0.80, 0.75 };
+            int bmIdx = std::min(stableIters, 4);
+            double scale = LYNX_BM_STAB[bmIdx];
 
             // Phase 5: easy-move detection. When the best root move is
             // clearly better than the 2nd-best AND has been stable, we don't
