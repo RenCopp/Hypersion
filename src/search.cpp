@@ -457,7 +457,26 @@ void Worker::iterative_deepen(Position& pos) {
                 else if (gap >= 40)  scale = std::min(scale, 0.85);
             }
 
+            // Lynx-style score-stability factor (TimeManager.cs:135-153 in the
+            // Lynx repo, using the constants from Configuration.cs that have
+            // survived their fishtest tuning):
+            //     factor = 2 ^ ( clamp(prevScore - bestScore, -100, +100) / 100 )
+            // Range [0.5, 2.0]:
+            //   - Score dropped 100 cp this iter → ×2.0   (extend, hunt for refutation)
+            //   - Score unchanged                 → ×1.0
+            //   - Score rose 100 cp               → ×0.5   (we found something good, commit)
+            // Only fires at depth ≥ 7 (earlier scores are too noisy) and skips
+            // mate scores (which would saturate the clamp anyway).
+            if (d >= 7 && std::abs(int(bestScore)) < VALUE_MATE_IN_MAX_PLY
+                       && std::abs(int(prevScore)) < VALUE_MATE_IN_MAX_PLY) {
+                int delta = std::clamp(int(prevScore - bestScore), -100, 100);
+                double scoreFactor = std::exp2(delta / 100.0);
+                scale *= scoreFactor;
+            }
+
             TimePoint optScaled = TimePoint(tm.optimum() * scale);
+            // Don't let the score-stability extension push past the hard cap.
+            optScaled = std::min<TimePoint>(optScaled, tm.maximum());
             if (tm.elapsed() > optScaled) break;
         }
     }
