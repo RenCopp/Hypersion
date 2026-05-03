@@ -72,6 +72,57 @@ Tested-but-no-effect (kept off):
 
 ---
 
+## Features added
+
+- **`UCI_Opponent` + `UCI_MatchOpponent`** (commits `601a951`, `11d318d`,
+  `1ebcd50`): opponent-aware strength matching for lichess deployment.
+  python-chess sends opponent info as `<title> <rating> <player_type>
+  <name>` (e.g. `none 600 human Joe` or `none 2400 computer Bot`).
+  When `UCI_MatchOpponent=true`:
+  - Bots / engines / computers: full strength, no limit
+  - Humans: graduated offset curve (educational ZPD)
+        <1000      +150
+        1000-1399  +100
+        1400-1799  +75
+        1800-2199  +50
+        2200-2599  +25
+        >=2600     0      (master+ exact match)
+  - Final UCI_Elo clamped to [600, 3200]
+  - Each new game resets to full strength first, so a previous human-game
+    limit doesn't carry over to the next bot game
+  - Default off; bench 648,118 unchanged in cutechess testing
+
+---
+
+## Known issues / diagnostics from game-mining tools
+
+PGN profiling (`testing/game_profile.py`) on 640 games:
+- **Time management**: well-calibrated. Δ between W/D/L per-move time is
+  <17 ms in every game phase. No issue.
+- **Opening weakness**: C-family ECOs score only **34.8%** vs A:45.2% and
+  D:50.2%. Worst code: **C45 (Scotch Game): 0W/3D/24L = 5.6%**. 1.Nf3
+  scores 42.0% vs 1.d4 49.4% — bot prefers 1.d4 first moves.
+
+NPS profile (`testing/nps_profile.py`) at depth 14:
+- Opening / middlegame (23+ pieces): mean **341k NPS**
+- Endgame (≤10 pieces): mean **3.1M NPS** — 9× faster
+- Cause: NNUE threat features are non-incremental, recomputed each
+  forward(); cost scales with active pieces. Stockfish has the same
+  pattern but with more SIMD-optimized inference.
+
+**Crash bug** (NOT YET FIXED): Hypersion crashes (ACCESS_VIOLATION,
+exit 0xC0000005) via python-chess pipe I/O on positions where major
+pieces are close enough to attack each other (Q+Q on adjacent files,
+Q vs R, R+R, etc.). Reproducer: `8/4kp2/3p4/3P1q2/8/4Q3/5PK1/8 w - - 0 1`
+through python-chess `analyse()`. Manual cmd `go depth 14` on the same
+position works fine — only triggered by piped stdin/stdout combined
+with these positions. cutechess matches likely lose individual games
+to this silently via `-recover`. Probably a thread-shutdown race or
+NNUE-threat-buffer issue specific to fully-buffered stdout. Needs
+deeper debugging (sanitizers / WinDbg).
+
+---
+
 ## Diagnosed weakness — eval scaling miscalibration (NOT YET FIXED)
 
 Stockfish-driven analysis of 240 gauntlet games via python-chess +
