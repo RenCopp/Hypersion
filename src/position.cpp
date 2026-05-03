@@ -283,24 +283,6 @@ Bitboard Position::attackers_to(Square s, Bitboard occupied) const {
           | (PseudoAttacks[KING][s] & pieces(KING));
 }
 
-// All squares attacked by side `c`. ~10-15 ops per call; the caller is
-// expected to cache this once per node (e.g. once per score_quiets call,
-// once per cutoff history-update).
-Bitboard Position::attacks_by(Color c) const {
-    Bitboard occ = pieces();
-    Bitboard pawns = pieces(c, PAWN);
-    Bitboard atk = (c == WHITE) ? pawn_attacks_bb<WHITE>(pawns)
-                                : pawn_attacks_bb<BLACK>(pawns);
-    Bitboard knights = pieces(c, KNIGHT);
-    while (knights) atk |= PseudoAttacks[KNIGHT][pop_lsb(knights)];
-    Bitboard bishopsQueens = pieces(c, BISHOP) | pieces(c, QUEEN);
-    while (bishopsQueens) atk |= attacks_bb<BISHOP>(pop_lsb(bishopsQueens), occ);
-    Bitboard rooksQueens = pieces(c, ROOK) | pieces(c, QUEEN);
-    while (rooksQueens) atk |= attacks_bb<ROOK>(pop_lsb(rooksQueens), occ);
-    atk |= PseudoAttacks[KING][int(square<KING>(c))];
-    return atk;
-}
-
 // ---------------------------------------------------------------------------
 // do_move / undo_move
 // ---------------------------------------------------------------------------

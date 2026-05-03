@@ -50,33 +50,13 @@ inline void decay_buffer(T (&buf)[N]) {
     for (size_t i = 0; i < n; ++i) p[i] /= 2;
 }
 
-// `gravity_buffer`: multiply every int by 3/4. Lynx (Helpers.cs:405) applies
-// this at the start of every search call to the quiet histories only — fades
-// stale per-position bias without throwing away learned patterns.
-template<typename T, size_t N>
-inline void gravity_buffer(T (&buf)[N]) {
-    int* p = reinterpret_cast<int*>(&buf[0]);
-    size_t n = sizeof(buf) / sizeof(int);
-    for (size_t i = 0; i < n; ++i) p[i] = p[i] * 3 / 4;
-}
-
-// Butterfly: indexed by [color][from][to][fromAttacked][toAttacked].
-// The two trailing dimensions are Lynx-style threats indexing — whether the
-// move's source/target squares are attacked by the opponent. Same source +
-// destination but in different threat contexts becomes a distinct slot, so
-// "knight escapes attack" and "knight wanders into attack" don't pollute
-// each other's history score. ~128 KB per table, vs 32 KB without threats.
+// Butterfly: indexed by [color][from][to].
 struct ButterflyHistory {
-    int data[COLOR_NB][SQUARE_NB][SQUARE_NB][2][2] = {};
+    int data[COLOR_NB][SQUARE_NB][SQUARE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
     void decay() { decay_buffer(data); }
-    void gravity() { gravity_buffer(data); }
-    int  get(Color c, Move m, int fromAtt, int toAtt) const {
-        return data[c][m.from_sq()][m.to_sq()][fromAtt][toAtt];
-    }
-    void update(Color c, Move m, int fromAtt, int toAtt, int bonus) {
-        update_history(data[c][m.from_sq()][m.to_sq()][fromAtt][toAtt], bonus);
-    }
+    int  get(Color c, Move m) const { return data[c][m.from_sq()][m.to_sq()]; }
+    void update(Color c, Move m, int bonus) { update_history(data[c][m.from_sq()][m.to_sq()], bonus); }
 };
 
 // Capture history: [piece moved][to-square][captured piece type].
