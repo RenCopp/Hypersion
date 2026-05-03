@@ -762,6 +762,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     Piece prevPiece1 = (ss - 1)->movedPiece;
     Move  prevMove2  = (ss - 2)->currentMove;
     Piece prevPiece2 = (ss - 2)->movedPiece;
+    Move  prevMove4  = (ply >= 4) ? (ss - 4)->currentMove : Move::none();
+    Piece prevPiece4 = (ply >= 4) ? (ss - 4)->movedPiece  : NO_PIECE;
     Move  counter    = (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                        ? counterMoves.get(prevPiece1, prevMove1.to_sq())
                        : Move::none();
@@ -891,6 +893,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     statScore += contHist[0]->get(prevPiece1, prevMove1.to_sq(), moving, m.to_sq());
                 if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
                     statScore += contHist[1]->get(prevPiece2, prevMove2.to_sq(), moving, m.to_sq());
+                if (prevPiece4 != NO_PIECE && prevMove4 != Move::null() && prevMove4 != Move::none())
+                    statScore += contHist[2]->get(prevPiece4, prevMove4.to_sq(), moving, m.to_sq());
                 r -= statScore / 8192;
             }
             r = std::clamp(r, 0, newDepth - 1);
@@ -938,6 +942,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(), bonus);
                         if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
                             contHist[1]->update(prevPiece2, prevMove2.to_sq(), moving, m.to_sq(), bonus / 2);
+                        if (prevPiece4 != NO_PIECE && prevMove4 != Move::null() && prevMove4 != Move::none())
+                            contHist[2]->update(prevPiece4, prevMove4.to_sq(), moving, m.to_sq(), bonus / 4);
                         // Demote tried-but-failed quiets in continuation history too.
                         for (int i = 0; i < quietCount; ++i) {
                             Move qm = quietsTried[i];
@@ -946,6 +952,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                                 contHist[0]->update(prevPiece1, prevMove1.to_sq(), qp, qm.to_sq(), -bonus);
                             if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
                                 contHist[1]->update(prevPiece2, prevMove2.to_sq(), qp, qm.to_sq(), -bonus / 2);
+                            if (prevPiece4 != NO_PIECE && prevMove4 != Move::null() && prevMove4 != Move::none())
+                                contHist[2]->update(prevPiece4, prevMove4.to_sq(), qp, qm.to_sq(), -bonus / 4);
                         }
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));

@@ -110,13 +110,15 @@ private:
     CounterMoveTable counterMoves;
     CorrectionHistory pawnCorrHist;
     // Continuation-history tables, one per lookback distance.
-    // contHist[i] tracks (prev-(i+1)-ply move) -> current-move bonus.
+    // contHist[i] tracks (prev-N-ply move) -> current-move bonus.
     // contHist[0] = 1-ply lookback (counter-move history).
     // contHist[1] = 2-ply lookback (follow-up history) — updated on cutoff
     // but currently NOT read for quiet ordering: a Phase-4 experiment with
     // 4-ply lookback + decaying weights (1, 1/2, 1/4, 1/8) regressed -26 ELO.
-    // Each ContinuationHistory is ~4MB; 2 tables = ~8MB per thread.
-    std::unique_ptr<ContinuationHistory> contHist[2];
+    // contHist[2] = 4-ply lookback — used ONLY in LMR statScore correction
+    // (Stockfish-18 pattern), NOT in MovePicker quiet ordering.
+    // Each ContinuationHistory is ~4MB; 3 tables = ~12MB per thread.
+    std::unique_ptr<ContinuationHistory> contHist[3];
 };
 
 // Pool of search worker threads. workers[0] is the main worker — the one that
