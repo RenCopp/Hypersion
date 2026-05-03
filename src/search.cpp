@@ -94,23 +94,31 @@ void update_pv(PVLine& parent, Move m, const PVLine& child) {
 }
 
 // Margins for various pruning heuristics.
-// Path A (post Stockfish-driven eval-scale analysis): NNUE_DIVISOR=5 in
-// nnue.cpp now normalizes Hypersion's eval to SF's "1 pawn = 100 cp" scale
-// (was ~5x oversize). All magnitude-sensitive constants are restored to
-// their original classical-Texel-tuned SF values. History bonuses and
-// LMR depth-based reductions are NOT scaled — they're not eval-magnitude.
-constexpr int RFP_MARGIN_PER_DEPTH    = 80;     // Reverse futility
-constexpr int RAZOR_MARGIN_BASE       = 240;    // Razoring
-constexpr int RAZOR_MARGIN_PER_DEPTH  = 130;
-constexpr int FUTIL_MARGIN_PER_DEPTH  = 110;    // Futility for quiets
-constexpr int FUTIL_MARGIN_BASE       = 130;
-constexpr int SEE_QUIET_MARGIN        = -60;    // SEE pruning of bad quiets
-constexpr int SEE_CAPT_MARGIN         = -100;   // SEE pruning of bad captures
-constexpr int NMP_EVAL_BETA_DIV       = 200;    // NMP reduction-bonus divisor
-constexpr int PROBCUT_MARGIN          = 200;    // ProbCut beta margin
-constexpr int ASPIRATION_DELTA0       = 17;     // initial aspiration delta
-constexpr int STABILITY_SWING_TH      = 20;     // bestScore swing for "stable"
-constexpr int QSEARCH_CAP_GAIN        = 1100;   // qsearch capture-futility cap
+// Path A revision: NNUE_DIVISOR=5 normalizes eval to SF cp scale, but
+// "restoring SF-classical values" was the wrong call — lmrhist's *3-of-SF
+// margins were empirically tuned for Hypersion's specific search (LMR
+// formula, 2-ply contHist depth, no 4-ply lookback, etc.). The first
+// Path A attempt with bare SF values regressed -29.6 ELO @ 200g because
+// search exploded to 993k bench nodes (was 648k) — too much node spend.
+//
+// Correct math: to preserve lmrhist's pruning aggressiveness at the new
+// /5 eval scale, divide lmrhist's margins by 5. That gives margin/eval
+// ratio identical to lmrhist's. SF originals would be 1/3 of lmrhist's
+// values (so 1.67x more lenient at the new eval scale than lmrhist).
+//
+// Result: each margin is 0.6x SF-classical (= lmrhist/5 = 3*SF/5).
+constexpr int RFP_MARGIN_PER_DEPTH    = 48;     // lmrhist 240 / 5
+constexpr int RAZOR_MARGIN_BASE       = 144;    // lmrhist 720 / 5
+constexpr int RAZOR_MARGIN_PER_DEPTH  = 78;     // lmrhist 390 / 5
+constexpr int FUTIL_MARGIN_PER_DEPTH  = 66;     // lmrhist 330 / 5
+constexpr int FUTIL_MARGIN_BASE       = 78;     // lmrhist 390 / 5
+constexpr int SEE_QUIET_MARGIN        = -36;    // lmrhist -180 / 5
+constexpr int SEE_CAPT_MARGIN         = -60;    // lmrhist -300 / 5
+constexpr int NMP_EVAL_BETA_DIV       = 120;    // lmrhist 600 / 5
+constexpr int PROBCUT_MARGIN          = 120;    // lmrhist 600 / 5
+constexpr int ASPIRATION_DELTA0       = 10;     // lmrhist 51 / 5
+constexpr int STABILITY_SWING_TH      = 12;     // lmrhist 60 / 5
+constexpr int QSEARCH_CAP_GAIN        = 660;    // lmrhist 3300 / 5
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
