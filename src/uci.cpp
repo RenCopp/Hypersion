@@ -67,6 +67,11 @@ struct {
     bool matchOpponent = false;
     int  matchFloor    = 600;
     int  matchCeiling  = 3200;
+    // Per-game rated flag, set by lichess-bot before each game. When the
+    // game is rated, we override matchOpponent and play at full strength
+    // regardless of opponent rating — rated games count for ELO and
+    // shouldn't be deliberately weakened.
+    bool gameRated     = false;
 } Options;
 
 // Educational offset curve: bot plays slightly stronger than opponent, with
@@ -141,6 +146,12 @@ void cmd_uci() {
               // tells Hypersion to extract the rating and auto-weaken to it.
               << "option name UCI_Opponent type string default <empty>\n"
               << "option name UCI_MatchOpponent type check default false\n"
+              // Per-game rated flag (set by lichess-bot before each game).
+              // When true AND UCI_MatchOpponent=true, opponent matching is
+              // SUPPRESSED — engine plays at full strength because rated
+              // games matter for ELO. When false (casual), opponent matching
+              // applies normally.
+              << "option name UCI_GameRated type check default false\n"
               << "uciok" << std::endl;
 }
 
@@ -319,6 +330,7 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("Contempt"))       { parse_int(Options.contempt);
                                      Options.contempt = std::clamp(Options.contempt, -200, 200); }
     else if (eq("UCI_MatchOpponent")) parse_bool(Options.matchOpponent);
+    else if (eq("UCI_GameRated"))     parse_bool(Options.gameRated);
     else if (eq("UCI_Opponent"))   {
         // python-chess sends: "<title> <rating> <player_type> <name>"
         // (e.g. "none 600 human RisotPlayer" or "GM 2700 computer Stockfish").
@@ -353,7 +365,14 @@ void cmd_setopt(std::istringstream& is) {
                         rating = int(n);
                 }
             }
-            if (!isHuman) {
+            // Rated game override: regardless of opponent type, play full
+            // strength because rated games count for ELO. Only casual
+            // games trigger the educational ELO matching for humans.
+            if (Options.gameRated) {
+                std::cerr << "info string UCI_MatchOpponent: rated game"
+                          << (rating > 0 ? (" (opp=" + std::to_string(rating) + ")") : "")
+                          << " -> full strength\n";
+            } else if (!isHuman) {
                 std::cerr << "info string UCI_MatchOpponent: opp is computer/bot"
                           << (rating > 0 ? (" (rating=" + std::to_string(rating) + ")") : "")
                           << " -> full strength\n";
@@ -362,7 +381,7 @@ void cmd_setopt(std::istringstream& is) {
                 int target = std::clamp(rating + offset, Options.matchFloor, Options.matchCeiling);
                 Options.limitStrength = true;
                 Options.uciElo = target;
-                std::cerr << "info string UCI_MatchOpponent: human opp=" << rating
+                std::cerr << "info string UCI_MatchOpponent: casual human opp=" << rating
                           << " offset=+" << offset
                           << " -> UCI_Elo=" << target << '\n';
             } else {
