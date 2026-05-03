@@ -977,6 +977,29 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
 // ---------------------------------------------------------------------------
 // UCI info
 // ---------------------------------------------------------------------------
+// score_to_wdl — convert a search score into approximate win/draw/loss
+// probabilities (per-mille, summing to 1000). The model is a simple
+// double-sigmoid calibrated to NNUE-cp magnitudes (Hypersion 2 leaves
+// raw NNUE values without an attenuation divisor, so a half-pawn ≈ 60 cp
+// roughly maps to a 70/30 win expectation).
+//   Mate scores → all-or-nothing (1000 / 0 / 0 or 0 / 0 / 1000).
+static void score_to_wdl(Value score, int& w, int& d, int& l) {
+    if (score >= VALUE_MATE_IN_MAX_PLY)  { w = 1000; d = 0; l = 0; return; }
+    if (score <= -VALUE_MATE_IN_MAX_PLY) { w = 0; d = 0; l = 1000; return; }
+    // Sigmoid scale picked so that ±300 cp ≈ 90/10 split.
+    double cp = double(int(score));
+    double scale = 130.0;
+    double offset = 50.0;             // cp ≈ 50 needed for 50/50 → "advantage" line
+    double w_p = 1.0 / (1.0 + std::exp(-(cp - offset) / scale));
+    double l_p = 1.0 / (1.0 + std::exp((cp + offset) / scale));
+    double d_p = 1.0 - w_p - l_p;
+    if (d_p < 0) d_p = 0;
+    w = int(w_p * 1000.0 + 0.5);
+    d = int(d_p * 1000.0 + 0.5);
+    l = 1000 - w - d;
+    if (l < 0) { l = 0; d = std::max(0, 1000 - w); }
+}
+
 void Worker::print_info(int depth, int selDepthVal, Value score,
                         std::uint64_t totalNodes, TimePoint elapsed, const PVLine& pv,
                         int pvIdx, int multiPv, int boundFlag) {
@@ -989,6 +1012,11 @@ void Worker::print_info(int depth, int selDepthVal, Value score,
     std::cout << " score " << score_to_uci(score);
     if      (boundFlag == 1) std::cout << " upperbound";
     else if (boundFlag == 2) std::cout << " lowerbound";
+    if (limits.showWDL) {
+        int w, d, l;
+        score_to_wdl(score, w, d, l);
+        std::cout << " wdl " << w << ' ' << d << ' ' << l;
+    }
     std::cout << " nodes " << totalNodes
               << " nps "   << nps
               << " hashfull " << TT.hashfull()

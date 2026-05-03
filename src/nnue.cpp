@@ -403,6 +403,29 @@ inline void simd_acc_add_i8_to_i16(std::int16_t* acc, const std::int8_t* col, in
 #endif
 }
 
+// PSQT bucket helpers — there are exactly PSQT_BUCKETS=8 int32 entries per
+// accumulator, which fits in one AVX2 ymm register. Replaces the
+// `for (int i=0; i<8; ++i) psqt[i] += p[i];` scalar loops scattered across
+// refresh_psq / refresh_threats / cached_refresh / apply_dirty.
+inline void simd_psqt_add(std::int32_t* psqt, const std::int32_t* col) {
+#if defined(HC_SIMD_AVX2)
+    __m256i p = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(psqt));
+    __m256i c = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col));
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(psqt), _mm256_add_epi32(p, c));
+#else
+    for (int i = 0; i < PSQT_BUCKETS; ++i) psqt[i] += col[i];
+#endif
+}
+inline void simd_psqt_sub(std::int32_t* psqt, const std::int32_t* col) {
+#if defined(HC_SIMD_AVX2)
+    __m256i p = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(psqt));
+    __m256i c = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(col));
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(psqt), _mm256_sub_epi32(p, c));
+#else
+    for (int i = 0; i < PSQT_BUCKETS; ++i) psqt[i] -= col[i];
+#endif
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Finny tables — refresh cache.
 //
@@ -488,16 +511,14 @@ struct Network {
             int idx = psq_index(persp, int(d.from), int(d.pc), ksq);
             if (idx >= 0 && idx < PSQ_DIM) {
                 simd_acc_sub_i16(acc, &ft_w[std::size_t(idx) * l1], l1);
-                const std::int32_t* pc = &ft_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                for (int i = 0; i < PSQT_BUCKETS; ++i) psqt[i] -= pc[i];
+                simd_psqt_sub(psqt, &ft_psqt[std::size_t(idx) * PSQT_BUCKETS]);
             }
         }
         if (d.to != SQ_NONE) {
             int idx = psq_index(persp, int(d.to), int(d.pc), ksq);
             if (idx >= 0 && idx < PSQ_DIM) {
                 simd_acc_add_i16(acc, &ft_w[std::size_t(idx) * l1], l1);
-                const std::int32_t* pc = &ft_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                for (int i = 0; i < PSQT_BUCKETS; ++i) psqt[i] += pc[i];
+                simd_psqt_add(psqt, &ft_psqt[std::size_t(idx) * PSQT_BUCKETS]);
             }
         }
     }
@@ -517,8 +538,7 @@ struct Network {
             int idx = psq_index(persp, s, int(p), ksq);
             if (idx < 0 || idx >= PSQ_DIM) continue;
             simd_acc_add_i16(acc, &ft_w[std::size_t(idx) * l1], l1);
-            const std::int32_t* pc = &ft_psqt[std::size_t(idx) * PSQT_BUCKETS];
-            for (int i = 0; i < PSQT_BUCKETS; ++i) psqt_acc[i] += pc[i];
+            simd_psqt_add(psqt_acc, &ft_psqt[std::size_t(idx) * PSQT_BUCKETS]);
         }
     }
 
@@ -555,8 +575,7 @@ struct Network {
                 int idx = psq_index(persp, int(s), int(pc), ksq);
                 if (idx >= 0 && idx < PSQ_DIM) {
                     simd_acc_sub_i16(entry.acc, &ft_w[std::size_t(idx) * l1], l1);
-                    const std::int32_t* p = &ft_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                    for (int i = 0; i < PSQT_BUCKETS; ++i) entry.psqt[i] -= p[i];
+                    simd_psqt_sub(entry.psqt, &ft_psqt[std::size_t(idx) * PSQT_BUCKETS]);
                 }
             }
             while (add) {
@@ -564,8 +583,7 @@ struct Network {
                 int idx = psq_index(persp, int(s), int(pc), ksq);
                 if (idx >= 0 && idx < PSQ_DIM) {
                     simd_acc_add_i16(entry.acc, &ft_w[std::size_t(idx) * l1], l1);
-                    const std::int32_t* p = &ft_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                    for (int i = 0; i < PSQT_BUCKETS; ++i) entry.psqt[i] += p[i];
+                    simd_psqt_add(entry.psqt, &ft_psqt[std::size_t(idx) * PSQT_BUCKETS]);
                 }
             }
             entry.pieces_bb[int(pc)] = cur;
@@ -616,10 +634,8 @@ struct Network {
                                                int(attacked), ksq);
                         if (idx < 0 || idx >= THREAT_DIM) continue;
                         simd_acc_add_i8_to_i16(acc, &ft_thr_w[std::size_t(idx) * l1], l1);
-                        if (!ft_thr_psqt.empty()) {
-                            const std::int32_t* pc = &ft_thr_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                            for (int i = 0; i < PSQT_BUCKETS; ++i) psqt_acc[i] += pc[i];
-                        }
+                        if (!ft_thr_psqt.empty())
+                            simd_psqt_add(psqt_acc, &ft_thr_psqt[std::size_t(idx) * PSQT_BUCKETS]);
                     }
                     while (atk_l) {
                         Square to = pop_lsb(atk_l);
@@ -630,10 +646,8 @@ struct Network {
                                                int(attacked), ksq);
                         if (idx < 0 || idx >= THREAT_DIM) continue;
                         simd_acc_add_i8_to_i16(acc, &ft_thr_w[std::size_t(idx) * l1], l1);
-                        if (!ft_thr_psqt.empty()) {
-                            const std::int32_t* pc = &ft_thr_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                            for (int i = 0; i < PSQT_BUCKETS; ++i) psqt_acc[i] += pc[i];
-                        }
+                        if (!ft_thr_psqt.empty())
+                            simd_psqt_add(psqt_acc, &ft_thr_psqt[std::size_t(idx) * PSQT_BUCKETS]);
                     }
                 } else {
                     while (bb) {
@@ -656,10 +670,8 @@ struct Network {
                                                    int(attacked), ksq);
                             if (idx < 0 || idx >= THREAT_DIM) continue;
                             simd_acc_add_i8_to_i16(acc, &ft_thr_w[std::size_t(idx) * l1], l1);
-                            if (!ft_thr_psqt.empty()) {
-                                const std::int32_t* pc = &ft_thr_psqt[std::size_t(idx) * PSQT_BUCKETS];
-                                for (int i = 0; i < PSQT_BUCKETS; ++i) psqt_acc[i] += pc[i];
-                            }
+                            if (!ft_thr_psqt.empty())
+                                simd_psqt_add(psqt_acc, &ft_thr_psqt[std::size_t(idx) * PSQT_BUCKETS]);
                         }
                     }
                 }

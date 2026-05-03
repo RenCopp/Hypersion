@@ -40,6 +40,7 @@ struct {
     bool ownBook      = true;
     bool bookBest     = false;
     bool analyseMode  = false;
+    bool showWDL      = false;
     int  contempt     = 0;
     std::string bookFile = "Perfect2023.bin";
     std::string evalFile      = "nn-c288c895ea92.nnue";   // SF18 big default
@@ -91,6 +92,7 @@ void cmd_uci() {
               << "option name UCI_LimitStrength type check default false\n"
               << "option name UCI_Elo type spin default 1500 min 500 max 3200\n"
               << "option name UCI_AnalyseMode type check default false\n"
+              << "option name UCI_ShowWDL type check default false\n"
               << "option name Contempt type spin default 0 min -200 max 200\n"
               << "uciok" << std::endl;
 }
@@ -173,6 +175,7 @@ void cmd_go(std::istringstream& is) {
     lim.multiPv       = std::max(1, Options.multiPV);
     lim.moveOverhead  = Options.moveOverhead;
     lim.contempt      = Options.contempt;
+    lim.showWDL       = Options.showWDL;
 
     // Try the opening book first — but never when in analyse mode (the GUI
     // wants the engine's actual evaluation, not a pre-canned book reply).
@@ -265,6 +268,7 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_Elo"))        { parse_int(Options.uciElo);
                                      Options.uciElo = std::clamp(Options.uciElo, 500, 3200); }
     else if (eq("UCI_AnalyseMode")) parse_bool(Options.analyseMode);
+    else if (eq("UCI_ShowWDL"))     parse_bool(Options.showWDL);
     else if (eq("Contempt"))       { parse_int(Options.contempt);
                                      Options.contempt = std::clamp(Options.contempt, -200, 200); }
 }
