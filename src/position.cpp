@@ -423,10 +423,21 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     set_check_info();
     st->checkersBB = givesCheck ? (attackers_to(square<KING>(sideToMove)) & pieces(~sideToMove)) : 0;
 
-    // Repetition detection: walk back through previous states. Guard each
-    // dereference because positions set from FEN with a high rule50 may
-    // not actually have rule50 plies of history available — set() only
-    // creates the current StateInfo, not the chain leading up to it.
+    recompute_repetition();
+}
+
+// Walk the StateInfo->previous chain looking for matches of the current
+// position key. Sets st->repetition to:
+//   0   = no match within the search window
+//   +i  = position seen i plies back (this is the 2nd occurrence)
+//   -i  = position seen i plies back AND that prior occurrence was itself
+//         a repetition (so this is the 3rd or later occurrence — draw).
+//
+// is_draw() returns true when (repetition && repetition < ply), where ply is
+// the search ply. This means in-tree 2-folds count as draws (perpetual is
+// detected as soon as the search sees the second occurrence inside the
+// tree), and history 3-folds count as draws.
+void Position::recompute_repetition() {
     st->repetition = 0;
     int end = std::min(st->rule50, st->pliesFromNull);
     if (end >= 4

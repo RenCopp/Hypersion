@@ -166,6 +166,12 @@ public:
     void do_null_move  (StateInfo& newSt);
     void undo_null_move();
 
+    // Recompute st->repetition based on the current StateInfo->previous chain.
+    // Use after the chain is reattached externally (e.g. Worker::prepare
+    // copying history from srcPos). set() runs this once at FEN parse but
+    // can't see history that exists in StateInfos linked AFTER set() returns.
+    void recompute_repetition();
+
     // Debug -----------------------------------------------------------------
     bool        pos_is_ok() const;
     std::string pretty()    const;

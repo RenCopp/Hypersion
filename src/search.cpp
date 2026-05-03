@@ -175,8 +175,54 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     threadId = tid;
     isMain   = main;
 
+    // Build rootStates[] with the FULL StateInfo history chain from srcPos.
+    // Without this, Position::set(fen, &rootStates[0]) sets up the board but
+    // discards history, so during search is_draw() can never see a 3-fold
+    // repetition that's still pending from the actual game (e.g. perpetual
+    // checks already 2x in history; the 3rd should be a draw, but search
+    // sees a fresh position and evaluates the perpetual as winning).
+    //
+    // Layout: rootStates[0..histN-1] = chronological history (oldest first),
+    //         rootStates[histN]      = current root state (filled by set()).
+    // previous-pointers thread the chain forward.
     rootStatePly = 0;
-    rootPos.set(srcPos.fen(), &rootStates[rootStatePly++]);
+    {
+        // Walk srcPos backward to collect history (most recent first).
+        const StateInfo* hist[MAX_GAME_PLIES];
+        int histN = 0;
+        for (const StateInfo* s = srcPos.state();
+             s != nullptr && histN < MAX_GAME_PLIES;
+             s = s->previous, ++histN)
+            hist[histN] = s;
+
+        // Reverse-iterate so we copy oldest -> most-recent. Skip the last
+        // one (= srcPos's current state); we'll let set(fen, ...) populate
+        // that slot fresh and then re-link its previous pointer.
+        StateInfo* prev = nullptr;
+        for (int i = histN - 1; i >= 1; --i) {
+            std::memcpy(static_cast<void*>(&rootStates[rootStatePly]),
+                        hist[i], sizeof(StateInfo));
+            rootStates[rootStatePly].previous = prev;
+            prev = &rootStates[rootStatePly];
+            ++rootStatePly;
+        }
+
+        // Now set up the current root state from FEN.
+        rootPos.set(srcPos.fen(), &rootStates[rootStatePly]);
+
+        // Re-link the chain. Position::set() resets previous to nullptr; we
+        // restore it to point at the most-recent history we just copied.
+        // Also restore pliesFromNull (FEN doesn't carry it, so set() left it
+        // at 0; without this, repetition's `end = min(rule50, pliesFromNull)`
+        // is always 0 and the walk-back never runs).
+        rootStates[rootStatePly].previous = prev;
+        if (histN > 0)
+            rootStates[rootStatePly].pliesFromNull = hist[0]->pliesFromNull;
+
+        // Recompute repetition for the new root with the linked chain.
+        rootPos.recompute_repetition();
+        ++rootStatePly;
+    }
 
     limits = lim;
     tm.init(limits, rootPos.side_to_move(), rootPos.game_ply());
