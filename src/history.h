@@ -28,10 +28,21 @@ inline void update_history(int& entry, int bonus) {
     entry += bonus - entry * std::abs(bonus) / HISTORY_MAX;
 }
 
+// `decay_buffer`: halve every int in a flat history table. Cheap and keeps
+// cross-game history signal warm at the start of a new game (zeroing throws
+// away strong learned patterns; halving fades them gently).
+template<typename T, size_t N>
+inline void decay_buffer(T (&buf)[N]) {
+    int* p = reinterpret_cast<int*>(&buf[0]);
+    size_t n = sizeof(buf) / sizeof(int);
+    for (size_t i = 0; i < n; ++i) p[i] /= 2;
+}
+
 // Butterfly: indexed by [color][from][to].
 struct ButterflyHistory {
     int data[COLOR_NB][SQUARE_NB][SQUARE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
+    void decay() { decay_buffer(data); }
     int  get(Color c, Move m) const { return data[c][m.from_sq()][m.to_sq()]; }
     void update(Color c, Move m, int bonus) { update_history(data[c][m.from_sq()][m.to_sq()], bonus); }
 };
@@ -40,6 +51,7 @@ struct ButterflyHistory {
 struct CaptureHistory {
     int data[PIECE_NB][SQUARE_NB][PIECE_TYPE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
+    void decay() { decay_buffer(data); }
     int  get(Piece pc, Square to, PieceType victim) const { return data[pc][to][victim]; }
     void update(Piece pc, Square to, PieceType victim, int bonus) { update_history(data[pc][to][victim], bonus); }
 };
@@ -60,6 +72,7 @@ struct KillerTable {
 struct ContinuationHistory {
     int data[PIECE_NB][SQUARE_NB][PIECE_NB][SQUARE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
+    void decay() { decay_buffer(data); }
     int  get(Piece prevPc, Square prevTo, Piece curPc, Square curTo) const {
         return data[prevPc][prevTo][curPc][curTo];
     }

@@ -147,6 +147,17 @@ void cmd_go(std::istringstream& is) {
         else if (token == "infinite")  lim.infinite = true;
         else if (token == "ponder")    lim.ponder   = true;
         else if (token == "mate")      is >> lim.mate;
+        else if (token == "searchmoves") {
+            // Each remaining whitespace-separated token until end-of-line is
+            // a UCI move string. Push valid ones onto lim.searchMoves; the
+            // search will skip any root move not in the list.
+            std::string mvs;
+            while (is >> mvs) {
+                Move m = parse_uci_move(mvs, pos);
+                if (m != Move::none()) lim.searchMoves.push_back(m);
+            }
+            break;   // searchmoves consumes everything to end of line
+        }
         else if (token == "perft")     {
             int d; is >> d;
             TimePoint t0 = now();

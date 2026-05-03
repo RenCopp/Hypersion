@@ -711,7 +711,34 @@ bool Position::see_ge(Move m, Value threshold) const {
 bool Position::is_draw(int ply) const {
     if (st->rule50 > 99 && (!checkers() /* TODO: || any_legal_move() */ )) return true;
     // Threefold (or fold seen within search ply window).
-    return st->repetition && st->repetition < ply;
+    if (st->repetition && st->repetition < ply) return true;
+    // Insufficient material — FIDE article 9.6 / lichess rules. Covers:
+    //   K vs K
+    //   K + (one minor) vs K
+    //   K + B vs K + B   when both bishops on the same colour squares
+    // No pawns/rooks/queens anywhere. Saves NNUE eval cost and prevents
+    // the engine from trading down into a position it can't actually win.
+    if (pieces(PAWN) | pieces(ROOK) | pieces(QUEEN)) return false;
+    int wMinors = popcount(pieces(WHITE, KNIGHT) | pieces(WHITE, BISHOP));
+    int bMinors = popcount(pieces(BLACK, KNIGHT) | pieces(BLACK, BISHOP));
+    if (wMinors == 0 && bMinors == 0) return true;            // K vs K
+    if (wMinors + bMinors == 1) return true;                  // K(+minor) vs K
+    if (wMinors == 1 && bMinors == 1
+        && popcount(pieces(WHITE, BISHOP)) == 1
+        && popcount(pieces(BLACK, BISHOP)) == 1) {
+        // KBvKB — drawn iff bishops are on the same colour.
+        // A square's colour is (file + rank) parity, NOT (square & 1):
+        // a1=0 file=0 rank=0 → dark; a2=8 file=0 rank=1 → light, but
+        // (a1 + a2) & 1 == 0 (would falsely report same).
+        Square wb = lsb(pieces(WHITE, BISHOP));
+        Square bb = lsb(pieces(BLACK, BISHOP));
+        auto color_of_sq = [](Square s) {
+            return ((int(s) & 7) + (int(s) >> 3)) & 1;
+        };
+        if (color_of_sq(wb) == color_of_sq(bb))
+            return true;
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------

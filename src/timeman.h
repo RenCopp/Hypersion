@@ -6,6 +6,7 @@
 #define HYPERSION_TIMEMAN_H
 
 #include <cstdint>
+#include <vector>
 
 #include "misc.h"
 #include "types.h"
@@ -22,6 +23,11 @@ struct SearchLimits {
     bool    infinite  = false;      // ignore time / depth, search until "stop"
     bool    ponder    = false;
     int     mate      = 0;
+
+    // `go searchmoves m1 m2 ...` — restrict the root search to these moves.
+    // Empty vector means "search all legal root moves" (the normal case).
+    // Used by tournament managers / analysis features and OpenBench.
+    std::vector<Move> searchMoves;
 
     // Skill / strength tuning (Stockfish-style). 20 = full strength;
     // lower values cap depth and add move-selection noise.

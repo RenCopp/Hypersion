@@ -137,6 +137,18 @@ void Worker::clear() {
     // Note: TT clearing is the pool's responsibility — done once across all threads.
 }
 
+void Worker::decay_for_new_game() {
+    // Soft reset on `ucinewgame` — keep cross-game learned signal but halve
+    // it so a position with very different character isn't dominated by old
+    // statistics. Killers stay reset (they're position-specific). Correction
+    // history is bounded already, decay is unnecessary there.
+    mainHist.decay();
+    captureHist.decay();
+    killers.clear();
+    counterMoves.clear();
+    for (auto& ch : contHist) ch->decay();
+}
+
 void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool* p,
                      int tid, bool main) {
     stop();
@@ -158,6 +170,13 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
 
     rootMoves.clear();
     for (Move m : MoveList<LEGAL>(rootPos)) {
+        // `go searchmoves` filter: when present, only search the listed moves.
+        if (!limits.searchMoves.empty()) {
+            bool found = false;
+            for (Move sm : limits.searchMoves)
+                if (sm == m) { found = true; break; }
+            if (!found) continue;
+        }
         RootMove rm; rm.pv0 = m; rm.pv.moves[0] = m; rm.pv.length = 1;
         rootMoves.push_back(rm);
     }
@@ -230,6 +249,15 @@ void ThreadPool::wait_all() {
 void ThreadPool::clear_all() {
     for (auto& w : workers) w->clear();
     TT.clear();
+}
+
+void ThreadPool::decay_all() {
+    // Soft state reset for `ucinewgame`. Halve persistent histories instead
+    // of zeroing them (keeps useful cross-game signal warm) and drop killers.
+    // The TT keeps its data — TTEntry already has an age field that rotates
+    // generations, so stale entries naturally lose priority.
+    for (auto& w : workers) w->decay_for_new_game();
+    TT.new_search();
 }
 
 void ThreadPool::reset_clock_start() {

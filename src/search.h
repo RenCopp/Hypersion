@@ -63,6 +63,7 @@ public:
     bool running() const { return isRunning.load(std::memory_order_acquire); }
 
     void clear();
+    void decay_for_new_game();                     // halve persistent histories (ucinewgame)
     void reset_clock() { tm.reset_start(); }       // restart clock (ponderhit)
     std::uint64_t nodes_searched() const { return nodes.load(); }
 
@@ -127,6 +128,7 @@ public:
     void stop_all();
     void wait_all();
     void clear_all();
+    void decay_all();
     int  size() const { return int(workers.size()); }
     Worker& main_worker() { return *workers[0]; }
     std::atomic<bool>& global_stop() { return stopAll; }
