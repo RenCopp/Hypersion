@@ -44,26 +44,16 @@ constexpr int PSQT_BUCKETS = 8;
 constexpr int LAYER_STACKS = 8;
 constexpr int OUTPUT_SCALE = 16;
 constexpr int WSCALE       = 6;
-// Eval-output divisor: attenuates raw NNUE eval to match SF's classical
-// "1 pawn = 100 cp" UCI output convention.
-//
-// Stockfish-driven analysis (testing/stockfish_vs_hypersion_eval.py) showed
-// Hypersion's NNUE static eval was ~5x SF's NNUE eval on identical positions
-// with identical NNUE files. Phase 9 had NNUE_DIVISOR=1 + margins scaled *3
-// in search.cpp — but the actual ratio is ~5x, so the *3 compensation was
-// off by 5/3 = 1.67x. Search pruning was systematically miscalibrated.
-//
-// Path A fix: NNUE_DIVISOR=5 + margins restored to original SF-classical
-// values. Both eval and margins now in SF cp scale (1 pawn = 100 cp).
-//
+// Eval-output divisor: attenuates raw NNUE eval to match Hypersion's
+// search-margin magnitude. Phase 9 set this to 1 (no attenuation) and
+// instead scaled the margins themselves by 3 — see search.cpp constexpr
+// block. Tunable at build time via -DNNUE_DIVISOR=N.
 //   Empirical tournament history at the OLD margin scale (margins NOT *3):
 //     /2 vs /3:  -79 ELO  (eval too large, search over-prunes)
 //     /3 vs /4:  +61 ELO  (best at the OLD margin scale)
-//   These were 40g samples (CI ±90 ELO) and predate the full Stockfish
-//   ground-truth analysis. The /5 setting is what static-eval matching
-//   indicates is correct.
+//   Phase 9 (this build): NNUE_DIVISOR=1 + margins *3 in search.cpp.
 #ifndef NNUE_DIVISOR
-#define NNUE_DIVISOR 5
+#define NNUE_DIVISOR 1
 #endif
 constexpr int PS_NB        = 11 * 64;
 constexpr int PSQ_DIM      = 64 * PS_NB / 2;   // 22528
@@ -1112,7 +1102,7 @@ Value evaluate(const Position& pos) {
     //   3) Otherwise default to the big net.
     // SF uses 277 cp in raw NNUE units. Our values are post-/NNUE_DIVISOR.
     constexpr int SMALL_FALLBACK_TH = 277 / NNUE_DIVISOR;
-    static_assert(SMALL_FALLBACK_TH >= 30, "small-net fallback threshold sanity");
+    static_assert(SMALL_FALLBACK_TH >= 90, "small-net fallback threshold sanity");
 
     bool useSmall = use_small(pos);
     if (useSmall && g_small.loaded) {
