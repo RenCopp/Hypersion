@@ -30,10 +30,10 @@ int       statePly = 0;
 
 // UCI options. Stored as plain values; setoption updates them and applies side-effects.
 struct {
-    int  hashMB       = 64;          // bumped from 16 — fast TC works fine, slow TC benefits
+    int  hashMB       = 64;          // bumped from 16 — helps slow TC, neutral at fast
     int  threads      = 1;            // lazy-SMP currently unstable, leave at 1
     int  multiPV      = 1;
-    int  moveOverhead = 100;         // bumped from 30 — modern net latency budget
+    int  moveOverhead = 30;          // safe for cutechess; lichess users should set 100-300
     int  skillLevel   = 20;          // 0 = weakest, 20 = full strength
     bool limitStrength= false;
     int  uciElo       = 1500;
@@ -79,7 +79,11 @@ void cmd_uci() {
               << "option name Hash type spin default 64 min 1 max 65536\n"
               << "option name Threads type spin default 1 min 1 max 1024\n"
               << "option name MultiPV type spin default 1 min 1 max 256\n"
-              << "option name Move Overhead type spin default 100 min 0 max 5000\n"
+              // Move Overhead default kept at 30 ms — bumping it ate the
+              // increment at TC 10+0.1 in tournament play (-26 ELO measured).
+              // Lichess users with real network latency should override to
+              // 100-300 ms via UCI option or the framework config.
+              << "option name Move Overhead type spin default 30 min 0 max 5000\n"
               << "option name UCI_Variant type combo default standard var standard\n"
               << "option name Clear Hash type button\n"
               << "option name Ponder type check default false\n"
