@@ -114,6 +114,25 @@ Tested-but-no-effect (kept off):
   - 4 standard UCI options added for Stockfish/GUI compatibility:
     SyzygyProbeDepth, Syzygy50MoveRule, SyzygyProbeLimit, UCI_Chess960
 
+- **ttPv tracking + I/O unbuffering** (commit `460c575`):
+  - TT entry now persistently stores a "principal-variation" bit (packed
+    into bit 7 of depth8; depth field truncated to 7 bits = max 127).
+    On probe, ttPv = isPv || (ttHit && tte->is_pv()) — sticky once set.
+  - LMR reduction relaxed by 1 ply on ttPv-tracked positions
+    (`if (ttPv) --r`). Avoids over-pruning lines that have ever been part
+    of a principal variation.
+  - Bench at Threads=1: 648,118 -> 823,255 nodes (+27%). The reduction
+    relaxation makes search explore more at fixed depth.
+  - main.cpp: full I/O unbuffering for piped stdio (Win32 anonymous pipes
+    used by lichess-bot, cutechess, python-chess subprocess.PIPE).
+    sync_with_stdio(false) + cin.tie(nullptr) + setvbuf(IONBF) on
+    stdout/stderr. Standard SF practice; reduces output-deadlock risk
+    in pipe scenarios.
+
+Cumulative session A/B (30 games, Threads=1 both sides):
+**+82.6 ELO over lmrhist baseline** (W=11/D=15/L=4 = 61.7% score, 95%
+CI [-40, +231]). Wide CI, but point estimate strongly positive.
+
 ---
 
 ## Known issues / diagnostics from game-mining tools
