@@ -60,6 +60,15 @@ Tested-but-no-effect (kept off):
   only 3 / 31 losses (10%) reached the 5-piece zone where Syzygy could
   help. Tablebase code works correctly (probe verified) but doesn't
   swing matches at this time control.
+- 4-ply continuation history (commit `395f889`, reverted in `c9a1909`).
+  Added contHist[2] tracking (ss-4)'s move and read it in LMR statScore
+  correction (SF-18 pattern). Cutoff-handler updates with `bonus/4`
+  weight (1-ply: full, 2-ply: half, 4-ply: quarter). 18-game partial
+  result before match stalled: W=5 D=9 L=4 = 52.8% = +19 ELO trend with
+  CI ±170 (well within noise of zero). Match was unusually slow (~30 min
+  for 18 games vs typical ~4-5 min for 30g). Reverted to keep baseline
+  clean — the small possible positive isn't worth the memory overhead
+  and timing instability.
 
 ---
 
