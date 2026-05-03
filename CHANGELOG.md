@@ -33,9 +33,9 @@ Currently stacked, not yet tagged:
     surviving moves. Same opening family, but real shuffle within playable
     lines — playing the same opponent twice gives different games. Pure
     user-facing behaviour change, no claimed strength impact.
-11. **Stockfish-18 LMR history correction** — in the Late Move Reductions
-    block, after the static adjustments (improving / cutNode / PV / etc.),
-    reduce `r` further by `statScore / 8192`, where
+11. **Stockfish-18 LMR history correction (quiet moves)** — in the Late
+    Move Reductions block, after the static adjustments (improving / cutNode
+    / PV / etc.), reduce `r` further by `statScore / 8192`, where
     `statScore = 2·butterfly + contHist[0] + contHist[1]`.
     High-history quiets get reduced less; low-history get reduced more.
     Stockfish uses `/11248` against a 4-ply contHist sum that Hypersion
@@ -47,6 +47,69 @@ Currently stacked, not yet tagged:
 Cumulative effect on `main` vs Hypersion 1.0:
 **+72 ELO** (LMR history correction, validated at 200 games).
 Bench (depth 11): 648,118 nodes (deterministic) vs 596,919 for v1.0.
+
+Tested-but-reverted (added in this session):
+- Capture-side LMR history correction — A/B vs lmrhist (200g) was
+  -22.6 ELO with CI [-72, +26], statistically flat / point-estimate
+  negative. Reverted in `140d66b`.
+
+Tested-but-no-effect (kept off):
+- Syzygy 3-4-5 tablebases — isolated A/B (200g, same binary, same
+  position openings, only difference is `SyzygyPath` set vs not) gave
+  -11.5 ELO with CI [-63, +39] = statistically null. Game-mining showed
+  only 3 / 31 losses (10%) reached the 5-piece zone where Syzygy could
+  help. Tablebase code works correctly (probe verified) but doesn't
+  swing matches at this time control.
+
+---
+
+## Diagnosed weakness — eval scaling miscalibration (NOT YET FIXED)
+
+Stockfish-driven analysis of 240 gauntlet games via python-chess +
+Stockfish at depth 16-18 surfaced that Hypersion's losses are **not**
+endgame-technique failures. They're driven by a deeper bug:
+
+**Hypersion's NNUE eval is on a different scale than Stockfish's.**
+
+  - Static eval comparison on identical positions, identical NNUE files
+    (`nn-c288c895ea92.nnue`, `nn-37f18f62d772.nnue`):
+      * Starting position : Stockfish NNUE +0.12, Hypersion +0.59 (~5×)
+      * After 1.e4 c5 2.Nf3 Nc6 : Stockfish +0.27, Hypersion +1.37 (~5×)
+  - Same-depth search comparison (depth 16) on losing-game positions
+    averages ~3.0-3.5× scale ratio.
+
+Hypersion's `search.cpp` already partially compensates via "scaled by 3"
+constants (RFP, razoring, futility, SEE, NMP, ProbCut, aspiration,
+qsearch — all multiplied by 3). The actual eval scale is closer to ~5×
+in static eval / ~3.3× in deep search, so the compensation is approximate
+but not precise.
+
+Walk-back analysis (how soon does Hyp's eval diverge from SF ground
+truth in lost games):
+  - 70% of losses already diverge by **move 11** (right after opening book)
+  - 93% with 21+ pieces still on the board
+  - Only 3% in deep endgame
+
+This means losses happen because Hypersion plays middlegame moves
+believing the position is roughly equal when Stockfish's evaluation says
+it's already -100 to -200 cp. By the time Hypersion's search catches up,
+the position is unsalvageable.
+
+**Two fix paths** — neither attempted yet, awaiting decision:
+- **Path A (clean)**: normalize eval at the NNUE output (`v /= 5` in
+  `nnue.cpp` `forward()`), restore all `*3` margins to original
+  SF-classical values. Risky — invalidates current tuning, needs full
+  re-validation.
+- **Path B (compensate)**: re-tune the existing `*3` margins to `*5`
+  and adjust other magnitude-sensitive constants accordingly. Smaller
+  blast radius but encodes the bug permanently.
+
+Game-analysis tooling lives under `testing/`:
+- `analyze_blunders.ps1` — fast PGN-comment scan (no Stockfish needed)
+- `stockfish_blunder_check.py` — depth-18 ground truth via python-chess
+- `stockfish_divergence_check.py` — finds the move where Hypersion's
+  eval first diverges from SF ground truth
+- `stockfish_vs_hypersion_eval.py` — same-depth side-by-side comparison
 
 Tested-but-reverted (logged so they don't get retried blind):
 - Worsening flag in LMR (eyeballed magnitudes)
