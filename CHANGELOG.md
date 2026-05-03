@@ -40,10 +40,12 @@ Currently stacked, not yet tagged:
     High-history quiets get reduced less; low-history get reduced more.
     Stockfish uses `/11248` against a 4-ply contHist sum that Hypersion
     doesn't have; `/8192` keeps the effective range similar with 2-ply.
-    A/B in progress (200 games vs v1.0) — pending result.
+    A/B vs v1.0: **+72.2 ELO** (77W/87D/36L over **200 games** at TC 10+0.1,
+    95% CI [+24.1, +123.3] — entirely above zero, first confirmed improvement
+    on `main` since v1.0).
 
 Cumulative effect on `main` vs Hypersion 1.0:
-**Pending — awaiting LMR-history A/B at 200 games.**
+**+72 ELO** (LMR history correction, validated at 200 games).
 Bench (depth 11): 648,118 nodes (deterministic) vs 596,919 for v1.0.
 
 Tested-but-reverted (logged so they don't get retried blind):
