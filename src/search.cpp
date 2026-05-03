@@ -442,21 +442,13 @@ void Worker::iterative_deepen(Position& pos) {
         }
         prevBestMove = bestMove;
 
-        // Soft-stop: scale optimum budget by best-move stability. Lynx-style
-        // 5-bucket lookup (TimeManager.cs:14, originally "from Stash"). Index
-        // by consecutive-same-move iterations:
-        //    [0]=2.50  just changed → spend more
-        //    [1]=1.20  one ply stable
-        //    [2]=0.90
-        //    [3]=0.80
-        //    [4+]=0.75 very stable → commit
-        // Replaces Hypersion's prior 2-bucket {>=2 →0.75, >=4 →0.5} scheme
-        // and the +1.4× bestmove-changes bonus (now subsumed: 0 bucket value
-        // 2.50 is already the "volatile" extension).
+        // Soft-stop: scale optimum budget by stability. Stable for 4+ iterations
+        // → take only ~50 % of optimum; volatile (recent move changes) → 1.4 ×.
         if (isMain && !limits.infinite && limits.depth == 0) {
-            static constexpr double LYNX_BM_STAB[5] = { 2.50, 1.20, 0.90, 0.80, 0.75 };
-            int bmIdx = std::min(stableIters, 4);
-            double scale = LYNX_BM_STAB[bmIdx];
+            double scale = 1.0;
+            if (stableIters >= 4) scale = 0.5;
+            else if (stableIters >= 2) scale = 0.75;
+            if (bestMoveChanges >= 3 && d <= 12) scale *= 1.4;
 
             // Phase 5: easy-move detection. When the best root move is
             // clearly better than the 2nd-best AND has been stable, we don't
@@ -470,26 +462,7 @@ void Worker::iterative_deepen(Position& pos) {
                 else if (gap >= 40)  scale = std::min(scale, 0.85);
             }
 
-            // Lynx-style score-stability factor (TimeManager.cs:135-153 in the
-            // Lynx repo, using the constants from Configuration.cs that have
-            // survived their fishtest tuning):
-            //     factor = 2 ^ ( clamp(prevScore - bestScore, -100, +100) / 100 )
-            // Range [0.5, 2.0]:
-            //   - Score dropped 100 cp this iter → ×2.0   (extend, hunt for refutation)
-            //   - Score unchanged                 → ×1.0
-            //   - Score rose 100 cp               → ×0.5   (we found something good, commit)
-            // Only fires at depth ≥ 7 (earlier scores are too noisy) and skips
-            // mate scores (which would saturate the clamp anyway).
-            if (d >= 7 && std::abs(int(bestScore)) < VALUE_MATE_IN_MAX_PLY
-                       && std::abs(int(prevScore)) < VALUE_MATE_IN_MAX_PLY) {
-                int delta = std::clamp(int(prevScore - bestScore), -100, 100);
-                double scoreFactor = std::exp2(delta / 100.0);
-                scale *= scoreFactor;
-            }
-
             TimePoint optScaled = TimePoint(tm.optimum() * scale);
-            // Don't let the score-stability extension push past the hard cap.
-            optScaled = std::min<TimePoint>(optScaled, tm.maximum());
             if (tm.elapsed() > optScaled) break;
         }
     }
@@ -935,12 +908,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 bestMove = m;
                 if (isPv) update_pv(pv, m, childPv);
                 if (v >= beta) {
-                    // ---- History updates on beta cutoff (Lynx-style split) ----
-                    // Cutoff move gets `bonus`, failed siblings get `-malus`.
-                    // Lynx tunes them independently: malus has steeper d²
-                    // (7 vs 3) but a lower cap (1473 vs 2440).
+                    // ---- History updates on beta cutoff ----
                     int bonus = history_bonus(depth);
-                    int malus = history_malus(depth);
                     if (!isCapture) {
                         killers.update(ply, m);
                         mainHist.update(pos.side_to_move(), m, bonus);
@@ -948,7 +917,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Demote tried-but-failed quiets.
                         for (int i = 0; i < quietCount; ++i)
-                            mainHist.update(pos.side_to_move(), quietsTried[i], -malus);
+                            mainHist.update(pos.side_to_move(), quietsTried[i], -bonus);
                         // Continuation history.
                         if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                             contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(), bonus);
@@ -959,9 +928,9 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             Move qm = quietsTried[i];
                             Piece qp = pos.piece_on(qm.from_sq());
                             if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
-                                contHist[0]->update(prevPiece1, prevMove1.to_sq(), qp, qm.to_sq(), -malus);
+                                contHist[0]->update(prevPiece1, prevMove1.to_sq(), qp, qm.to_sq(), -bonus);
                             if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
-                                contHist[1]->update(prevPiece2, prevMove2.to_sq(), qp, qm.to_sq(), -malus / 2);
+                                contHist[1]->update(prevPiece2, prevMove2.to_sq(), qp, qm.to_sq(), -bonus / 2);
                         }
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));
@@ -973,7 +942,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                         Piece cmp = pos.piece_on(cm.from_sq());
                         PieceType victim = type_of(pos.piece_on(cm.to_sq()));
                         if (cm.type_of() == MT_EN_PASSANT) victim = PAWN;
-                        captureHist.update(cmp, cm.to_sq(), victim, -malus);
+                        captureHist.update(cmp, cm.to_sq(), victim, -bonus);
                     }
                     break;
                 }

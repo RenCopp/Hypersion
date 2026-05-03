@@ -21,19 +21,7 @@ namespace hypersion {
 
 constexpr int HISTORY_MAX = 7183;   // Stockfish-tuned cap
 
-// Lynx-style separate bonus / malus formulas (EvaluationConstants.cs:66/72 in
-// the Lynx repo, with constants from Configuration.cs that have survived
-// fishtest tuning). Hypersion previously used `history_bonus(d)` for both
-// the cutoff-move bonus and the failed-sibling penalty — but Lynx tunes them
-// independently and the malus formula has a steeper quadratic, lower cap:
-//   bonus(d) = min(2440, 243 + 178·d + 3·d²)
-//   malus(d) = min(1473, 220 + 253·d + 7·d²)
-inline int history_bonus(int depth) {
-    return std::min(2440, 243 + 178 * depth + 3 * depth * depth);
-}
-inline int history_malus(int depth) {
-    return std::min(1473, 220 + 253 * depth + 7 * depth * depth);
-}
+inline int history_bonus(int depth) { return std::min(2000, 16 * depth * depth + 32 * depth + 16); }
 
 inline void update_history(int& entry, int bonus) {
     bonus = std::clamp(bonus, -HISTORY_MAX, HISTORY_MAX);
