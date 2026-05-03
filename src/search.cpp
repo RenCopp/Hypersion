@@ -58,13 +58,30 @@ void shutdown() { Threads.stop_all(); Threads.wait_all(); Threads.set_size(0); }
 
 namespace {
 
+// Hypersion's NNUE eval lives at roughly 5x Stockfish's "1 pawn = 100 cp"
+// scale internally. All search constants (RFP, razoring, futility, SEE, NMP,
+// ProbCut, aspiration, qsearch, contempt) are tuned to that magnitude — we
+// don't touch them.  But UCI tooling (lichess analysis, eval bars, tournament
+// software, broadcasts, the human reading `info ... score cp X`) expects the
+// SF "1 pawn = 100 cp" convention. So we translate ONLY at the output
+// boundary: divide eval by 5 when emitting `cp`. Internal search behavior is
+// bit-identical to before this change. Mate scores are unitless so they pass
+// through unchanged.
+//
+// Two prior sessions tried to scale the eval INTERNALLY (Path A v1 / v2) and
+// both regressed (-29.6 ELO and -170 ELO). The internal magnitude is bound
+// up with the empirically-tuned pruning constants; any change to it without
+// a full retune breaks performance. This output-only conversion has zero
+// search-side risk — bench is unchanged.
+constexpr int OUTPUT_CP_DIVISOR = 5;
+
 std::string score_to_uci(Value v) {
     std::ostringstream ss;
     if (std::abs(v) >= VALUE_MATE_IN_MAX_PLY) {
         int mateMoves = (v > 0 ? VALUE_MATE - v + 1 : -VALUE_MATE - v) / 2;
         ss << "mate " << mateMoves;
     } else {
-        ss << "cp " << v;
+        ss << "cp " << (int(v) / OUTPUT_CP_DIVISOR);
     }
     return ss.str();
 }

@@ -432,11 +432,15 @@ void cmd_eval() {
     for (PieceType pt = KNIGHT; pt <= QUEEN; ++pt)
         phase += int(popcount(pos.pieces(pt))) * PhV[pt];
     if (phase > 24) phase = 24;
+    // Display in SF "1 pawn = 100 cp" convention (divide internal eval by 5).
+    // The `eval` command is a human-facing debug tool, so consistent units
+    // with `score cp` in info lines and external GUI eval bars matter.
+    constexpr int OUTPUT_CP_DIVISOR = 5;
     std::cout << pos.pretty()
               << "\n----- Eval (white POV) -----\n"
               << "  side to move      : " << (stm == WHITE ? "white" : "black") << '\n'
-              << "  static eval (cp)  : " << vWhite << '\n'
-              << "  STM-relative eval : " << v << '\n'
+              << "  static eval (cp)  : " << (int(vWhite) / OUTPUT_CP_DIVISOR) << '\n'
+              << "  STM-relative eval : " << (int(v) / OUTPUT_CP_DIVISOR) << '\n'
               << "  game phase 0..24  : " << phase
               << "  ("
               << (phase >= 18 ? "midgame" : phase <= 6 ? "endgame" : "tapered")
