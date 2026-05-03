@@ -28,31 +28,40 @@ Currently stacked, not yet tagged:
 8. Compile-arch info-string at startup
 9. `UCI_Variant` declaration **removed** — was rejecting python-chess's
    `"chess"` value and aborting every lichess-bot game with EngineError
-10. **Lynx-style score-stability time factor** —
-    `scale *= 2^(clamp(prevScore - bestScore, -100, 100) / 100)` at depth ≥ 7.
-    Range [0.5, 2.0]: score dropped 100 cp → ×2.0, score rose 100 cp → ×0.5.
-    Constants ported verbatim from Lynx's fishtest-tuned implementation.
-    A/B vs v1.0: **+26 ELO** (13W/17D/10L over 40 games at TC 10+0.1).
-11. **Lynx-style 5-bucket bestmove-stability** —
-    `LYNX_BM_STAB[5] = { 2.50, 1.20, 0.90, 0.80, 0.75 }` indexed by
-    consecutive-same-move iterations. Replaces the prior 2-bucket
-    `{≥2 → 0.75, ≥4 → 0.5}` scheme plus the `+1.4×` volatility bonus.
-    Isolated A/B on top of score-stability: **+80 ELO** (13W/23D/4L).
-12. **Lynx-style separate bonus/malus formulas** for history updates —
-    `bonus(d) = min(2440, 243 + 178·d + 3·d²)`, `malus(d) = min(1473, 220 + 253·d + 7·d²)`.
-    Failed-sibling demotion now uses `-malus` instead of `-bonus`.
-    Lynx tunes them independently (malus has steeper d², lower cap).
+10. **Book variety** — lower opening-book filter threshold (`bestW/4` →
+    `bestW/12`) and switch to uniform weighting (was sqrt-weighted) among
+    surviving moves. Same opening family, but real shuffle within playable
+    lines — playing the same opponent twice gives different games. Pure
+    user-facing behaviour change, no claimed strength impact.
+11. **Stockfish-18 LMR history correction** — in the Late Move Reductions
+    block, after the static adjustments (improving / cutNode / PV / etc.),
+    reduce `r` further by `statScore / 8192`, where
+    `statScore = 2·butterfly + contHist[0] + contHist[1]`.
+    High-history quiets get reduced less; low-history get reduced more.
+    Stockfish uses `/11248` against a 4-ply contHist sum that Hypersion
+    doesn't have; `/8192` keeps the effective range similar with 2-ply.
+    A/B in progress (200 games vs v1.0) — pending result.
 
 Cumulative effect on `main` vs Hypersion 1.0:
-**+158 ELO** (19W/19D/2L over 40 games at TC 10+0.1).
-Only 2 losses out of 40 — clear release-worthy improvement.
+**Pending — awaiting LMR-history A/B at 200 games.**
+Bench (depth 11): 648,118 nodes (deterministic) vs 596,919 for v1.0.
 
 Tested-but-reverted (logged so they don't get retried blind):
 - Worsening flag in LMR (eyeballed magnitudes)
-- Score-drop time extension (eyeballed magnitudes — Lynx port superseded)
+- Score-drop time extension (eyeballed magnitudes)
 - History decay on `ucinewgame` (halve instead of zero)
 - `Move Overhead` default 30 → 100 ms (ate the 10+0.1 increment, −26 ELO)
 - `UCI_Variant` combo (broke python-chess / lichess-bot)
+- Lynx 3/4 history gravity (−35 ELO, double-decays our soft-cap update)
+- Lynx threats-aware butterfly history (−61 ELO, sparse table without
+  compensating bonus tuning — 4× dilution per slot)
+- **Lynx score-stability + 5-bucket bm-stab + bonus/malus split** (the
+  trio above formerly listed as items 10-12). Each individual A/B used a
+  40-game sample (CI ±90 ELO) and looked positive (+26 / +80 / +52). The
+  cumulative 200-game match against v1.0 measured **−12.2 ELO** (CI
+  [−61, +36]) — statistically flat, point estimate negative. The earlier
+  "+158 ELO" cumulative reading was almost certainly noise. **Lesson:
+  never validate an engine change at fewer than 200 games.**
 
 ---
 
