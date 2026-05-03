@@ -321,32 +321,56 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_MatchOpponent")) parse_bool(Options.matchOpponent);
     else if (eq("UCI_Opponent"))   {
         // python-chess sends: "<title> <rating> <player_type> <name>"
-        // (e.g. "none 600 human RisotPlayer" or "GM 2700 human Magnus").
-        // We scan tokens for the first integer in [100, 4000] = the rating.
+        // (e.g. "none 600 human RisotPlayer" or "GM 2700 computer Stockfish").
+        // We scan tokens for:
+        //   - the first integer in [100, 4000]  -> opponent rating
+        //   - "computer"/"engine" or "human"    -> player type
+        // and apply the ELO limit ONLY for humans. Bots always get full strength.
         if (Options.matchOpponent) {
+            // Reset to full strength first so each new game starts clean.
+            // (e.g. previous game was vs human at low ELO -> next game vs bot
+            // should not inherit the limit.)
+            Options.limitStrength = false;
+
             std::istringstream iss(value);
             std::string tok;
             int rating = -1;
+            bool isHuman = true;            // assume human if not otherwise indicated
+            bool typeSeen = false;
             while (iss >> tok) {
-                // Manual parse (compiled with -fno-exceptions, no std::stoi).
-                char* endp = nullptr;
-                long n = std::strtol(tok.c_str(), &endp, 10);
-                if (endp && *endp == '\0' && n >= 100 && n <= 4000) {
-                    rating = int(n);
-                    break;
+                // Type token detection (case-insensitive).
+                std::string lower = tok;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                if (lower == "computer" || lower == "engine" || lower == "bot") {
+                    isHuman = false; typeSeen = true;
+                } else if (lower == "human") {
+                    isHuman = true;  typeSeen = true;
+                } else if (rating < 0) {
+                    // First integer in valid range = rating.
+                    char* endp = nullptr;
+                    long n = std::strtol(tok.c_str(), &endp, 10);
+                    if (endp && *endp == '\0' && n >= 100 && n <= 4000)
+                        rating = int(n);
                 }
             }
-            if (rating > 0) {
+            if (!isHuman) {
+                std::cerr << "info string UCI_MatchOpponent: opp is computer/bot"
+                          << (rating > 0 ? (" (rating=" + std::to_string(rating) + ")") : "")
+                          << " -> full strength\n";
+            } else if (rating > 0) {
                 int offset = opponent_match_offset(rating);
                 int target = std::clamp(rating + offset, Options.matchFloor, Options.matchCeiling);
                 Options.limitStrength = true;
                 Options.uciElo = target;
-                std::cerr << "info string UCI_MatchOpponent: opp=" << rating
+                std::cerr << "info string UCI_MatchOpponent: human opp=" << rating
                           << " offset=+" << offset
                           << " -> UCI_Elo=" << target << '\n';
+            } else {
+                std::cerr << "info string UCI_MatchOpponent: no rating found"
+                          << (typeSeen ? " (human)" : "")
+                          << " -> full strength\n";
             }
         }
-        // value also kept silently for diagnostics (e.g. UCI_Opponent "GM 2700 ...")
     }
 }
 
