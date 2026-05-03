@@ -892,6 +892,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
                     statScore += contHist[1]->get(prevPiece2, prevMove2.to_sq(), moving, m.to_sq());
                 r -= statScore / 8192;
+            } else {
+                // Capture-side correction. We're after do_move; pos.captured_piece()
+                // returns the just-captured piece type (or NO_PIECE_TYPE on EP, where
+                // we want PAWN). High-captureHist captures get reduced less.
+                // Stockfish uses ~/5500 for captureHist; we use /6144 here.
+                PieceType victim = type_of(pos.captured_piece());
+                if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
+                r -= captureHist.get(moving, m.to_sq(), victim) / 6144;
             }
             r = std::clamp(r, 0, newDepth - 1);
         }
