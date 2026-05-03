@@ -167,6 +167,11 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     selDepth = 0;
     completedDepth = 0;
     stopFlag.store(false);
+    // Note: Lynx-style 3/4 history gravity tested and regressed -35 ELO.
+    // Hypersion's update_history already does Stockfish-style soft-cap
+    // decay (entry += bonus - entry * |bonus| / HISTORY_MAX); adding 3/4
+    // multiplicative on top double-decays. The ButterflyHistory::gravity()
+    // helper stays in history.h in case a future tuning pass wants it.
 
     rootMoves.clear();
     for (Move m : MoveList<LEGAL>(rootPos)) {
