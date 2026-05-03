@@ -878,6 +878,21 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ttMove == m)       --r;
             if (m == counter)      --r;
             if (isCapture)         --r;   // captures shouldn't be reduced as much
+
+            // Stockfish-18 LMR history correction. High-history quiet moves get
+            // reduced less; low-history get reduced more. Sums the same signals
+            // MovePicker uses for quiet ordering: butterfly (×2) + 1-ply contHist
+            // + 2-ply contHist. SF tunes with /11248 against a 4-ply contHist
+            // sum; with only 2-ply we use /8192 to keep the effective reduction
+            // range similar (~ ±2 plies at the extremes for ±16k statScore).
+            if (!isCapture) {
+                int statScore = 2 * mainHist.get(color_of(moving), m);
+                if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
+                    statScore += contHist[0]->get(prevPiece1, prevMove1.to_sq(), moving, m.to_sq());
+                if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
+                    statScore += contHist[1]->get(prevPiece2, prevMove2.to_sq(), moving, m.to_sq());
+                r -= statScore / 8192;
+            }
             r = std::clamp(r, 0, newDepth - 1);
         }
 
