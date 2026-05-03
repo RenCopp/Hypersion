@@ -48,13 +48,37 @@ struct {
     std::string syzygyPath = "<empty>";
     // Opponent-aware strength matching. When matchOpponent=true and the GUI
     // sends UCI_Opponent (lichess-bot does this automatically), Hypersion
-    // auto-sets UCI_LimitStrength=true and UCI_Elo to the opponent's rating
-    // (clamped to [matchFloor, matchCeiling]). Lets the bot give a fair game
-    // to weak human players instead of crushing 100% of them.
+    // auto-sets UCI_LimitStrength=true and UCI_Elo to a rating slightly above
+    // the opponent's level, giving a "zone of proximal development" experience:
+    // beginners get a beatable-but-stretching opponent, strong players get a
+    // real fight at near-equal strength.
+    //
+    // Offset curve (matches educational chess training-tool conventions):
+    //     <1000      +150  (brand-new players get a clear stretch goal)
+    //     1000-1399  +100  (beginners — slight handicap)
+    //     1400-1799  +75   (intermediate)
+    //     1800-2199  +50   (advanced)
+    //     2200-2599  +25   (expert)
+    //     >=2600     0     (master+ — exact match, no patronizing offset)
+    //
+    // Final target clamped to [matchFloor=600, matchCeiling=3200]. Below 600
+    // Hypersion's skill-level capping makes play essentially random; above
+    // 2660 the engine is at its practical ceiling anyway.
     bool matchOpponent = false;
-    int  matchFloor    = 800;
+    int  matchFloor    = 600;
     int  matchCeiling  = 3200;
 } Options;
+
+// Educational offset curve: bot plays slightly stronger than opponent, with
+// the gap narrowing as opponent rating rises. See comment in Options.
+inline int opponent_match_offset(int rating) {
+    if (rating < 1000) return 150;
+    if (rating < 1400) return 100;
+    if (rating < 1800) return 75;
+    if (rating < 2200) return 50;
+    if (rating < 2600) return 25;
+    return 0;
+}
 
 void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
 
@@ -313,10 +337,13 @@ void cmd_setopt(std::istringstream& is) {
                 }
             }
             if (rating > 0) {
+                int offset = opponent_match_offset(rating);
+                int target = std::clamp(rating + offset, Options.matchFloor, Options.matchCeiling);
                 Options.limitStrength = true;
-                Options.uciElo = std::clamp(rating, Options.matchFloor, Options.matchCeiling);
-                std::cerr << "info string UCI_MatchOpponent: rating=" << rating
-                          << " -> UCI_Elo=" << Options.uciElo << '\n';
+                Options.uciElo = target;
+                std::cerr << "info string UCI_MatchOpponent: opp=" << rating
+                          << " offset=+" << offset
+                          << " -> UCI_Elo=" << target << '\n';
             }
         }
         // value also kept silently for diagnostics (e.g. UCI_Opponent "GM 2700 ...")
