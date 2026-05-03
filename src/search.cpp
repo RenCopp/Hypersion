@@ -643,7 +643,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     TTEntry* tte = TT.probe(pos.key(), ttHit);
     Value ttValue = ttHit ? TT.value_from_tt(tte->value(), ply, pos.rule50_count()) : VALUE_NONE;
     Move  ttMove  = ttHit ? tte->move() : Move::none();
-    bool  ttPv    = isPv;
+    // SF-style ttPv: position is "PV" if it's currently being searched as PV,
+    // OR if the TT remembers it was once part of a PV. Sticky — encourages
+    // less-aggressive pruning on positions that have ever been principal.
+    bool  ttPv    = isPv || (ttHit && tte->is_pv());
 
     if (!isPv && ttHit && tte->depth() >= depth) {
         if (tte->bound() == BOUND_EXACT
@@ -892,6 +895,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (!improving)        ++r;
             if (cutNode)           r += 2;
             if (isPv)              --r;
+            if (ttPv)              --r;   // SF-style: TT-remembered PV positions reduced less
             if (givesCheck)        --r;
             if (ttMove == m)       --r;
             if (m == counter)      --r;

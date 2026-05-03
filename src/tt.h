@@ -20,16 +20,21 @@
 namespace hypersion {
 
 // 10-byte entry; three of these plus 2 padding bytes fit in 32 B.
+//
+// depth8 layout: bit 7 = ttPv flag, bits 6..0 = search depth (max 127, ample).
+// genBound8 layout: bits 7..2 = generation (6 bits = wraps every 64 searches),
+//                   bits 1..0 = bound (2 bits).
 struct TTEntry {
     std::uint16_t key16;
-    std::uint8_t  depth8;
-    std::uint8_t  genBound8;   // bits 7..2 = generation, bits 1..0 = bound
+    std::uint8_t  depth8;      // bit 7 = ttPv, bits 6..0 = depth
+    std::uint8_t  genBound8;
     std::uint16_t move16;
     std::int16_t  value16;
     std::int16_t  eval16;
 
     Move  move()      const { return Move(move16); }
-    int   depth()     const { return int(depth8); }
+    int   depth()     const { return int(depth8 & 0x7F); }
+    bool  is_pv()     const { return (depth8 & 0x80) != 0; }
     Bound bound()     const { return Bound(genBound8 & 0x3); }
     int   generation()const { return genBound8 >> 2; }
     Value value()     const { return Value(value16); }

@@ -87,17 +87,25 @@ Value TranspositionTable::value_from_tt(Value v, int ply, int /*rule50*/) {
     return v;
 }
 
-void TTEntry::save(Key k, Value v, bool /*pv*/, Bound b, Depth d, Move m, Value e, int gen) {
+void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value e, int gen) {
     std::uint16_t k16 = std::uint16_t(k);
 
     // Preserve any existing TT move on a non-EXACT save (so we don't lose a
     // good move just because we hit the slot at lower depth without a move).
     if (m != Move::none() || k16 != key16) move16 = std::uint16_t(m.raw());
+
+    // SF-style ttPv "stickiness": if the previous entry was a PV node OR
+    // we're saving as PV now, the bit stays set. ttPv only clears when the
+    // slot is replaced by a different position (k16 changes).
+    bool prev_pv = (k16 == key16) && ((depth8 & 0x80) != 0);
+    bool save_pv = pv || prev_pv;
+
     if (b == BOUND_EXACT
         || k16 != key16
-        || d - 4 > depth8 - 4) {
+        || (int(d) & 0x7F) - 4 > int(depth8 & 0x7F) - 4) {
         key16     = k16;
-        depth8    = std::uint8_t(d);
+        // Pack: bit 7 = ttPv, bits 6..0 = depth (clamped to 127)
+        depth8    = std::uint8_t((int(d) & 0x7F) | (save_pv ? 0x80 : 0));
         genBound8 = std::uint8_t(gen | b);
         value16   = std::int16_t(v);
         eval16    = std::int16_t(e);
