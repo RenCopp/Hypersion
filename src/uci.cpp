@@ -84,7 +84,11 @@ void cmd_uci() {
               // Lichess users with real network latency should override to
               // 100-300 ms via UCI option or the framework config.
               << "option name Move Overhead type spin default 30 min 0 max 5000\n"
-              << "option name UCI_Variant type combo default standard var standard\n"
+              // UCI_Variant deliberately NOT advertised as a combo option:
+              // python-chess (used by lichess-bot) sends `setoption name
+              // UCI_Variant value chess` for standard chess, but a strict
+              // `var standard` combo rejects that. Engines that don't
+              // declare UCI_Variant at all are accepted as standard-only.
               << "option name Clear Hash type button\n"
               << "option name Ponder type check default false\n"
               << "option name OwnBook type check default true\n"
