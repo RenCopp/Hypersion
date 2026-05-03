@@ -94,23 +94,23 @@ void update_pv(PVLine& parent, Move m, const PVLine& child) {
 }
 
 // Margins for various pruning heuristics.
-// Phase 9: NNUE eval is in raw SF cp magnitude (avg |v| ~ 636) without the
-// previous /3 attenuation. All magnitude-sensitive constants are scaled by 3
-// from the original classical-Texel-tuned values so the pruning logic still
-// represents the same number of pawns of margin. Note: history bonuses and
+// Path A (post Stockfish-driven eval-scale analysis): NNUE_DIVISOR=5 in
+// nnue.cpp now normalizes Hypersion's eval to SF's "1 pawn = 100 cp" scale
+// (was ~5x oversize). All magnitude-sensitive constants are restored to
+// their original classical-Texel-tuned SF values. History bonuses and
 // LMR depth-based reductions are NOT scaled — they're not eval-magnitude.
-constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80)
-constexpr int RAZOR_MARGIN_BASE       = 720;    // Razoring (was 240)
-constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130)
-constexpr int FUTIL_MARGIN_PER_DEPTH  = 330;    // Futility for quiets (was 110)
-constexpr int FUTIL_MARGIN_BASE       = 390;    // (was 130; previously inline)
-constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets (was -60)
-constexpr int SEE_CAPT_MARGIN         = -300;   // SEE pruning of bad captures (was -100)
-constexpr int NMP_EVAL_BETA_DIV       = 600;    // NMP reduction-bonus divisor (was 200)
-constexpr int PROBCUT_MARGIN          = 600;    // ProbCut beta margin (was 200)
-constexpr int ASPIRATION_DELTA0       = 51;     // initial aspiration delta (was 17)
-constexpr int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable" (was 20)
-constexpr int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap (was 1100)
+constexpr int RFP_MARGIN_PER_DEPTH    = 80;     // Reverse futility
+constexpr int RAZOR_MARGIN_BASE       = 240;    // Razoring
+constexpr int RAZOR_MARGIN_PER_DEPTH  = 130;
+constexpr int FUTIL_MARGIN_PER_DEPTH  = 110;    // Futility for quiets
+constexpr int FUTIL_MARGIN_BASE       = 130;
+constexpr int SEE_QUIET_MARGIN        = -60;    // SEE pruning of bad quiets
+constexpr int SEE_CAPT_MARGIN         = -100;   // SEE pruning of bad captures
+constexpr int NMP_EVAL_BETA_DIV       = 200;    // NMP reduction-bonus divisor
+constexpr int PROBCUT_MARGIN          = 200;    // ProbCut beta margin
+constexpr int ASPIRATION_DELTA0       = 17;     // initial aspiration delta
+constexpr int STABILITY_SWING_TH      = 20;     // bestScore swing for "stable"
+constexpr int QSEARCH_CAP_GAIN        = 1100;   // qsearch capture-futility cap
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -405,7 +405,7 @@ void Worker::iterative_deepen(Position& pos) {
                     if (pvIdx == 0) { bestScore = bestThisIter; bestPV = iterPV; }
                     break;
                 }
-                if (delta >= 1000) { windowAlpha = -VALUE_INFINITE; windowBeta = VALUE_INFINITE; }
+                if (delta >= 200) { windowAlpha = -VALUE_INFINITE; windowBeta = VALUE_INFINITE; }
             }
 
             // Bring the best of the searched range to position pvIdx.
@@ -452,14 +452,14 @@ void Worker::iterative_deepen(Position& pos) {
 
             // Phase 5: easy-move detection. When the best root move is
             // clearly better than the 2nd-best AND has been stable, we don't
-            // need to keep thinking. NNUE-aware thresholds (~/3 divisor puts
-            // avg eval at ~220 cp). Uses `min` so this only ever saves time
-            // — never extends past the existing scale.
+            // need to keep thinking. Thresholds are in SF cp (1 pawn = 100 cp)
+            // post Path A eval normalization. Uses `min` so this only ever
+            // saves time — never extends past the existing scale.
             if (d >= 6 && rootMoves.size() >= 2 && stableIters >= 3) {
                 int gap = int(rootMoves[0].score - rootMoves[1].score);
-                if (gap >= 150)      scale = std::min(scale, 0.4);
-                else if (gap >= 80)  scale = std::min(scale, 0.6);
-                else if (gap >= 40)  scale = std::min(scale, 0.85);
+                if (gap >= 30)      scale = std::min(scale, 0.4);
+                else if (gap >= 16) scale = std::min(scale, 0.6);
+                else if (gap >= 8)  scale = std::min(scale, 0.85);
             }
 
             TimePoint optScaled = TimePoint(tm.optimum() * scale);
@@ -474,10 +474,10 @@ done:
         // looks human-like at lower ratings. Stockfish-style weighted pick.
         if (effSkill < 20 && rootMoves.size() > 1) {
             // Build a weight by score (higher = more likely chosen). Allow noise
-            // up to ~ (20 - skill) * 60 cp from the best move.
+            // up to ~ (20 - skill) * 12 cp from the best move (SF cp scale).
             std::stable_sort(rootMoves.begin(), rootMoves.end());
             Value topScore = rootMoves[0].score;
-            int   spread   = (20 - effSkill) * 60;
+            int   spread   = (20 - effSkill) * 12;
             std::vector<int> weights;
             int totalW = 0;
             for (auto& rm : rootMoves) {
