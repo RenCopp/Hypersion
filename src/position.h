@@ -145,6 +145,10 @@ public:
     // Attack queries --------------------------------------------------------
     Bitboard attackers_to(Square s)                   const { return attackers_to(s, pieces()); }
     Bitboard attackers_to(Square s, Bitboard occupied) const;
+    // All squares attacked by side `c`. Sums pawn double-shift, knight/king
+    // pseudo-attacks, and slider attacks against current occupancy. Used by
+    // the threats-aware quiet-history indexing (Lynx-style).
+    Bitboard attacks_by(Color c) const;
 
     // Move properties -------------------------------------------------------
     bool     legal(Move m)         const;

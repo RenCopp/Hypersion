@@ -941,14 +941,27 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     // (7 vs 3) but a lower cap (1473 vs 2440).
                     int bonus = history_bonus(depth);
                     int malus = history_malus(depth);
+                    // Threats-aware butterfly history: each move's history
+                    // slot is keyed by (fromAttacked, toAttacked) bits
+                    // against the opponent's attack bitboard. Compute once
+                    // for this node and reuse for cutoff + sibling updates.
+                    Bitboard oppAtt = pos.attacks_by(~pos.side_to_move());
+                    auto bhBits = [&](Move mv) {
+                        int fA = (oppAtt >> mv.from_sq()) & 1;
+                        int tA = (oppAtt >> mv.to_sq())   & 1;
+                        return std::make_pair(fA, tA);
+                    };
                     if (!isCapture) {
                         killers.update(ply, m);
-                        mainHist.update(pos.side_to_move(), m, bonus);
+                        auto [mfA, mtA] = bhBits(m);
+                        mainHist.update(pos.side_to_move(), m, mfA, mtA, bonus);
                         if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Demote tried-but-failed quiets.
-                        for (int i = 0; i < quietCount; ++i)
-                            mainHist.update(pos.side_to_move(), quietsTried[i], -malus);
+                        for (int i = 0; i < quietCount; ++i) {
+                            auto [qfA, qtA] = bhBits(quietsTried[i]);
+                            mainHist.update(pos.side_to_move(), quietsTried[i], qfA, qtA, -malus);
+                        }
                         // Continuation history.
                         if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                             contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(), bonus);

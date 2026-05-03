@@ -87,9 +87,15 @@ void MovePicker::score_quiets() {
                  && prevPc != NO_PIECE
                  && prevMv != Move::none()
                  && prevMv != Move::null();
+    // Compute opponent's attacked squares ONCE per call. Each move then
+    // looks up its (fromAttacked, toAttacked) context bits in O(1) — Lynx
+    // calls this `pieceToQuietHistory[piece][to][isStartAtt][isTargetAtt]`.
+    Bitboard oppAtt = pos.attacks_by(~pos.side_to_move());
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
-        int v = bhist ? bhist->get(pos.side_to_move(), m) : 0;
+        int fromAtt = (oppAtt >> m.from_sq()) & 1;
+        int toAtt   = (oppAtt >> m.to_sq())   & 1;
+        int v = bhist ? bhist->get(pos.side_to_move(), m, fromAtt, toAtt) : 0;
         Piece moving = pos.piece_on(m.from_sq());
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq());
         it->value = v;
@@ -97,6 +103,7 @@ void MovePicker::score_quiets() {
 }
 
 void MovePicker::score_evasions() {
+    Bitboard oppAtt = pos.attacks_by(~pos.side_to_move());
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
         if (pos.capture(m)) {
@@ -104,7 +111,9 @@ void MovePicker::score_evasions() {
             if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
             it->value = int(piece_value_simple(victim)) + (1 << 28);   // captures dominate quiets
         } else {
-            it->value = bhist ? bhist->get(pos.side_to_move(), m) : 0;
+            int fromAtt = (oppAtt >> m.from_sq()) & 1;
+            int toAtt   = (oppAtt >> m.to_sq())   & 1;
+            it->value = bhist ? bhist->get(pos.side_to_move(), m, fromAtt, toAtt) : 0;
         }
     }
 }
