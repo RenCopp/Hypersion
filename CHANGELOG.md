@@ -95,14 +95,35 @@ believing the position is roughly equal when Stockfish's evaluation says
 it's already -100 to -200 cp. By the time Hypersion's search catches up,
 the position is unsalvageable.
 
-**Two fix paths** — neither attempted yet, awaiting decision:
-- **Path A (clean)**: normalize eval at the NNUE output (`v /= 5` in
-  `nnue.cpp` `forward()`), restore all `*3` margins to original
-  SF-classical values. Risky — invalidates current tuning, needs full
-  re-validation.
-- **Path B (compensate)**: re-tune the existing `*3` margins to `*5`
-  and adjust other magnitude-sensitive constants accordingly. Smaller
-  blast radius but encodes the bug permanently.
+**Path A attempted, reverted — both variants regressed:**
+
+- **Path A v1** (commit `fd11f39`, reverted in `bf81bbf`): set
+  `NNUE_DIVISOR=5` in `nnue.cpp` and restored all `*3`-scaled search
+  margins to their bare SF-classical values.
+  * Verified: static eval matched SF exactly (11 cp / 27 cp on probe
+    positions).
+  * Bench shot up 648k → 993k (+53% nodes per fixed depth) because
+    bare SF margins are 1/3 of lmrhist's empirically-tuned values
+    on Hypersion's specific search architecture.
+  * 200g A/B vs lmrhist: **-29.6 ELO** (CI [-79, +19]). At fixed TC,
+    +53% nodes per move = significantly less effective depth → loss.
+
+- **Path A v2** (commit `145ccc5`, reverted in `c0d4ee1`): kept
+  `NNUE_DIVISOR=5` but rescaled margins to `lmrhist / 5` to preserve
+  margin/eval ratio.
+  * Bench dropped to 611k (close to lmrhist's 648k).
+  * 30g A/B vs lmrhist: **-170 ELO at 13 games before stop** (W=2 D=3
+    L=8). Games were also abnormally slow — only 13 games in 17 min
+    vs typical 30-game match in ~6 min. Some subtle interaction with
+    the integer-truncated rescale produced both lost games and
+    timeouts that bench couldn't detect.
+
+**Lesson**: Hypersion's empirically-tuned search constants depend on
+its specific eval magnitudes in ways that don't trivially proportionate.
+Mathematically "correct" rescaling broke real-world performance. The
+5x-scaled eval display is cosmetic; internal pruning behavior was
+already self-consistent. Save the eval-scale fix for a future major
+retuning effort with broad fishtest-style coverage.
 
 Game-analysis tooling lives under `testing/`:
 - `analyze_blunders.ps1` — fast PGN-comment scan (no Stockfish needed)
