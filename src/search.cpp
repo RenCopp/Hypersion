@@ -52,7 +52,7 @@ void init() {
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
                               : int(std::log(double(d)) * std::log(double(mc)) / 1.95);
         }
-    Threads.set_size(1);
+    Threads.set_size(2);
 }
 void shutdown() { Threads.stop_all(); Threads.wait_all(); Threads.set_size(0); }
 
@@ -329,7 +329,25 @@ void Worker::iterative_deepen(Position& pos) {
     int   bestMoveChanges = 0;     // how many recent iterations changed bestmove
     int   stableIters     = 0;     // consecutive iterations with same bestmove + small score change
 
+    // SMP diversity (Stockfish-style depth skipping for helpers). Helpers
+    // skip iterations of the iterative-deepening loop on a per-thread
+    // schedule so each helper explores the tree at a different pacing.
+    // This avoids TT contention (everyone hitting the same slots at the
+    // same depth) and pushes each helper toward different parts of the
+    // PV tree, so the shared TT picks up better information than a single
+    // thread alone would gather.
+    //
+    // Formula (SF18): skip iteration if `(depth + skipPhase) / skipSize`
+    // is odd. Main thread (threadId == 0) never skips.
+    static constexpr int SKIP_SIZE [20] = {1,2,2,4,4,4,8,8,8,8,16,16,16,16,16,16,32,32,32,32};
+    static constexpr int SKIP_PHASE[20] = {0,0,1,0,1,2,0,1,2,3,0,1,2,3,4,5,0,1,2,3};
+
     for (int d = 1; d <= targetDepth; ++d) {
+        if (!isMain && threadId > 0) {
+            int t = (threadId - 1) % 20;
+            if (((d + SKIP_PHASE[t]) / SKIP_SIZE[t]) % 2 != 0)
+                continue;
+        }
         selDepth = 0;
 
         // ---- MultiPV loop: search top-N root moves separately ----
@@ -638,7 +656,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // ---- Syzygy WDL probe ----
     // Cheap mid-search probe: when the position is small enough to be in TBs,
     // Fathom returns the truth and we can short-circuit.
-    if (!isPv && depth >= 1 && Syzygy::is_loaded()) {
+    if (!isPv && depth >= Syzygy::probe_depth() && Syzygy::is_loaded()) {
         Value tbVal = Syzygy::probe_wdl(pos);
         if (tbVal != VALUE_NONE) {
             Bound b = tbVal >= VALUE_DRAW ? BOUND_LOWER : BOUND_UPPER;

@@ -21,6 +21,14 @@ bool init(const std::string& path);   // empty path = unload
 bool is_loaded();
 int  largest();                        // max piece count covered
 
+// Tunable knobs (Stockfish-compatible UCI options).
+void set_probe_depth(int d);    // SyzygyProbeDepth: only probe when search depth >= d
+int  probe_depth();
+void set_probe_limit(int n);    // SyzygyProbeLimit: skip probes when pieces > n
+int  probe_limit();
+void set_50_move_rule(bool b);  // Syzygy50MoveRule: passes rule50 to TB lookup if true
+bool fifty_move_rule();
+
 // Probe at the root. On success, fills `bestMove` with the principal Syzygy
 // recommendation and `score` with a TB-aware value (cp scale). Returns true
 // if the position was found in the tablebases.

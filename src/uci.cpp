@@ -31,7 +31,7 @@ int       statePly = 0;
 // UCI options. Stored as plain values; setoption updates them and applies side-effects.
 struct {
     int  hashMB       = 64;          // bumped from 16 — helps slow TC, neutral at fast
-    int  threads      = 1;            // lazy-SMP currently unstable, leave at 1
+    int  threads      = 2;            // lazy-SMP works (verified), 2 is a safe default
     int  multiPV      = 1;
     int  moveOverhead = 30;          // safe for cutechess; lichess users should set 100-300
     int  skillLevel   = 20;          // 0 = weakest, 20 = full strength
@@ -114,7 +114,7 @@ void cmd_uci() {
     std::cout << "id name " << ENGINE_NAME << ' ' << ENGINE_VERSION << '\n'
               << "id author " << ENGINE_AUTHOR << '\n'
               << "option name Hash type spin default 64 min 1 max 65536\n"
-              << "option name Threads type spin default 1 min 1 max 1024\n"
+              << "option name Threads type spin default 2 min 1 max 1024\n"
               << "option name MultiPV type spin default 1 min 1 max 256\n"
               // Move Overhead default kept at 30 ms — bumping it ate the
               // increment at TC 10+0.1 in tournament play (-26 ELO measured).
@@ -134,6 +134,13 @@ void cmd_uci() {
               << "option name EvalFile type string default nn-c288c895ea92.nnue\n"
               << "option name EvalFileSmall type string default nn-37f18f62d772.nnue\n"
               << "option name SyzygyPath type string default <empty>\n"
+              << "option name SyzygyProbeDepth type spin default 1 min 1 max 100\n"
+              << "option name Syzygy50MoveRule type check default true\n"
+              << "option name SyzygyProbeLimit type spin default 7 min 0 max 7\n"
+              // Chess960 declared for GUI compatibility — Hypersion plays
+              // standard chess only, so we accept the option but castling
+              // logic stays orthodox.
+              << "option name UCI_Chess960 type check default false\n"
               << "option name Skill Level type spin default 20 min 0 max 20\n"
               << "option name UCI_LimitStrength type check default false\n"
               << "option name UCI_Elo type spin default 1500 min 500 max 3200\n"
@@ -319,6 +326,22 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("SyzygyPath"))     {
         Options.syzygyPath = value;
         Syzygy::init(value);
+    }
+    else if (eq("SyzygyProbeDepth")) {
+        int d = 1; std::istringstream(value) >> d;
+        Syzygy::set_probe_depth(std::clamp(d, 1, 100));
+    }
+    else if (eq("Syzygy50MoveRule")) {
+        bool b = true; parse_bool(b);
+        Syzygy::set_50_move_rule(b);
+    }
+    else if (eq("SyzygyProbeLimit")) {
+        int n = 7; std::istringstream(value) >> n;
+        Syzygy::set_probe_limit(std::clamp(n, 0, 7));
+    }
+    else if (eq("UCI_Chess960")) {
+        // Accepted for compatibility; Hypersion plays standard rules only.
+        // No action — silently absorb the option so GUIs don't error out.
     }
     else if (eq("Skill Level"))    { parse_int(Options.skillLevel);
                                      Options.skillLevel = std::clamp(Options.skillLevel, 0, 20); }

@@ -423,12 +423,18 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     set_check_info();
     st->checkersBB = givesCheck ? (attackers_to(square<KING>(sideToMove)) & pieces(~sideToMove)) : 0;
 
-    // Repetition detection: walk back through previous states.
+    // Repetition detection: walk back through previous states. Guard each
+    // dereference because positions set from FEN with a high rule50 may
+    // not actually have rule50 plies of history available — set() only
+    // creates the current StateInfo, not the chain leading up to it.
     st->repetition = 0;
     int end = std::min(st->rule50, st->pliesFromNull);
-    if (end >= 4) {
+    if (end >= 4
+        && st->previous != nullptr
+        && st->previous->previous != nullptr) {
         StateInfo* stp = st->previous->previous;
         for (int i = 4; i <= end; i += 2) {
+            if (stp->previous == nullptr || stp->previous->previous == nullptr) break;
             stp = stp->previous->previous;
             if (stp->key == st->key) {
                 st->repetition = stp->repetition ? -i : i;
@@ -709,7 +715,13 @@ bool Position::see_ge(Move m, Value threshold) const {
 // Draw detection
 // ---------------------------------------------------------------------------
 bool Position::is_draw(int ply) const {
-    if (st->rule50 > 99 && (!checkers() /* TODO: || any_legal_move() */ )) return true;
+    // 50-move rule: position is a draw if rule50 has reached 100 plies
+    // UNLESS the side to move is checkmated (in check with no legal moves).
+    // Stalemate (not in check + no legal moves) is already a draw, so the
+    // legal-moves check only matters when we're in check.
+    if (st->rule50 > 99
+        && (!checkers() || MoveList<LEGAL>(*this).size() > 0))
+        return true;
     // Threefold (or fold seen within search ply window).
     if (st->repetition && st->repetition < ply) return true;
     // Insufficient material — FIDE article 9.6 / lichess rules. Covers:

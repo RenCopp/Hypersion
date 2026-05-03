@@ -16,6 +16,11 @@ namespace hypersion::Syzygy {
 namespace {
 bool g_loaded = false;
 
+// Tunable knobs (Stockfish-compatible UCI options).
+int  g_probe_depth   = 1;     // SyzygyProbeDepth — search depth threshold
+int  g_probe_limit   = 7;     // SyzygyProbeLimit — max pieces to probe
+bool g_50_move_rule  = true;  // Syzygy50MoveRule — honour rule50 in lookups
+
 // Convert our Position into the eight bitboard arguments Fathom expects.
 struct TBQuery {
     std::uint64_t white, black, kings, queens, rooks, bishops, knights, pawns;
@@ -102,13 +107,19 @@ bool probe_root(const Position& pos, RootProbe& out) {
 
 Value probe_wdl(const Position& pos) {
     if (!g_loaded) return VALUE_NONE;
-    if (popcount(pos.pieces()) > int(TB_LARGEST)) return VALUE_NONE;
+    int pc = popcount(pos.pieces());
+    if (pc > int(TB_LARGEST)) return VALUE_NONE;
+    if (pc > g_probe_limit) return VALUE_NONE;     // SyzygyProbeLimit gate
     if (pos.can_castle(WHITE_CASTLING) || pos.can_castle(BLACK_CASTLING)) return VALUE_NONE;
 
     TBQuery q = build_query(pos);
+    // Syzygy50MoveRule: Fathom honours rule50 only when we pass a non-zero
+    // value. Zero tells Fathom to ignore the 50-move counter (cursed-win
+    // positions remain wins, not draws).
+    unsigned tb_rule50 = g_50_move_rule ? q.rule50 : 0;
     unsigned r = tb_probe_wdl(q.white, q.black, q.kings, q.queens, q.rooks,
                               q.bishops, q.knights, q.pawns,
-                              q.rule50, q.castling, q.ep, q.turn);
+                              tb_rule50, q.castling, q.ep, q.turn);
     if (r == TB_RESULT_FAILED) return VALUE_NONE;
     if (r == TB_WIN)          return Value(VALUE_TB_WIN - 100);
     if (r == TB_CURSED_WIN)   return Value(50);
@@ -116,5 +127,13 @@ Value probe_wdl(const Position& pos) {
     if (r == TB_BLESSED_LOSS) return Value(-50);
     return Value(-VALUE_TB_WIN + 100);
 }
+
+// ---- Tunable knob accessors (UCI-driven) ------------------------------------
+void set_probe_depth(int d)   { g_probe_depth = d; }
+int  probe_depth()             { return g_probe_depth; }
+void set_probe_limit(int n)   { g_probe_limit = n; }
+int  probe_limit()             { return g_probe_limit; }
+void set_50_move_rule(bool b) { g_50_move_rule = b; }
+bool fifty_move_rule()         { return g_50_move_rule; }
 
 }  // namespace hypersion::Syzygy
