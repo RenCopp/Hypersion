@@ -54,9 +54,9 @@ Tested-but-reverted (added in this session):
   negative. Reverted in `140d66b`.
 
 Tested-but-no-effect (kept off):
-- Syzygy 3-4-5 tablebases — isolated A/B (200g, same binary, same
-  position openings, only difference is `SyzygyPath` set vs not) gave
-  -11.5 ELO with CI [-63, +39] = statistically null. Game-mining showed
+- Syzygy 3-4-5 tablebases — isolated A/B (200g, same binary, only
+  difference is `SyzygyPath` set vs not) gave -13.9 ELO with CI
+  [-63, +34], W/D/L = 20/152/28 = statistically null. Game-mining showed
   only 3 / 31 losses (10%) reached the 5-piece zone where Syzygy could
   help. Tablebase code works correctly (probe verified) but doesn't
   swing matches at this time control.
