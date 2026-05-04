@@ -52,9 +52,10 @@ struct {
     // This gives the user the satisfying experience of beating the bot
     // while still being challenged.
     //
-    // Updated offset curve (user feedback: bot was too strong everywhere):
-    //     <800       -150  (very low: bot well below opponent)
-    //     800-1199   -125
+    // Offset curve (small bump applied at <1000 — bot was too weak there):
+    //     <800       -125  (was -150)
+    //     800-999    -100  (was -125)
+    //     1000-1199  -125
     //     1200-1599  -100
     //     1600-1999   -75
     //     2000-2399   -50
@@ -76,7 +77,8 @@ struct {
 // opponent across all rating bands, narrowing toward exact match at
 // master level. Goal: opponent should win a meaningful share of games.
 inline int opponent_match_offset(int rating) {
-    if (rating <  800) return -150;
+    if (rating <  800) return -125;
+    if (rating < 1000) return -100;
     if (rating < 1200) return -125;
     if (rating < 1600) return -100;
     if (rating < 2000) return  -75;
