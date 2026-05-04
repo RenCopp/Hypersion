@@ -931,8 +931,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // ---- Singular extension ----
         // If the TT move looks uniquely good (a reduced search excluding it
         // can't reach a lower beta), extend by one ply to verify.
+        // Stockfish 18 uses depth >= 5; was 6 in earlier Hypersion. Lowering
+        // adds ~5 % more SE attempts at near-leaf nodes which is where the
+        // depth amplification matters most for forcing-line discovery.
         Depth extension = 0;
-        if (depth >= 6
+        if (depth >= 5
             && m == ttMove
             && ss->excludedMove == Move::none()
             && std::abs(ttValue) < VALUE_MATE_IN_MAX_PLY
