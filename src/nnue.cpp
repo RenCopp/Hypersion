@@ -786,6 +786,14 @@ struct Network {
             mat += mv[pt] * (popcount(pos.pieces(WHITE, PieceType(pt)))
                            + popcount(pos.pieces(BLACK, PieceType(pt))));
         int v = (nnue * (77871 + mat)) / 77871;
+        // NOTE: tried SF18 rule-50 eval damping (`v -= v * rule50_count /
+        // 199`) here. Result: -13.9 +/- 39.2 ELO at 200g 5+0.05.
+        // CI crosses zero but point estimate mildly negative; combined
+        // with neutral verification result vs v2 (+1.7 ELO) the change
+        // would push the cumulative below v2 baseline. Long-TC test
+        // would be needed to reliably measure (the benefit shows in
+        // long endgames where rule50 reaches the damping zone, which
+        // are rare at 5+0.05). Left as future work.
         // Attenuate raw NNUE output to match Hypersion's classical-eval
         // magnitude (search params are Texel-tuned to that scale). Measured:
         // raw NNUE avg|v|=636, classical avg|v|=220, so divisor ~= 636/220 =
