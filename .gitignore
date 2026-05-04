@@ -62,22 +62,6 @@ Thumbs.db
 CMakeCache.txt
 CMakeFiles/
 
-# Test-run artefacts
-testing/*.pgn
-testing/*.log
-testing/Hypersion_*.exe
-testing/Hypersion_v0.exe
-testing/gauntlet_results.pgn
-testing/sprt_results.pgn
-testing/sprt_*.txt
-testing/elo_internal*.txt
-testing/elo_grid*.txt
-testing/maia_results*.txt
-testing/dala_results*.txt
-testing/lc0/
-testing/lc0.zip
-testing/maia_weights/
-testing/dala_weights/
-testing/openings/
-testing/tscp/
+# Test scripts and artefacts — local-only, not part of the public repo.
+testing/
 tmp_*.txt
