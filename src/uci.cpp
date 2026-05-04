@@ -48,18 +48,18 @@ struct {
     std::string syzygyPath = "<empty>";
     // Opponent-aware strength matching. When matchOpponent=true and the GUI
     // sends UCI_Opponent (lichess-bot does this automatically), Hypersion
-    // auto-sets UCI_LimitStrength=true and UCI_Elo to roughly the opponent's
-    // level — slightly BELOW for beginners (so a 600 player can actually
-    // win) and slightly above for experts (so they get a real fight).
+    // plays at a level roughly BELOW the opponent across all rating bands.
+    // This gives the user the satisfying experience of beating the bot
+    // while still being challenged.
     //
-    // Updated offset curve (user feedback: bot was too strong even at +0
-    // because Hypersion's calibration is approximate at low ELOs):
-    //     <800       -100  (very low: bot plays well below opponent — they win)
-    //     800-1199   -50   (beginner: bot plays slightly weaker)
-    //     1200-1599   0    (intermediate: exact match)
-    //     1600-1999  +25   (mid: slight stretch goal)
-    //     2000-2399  +50   (advanced: visible challenge)
-    //     >=2400     +75   (expert+: small edge for the engine)
+    // Updated offset curve (user feedback: bot was too strong everywhere):
+    //     <800       -150  (very low: bot well below opponent)
+    //     800-1199   -125
+    //     1200-1599  -100
+    //     1600-1999   -75
+    //     2000-2399   -50
+    //     2400-2599   -25
+    //     >=2600        0  (master+: exact match)
     //
     // Final target clamped to [matchFloor=500, matchCeiling=3200].
     bool matchOpponent = false;
@@ -72,16 +72,17 @@ struct {
     bool gameRated     = false;
 } Options;
 
-// Opponent matching offset. Below 1200 the bot plays BELOW the opponent's
-// rating to give beginners a real chance to win; above 1600 the bot adds
-// a small stretch-goal offset for experts.
+// Opponent matching offset. The bot plays consistently BELOW the
+// opponent across all rating bands, narrowing toward exact match at
+// master level. Goal: opponent should win a meaningful share of games.
 inline int opponent_match_offset(int rating) {
-    if (rating <  800) return -100;   // very-low: bot 100 below opp
-    if (rating < 1200) return  -50;   // beginner: bot 50 below opp
-    if (rating < 1600) return    0;   // intermediate: exact match
-    if (rating < 2000) return  +25;
-    if (rating < 2400) return  +50;
-    return                      +75;
+    if (rating <  800) return -150;
+    if (rating < 1200) return -125;
+    if (rating < 1600) return -100;
+    if (rating < 2000) return  -75;
+    if (rating < 2400) return  -50;
+    if (rating < 2600) return  -25;
+    return                       0;   // master+: exact match
 }
 
 void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
