@@ -144,7 +144,7 @@ profile:
 	./$(TARGET) bench 13
 	./$(TARGET) bench 11
 	$(MAKE) clean
-	$(MAKE) build CXXFLAGS="$(COMMON) $(RELEASE) -fprofile-use=$(PGO_DIR) -fprofile-correction -Wno-missing-profile" \
+	$(MAKE) build CXXFLAGS="$(COMMON) $(RELEASE) -fprofile-use=$(PGO_DIR) -fprofile-correction -Wno-missing-profile -Wno-coverage-mismatch -Wno-error=coverage-mismatch" \
 	              LDFLAGS="-pthread -flto -static -static-libstdc++ -static-libgcc -Wl,--stack,16777216 -fprofile-use=$(PGO_DIR) -fprofile-correction"
 	@rm -rf $(PGO_DIR)
 	@echo "PGO build complete: $(TARGET)"
