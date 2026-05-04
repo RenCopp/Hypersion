@@ -1182,6 +1182,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             } else if (singularBeta >= beta) {
                 // Multi-cut: another move already meets beta in the reduced search,
                 // so the position is at least beta — return early.
+                // NOTE: tried broadening to SF18's `v >= beta` condition (which is
+                // more inclusive), result -22.6 +/- 36 ELO at 200g 5+0.05.
+                // Hypersion's stricter `singularBeta >= beta` heuristic is
+                // calibrated for its specific parameter set; the broader
+                // SF version triggers spurious multi-cuts here.
                 return singularBeta;
             }
         }
