@@ -52,13 +52,56 @@ is **undetermined**.
    feature itself is real and should help; the failure here was
    methodology, not necessarily the change.
 
-## Final state (validated)
+## Final state — HONEST measurements
 
-| Comparison | Result | TC | Games |
-|---|---|---|---|
-| Current HEAD vs pre-session baseline (sequential openings) | **+70.4 ± 34.1 ELO** | 5+0.05 | 200 |
-| search1 vs baseline (sequential openings) | **-57.9 ± 42.1 ELO** | 5+0.05 | 200 |
-| **Inconsistency: -127 ELO swing on a single SE-tweak commit** — testing infrastructure is unsound | | | |
+### Bench NPS (7-sample median, single-threaded)
+
+| Build | NPS median |
+|---|---|
+| Pre-session baseline (AVX2 only) | 693,115 |
+| **Current HEAD (AVX-VNNI + 64-byte align)** | **756,185** |
+| Improvement | **+9.1 %** |
+
+This is real, reproducible, and stable across runs. The compiler-side
+work (Makefile arch flags, accumulator alignment) demonstrably
+delivered ~9 % more raw search throughput.
+
+### Match ELO results (each at 5+0.05, 200 games)
+
+Three different opening books / orderings, three contradictory results:
+
+| Test config                                    | HEAD vs baseline   |
+|-----------------------------------------------|-------------------|
+| eco.bin polyglot, `format=epd order=random`   | +70.4 ± 34.1      |
+| eco.bin polyglot, `format=epd order=sequential` | not run for HEAD |
+| popularpos_lichess_v3.epd, `order=sequential` | -27.9 ± 37.4      |
+| popularpos_lichess_v3.epd, 100 games          | -6.9 ± 56.6       |
+
+The first config (eco.bin + format=epd) was the one used throughout
+this session for A/B tests. Cutechess cannot consistently parse the
+polyglot file as EPD; the resulting "openings" are an undefined-
+behaviour zone. The proper-EPD-book result is the real measurement,
+within noise of zero — the ELO impact of session source changes is
+**undetermined**.
+
+### What's reliably improved
+
+* **Bench NPS: +9.1 %** (compiler & alignment work, measurable).
+* **AVX-VNNI active**: 12 `vpdpbusd` instructions in the binary.
+* **Build correctness**: bench passes, perft 5 startpos = 4865609,
+  perft 5 Kiwipete = 193690690.
+* **Test infrastructure**: SPRT harness in place; default opening
+  book switched to popularpos_lichess_v3.epd (real EPD positions).
+* **Code quality**: 19 atomic commits, all with rationale + tombstone
+  comments for failed attempts.
+* **Documentation**: full session post-mortem in this file.
+
+### What's NOT reliably proven
+
+* **Search ELO from rounds 1+2**: the LMR formula softening, NMP
+  zugzwang strengthening, endgame LMR mitigation, and SE depth tweak
+  may individually be neutral, positive, or negative — cannot
+  distinguish from noise with current samples.
 
 The shipped configuration:
 - LMR formula divisor 1.90 (search.cpp:53)

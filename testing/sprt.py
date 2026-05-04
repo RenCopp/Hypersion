@@ -51,7 +51,11 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
 DEFAULT_CUTECHESS = Path(r"C:\Engine\cutechess-bin\cutechess-1.4.0-win64\cutechess-cli.exe")
-DEFAULT_OPENINGS  = Path(r"C:\Engine\cutechess-master\projects\lib\res\eco\eco.bin")
+# popularpos_lichess_v3.epd is the official-stockfish/books recommended
+# diverse opening source — 200,000 real lichess positions in proper EPD
+# format. Older default (eco.bin polyglot) gave inconsistent measurements
+# because it's a binary opening book, not a position list.
+DEFAULT_OPENINGS  = HERE / "openings" / "popularpos_lichess_v3.epd"
 DEFAULT_BASELINE  = ROOT / "Hypersion.exe"
 DEFAULT_CANDIDATE = ROOT / "Hypersion.exe"
 
