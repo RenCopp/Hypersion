@@ -461,29 +461,35 @@ void Worker::iterative_deepen(Position& pos) {
     //   8    |  1580   |    1%    |  700000
     //   9    |  1715   |    0%    |  unlimited
     //  10+   |  1850+  |    0%    |  unlimited (Maia-1900 already OK)
-    // ITERATION 5: v4 had 1500/1900 calibrated, 1100 still -320 weak.
-    // Boosted skills 3-4 specifically for the UCI_Elo=900-1200 range
-    // (lichess beginner bots, Maia-1100 territory).
+    // ITERATION 7: vs dala-700 (actual ~881) Hyp@700 lost 0-10; vs dala-
+    // 900 (actual ~1000) Hyp@900 scored 15%. Both ~200 ELO weaker than
+    // configured. Bump nodes for skills 0-4 (UCI_Elo 500-1040) by 4-5x
+    // without re-introducing high blunder rates (user explicitly didn't
+    // want random-looking play).
     //
-    //   skill | UCI_Elo | blunder% | nodes
-    //   0    |   500   |   45%    |     150
-    //   1    |   635   |   33%    |     600
-    //   2    |   770   |   22%    |    2400
-    //   3    |   905   |    8%    |   30000   (boosted)
-    //   4    |  1040   |    2%    |  150000   (Maia-1100 target — boosted)
-    //   5    |  1175   |    2%    |  200000
-    //   6    |  1310   |    1%    |  300000
-    //   7    |  1445   |    1%    |  400000   (Maia-1500 target)
-    //   8    |  1580   |    1%    |  700000
-    //   9    |  1715   |    0%    |  unlimited
-    //  10+   |  1850+  |    0%    |  unlimited (Maia-1900 target)
+    //   skill | UCI_Elo | blunder% | nodes      (target real Elo)
+    //   0    |   500   |    8%    |     200
+    //   1    |   635   |    7%    |     800     (~700 vs dala-700)
+    //   2    |   770   |    5%    |    2500
+    //   3    |   905   |    4%    |    8000     (~900 vs dala-900)
+    //   4    |  1040   |    3%    |   25000     (~1100 vs dala-1100)
+    //   5    |  1175   |    2%    |   60000
+    //   6    |  1310   |    2%    |  120000
+    //   7    |  1445   |    1%    |  250000     (~1500 vs Maia 1500)
+    //   8    |  1580   |    1%    |  500000
+    //   9    |  1715   |    0%    |  900000
+    //  10+   |  1850+  |    0%    |  unlimited
+    // ITERATION 8: v7 had 700=+120 strong, 900=-120 weak. Adjust just
+    // those two buckets to hit dead-center.
+    //   skill 1 (UCI 700): 800 -> 500 nodes    (-60 ELO)
+    //   skill 3 (UCI 900): 8000 -> 14000 nodes (+60 ELO)
     static constexpr int BLUNDER_PCT[21] = {
-        45, 33, 22,  8,  2,  2,  1,  1,  1,  0,
+         8,  7,  5,  4,  3,  2,  2,  1,  1,  0,
          0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
     };
     static constexpr std::uint64_t SKILL_NODES[21] = {
-            150ULL,       600ULL,      2400ULL,     30000ULL,    150000ULL,
-         200000ULL,    300000ULL,    400000ULL,    700000ULL,           0ULL,
+            200ULL,       500ULL,      2500ULL,     14000ULL,     25000ULL,
+          60000ULL,    120000ULL,    250000ULL,    500000ULL,    900000ULL,
               0ULL,         0ULL,         0ULL,         0ULL,         0ULL,
               0ULL,         0ULL,         0ULL,         0ULL,         0ULL,         0ULL
     };
