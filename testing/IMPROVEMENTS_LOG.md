@@ -1,5 +1,35 @@
 # Hypersion improvement log — autonomous engineering session
 
+## Final state (validated)
+
+| Comparison | Result | TC | Games |
+|---|---|---|---|
+| **Current HEAD vs pre-session baseline** | **+70.4 ± 34.1 ELO** | 5+0.05 | 200 |
+
+The shipped configuration:
+- LMR formula divisor 1.90 (search.cpp:53)
+- NMP zugzwang strengthening at depth ≥ 12 (search.cpp:802)
+- Endgame LMR mitigation (-1 ply when ≤8 pieces) (search.cpp:982)
+- Singular extension at depth ≥ 5 (search.cpp:935)
+- AVX-VNNI build target + 64-byte alignment
+
+## Methodology lesson — random openings poison chain inference
+
+A second-session experiment with SF18-style `opponentWorsening` flag
+showed strong individual A/B results (+33, +117, +35, +102 ELO across
+four sequential rounds) but a final cumulative direct measurement
+revealed **-161.9 ELO** — the chain was bogus. Root cause: cutechess
+`-openings order=random` selects a different opening sample every
+match, and per-match selection bias compounds into massive false
+positives across chained development.
+
+**Fix applied**: `testing/sprt.py` now defaults to
+`order=sequential` with `start=1`, giving every match the same
+opening prefix from the file — chain inferences become trustworthy.
+Old behaviour preserved behind `--random-openings`.
+
+
+
 This log tracks the changes made during the no-GPU best-path session.
 Each entry has: what changed, why, validation status, expected ELO.
 

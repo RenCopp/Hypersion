@@ -121,12 +121,20 @@ def build_command(args, pgn_path: Path) -> list[str]:
         f"option.Hash={args.hash}",
         f"option.Threads={args.threads}",
     ]
+    # Opening order: `random` introduces match-specific selection bias.
+    # Chained inferences across multiple A/B tests with random-opening
+    # selection are unreliable (verified empirically in this codebase).
+    # Default to `ordered` so every match draws from the same prefix of
+    # the opening file — that makes chain inferences valid.  `--random-
+    # openings` re-enables the old behaviour for one-off matches.
+    opening_order = "random" if args.random_openings else "sequential"
     cmd = [str(args.cutechess)]
     cmd += [
         "-engine", f"name=NEW", f"cmd={args.new}", "option.OwnBook=false",
         "-engine", f"name=OLD", f"cmd={args.old}", "option.OwnBook=false",
         "-each", *each_opts,
-        "-openings", f"file={args.openings}", "format=epd", "order=random", "plies=8",
+        "-openings", f"file={args.openings}", "format=epd",
+        f"order={opening_order}", f"start={args.opening_start}", "plies=8",
         "-repeat",
         "-recover",
         "-concurrency", str(args.concurrency),
@@ -260,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p.add_argument("--label",  default=None,
                    help="Tag for output PGN/log filenames")
+    p.add_argument("--random-openings", action="store_true",
+                   help="Use cutechess `order=random` (default: sequential, reproducible)")
+    p.add_argument("--opening-start", type=int, default=1,
+                   help="Starting position index in the opening file (default 1)")
 
     args = p.parse_args(argv)
 
