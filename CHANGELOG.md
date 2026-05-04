@@ -111,6 +111,29 @@ direction.
 
 ## Post-v2 patches (on `main`, not yet tagged)
 
+### PGO build experiment
+
+Re-tested `make profile` (after the fix in commit `e9a07e2`):
+* PGO build bench median (5 samples): 707,864 NPS
+* Non-PGO build:                       697,821 NPS
+* Speedup: ~1.4 % — within the bench-run noise floor
+
+PGO builds work correctly but the marginal gain doesn't justify the
+~5× longer build time for normal development.  Kept the `profile`
+make target available for release packaging when worth it.
+
+### Lichess-bot config polish (off-repo, in user's local install)
+
+In `lichess-bot-master/config-hypersion.yml`:
+* `pgn_directory: "C:/Engine/Hypersion/lichess_games"` — saves all
+  played games as PGN for offline review
+* `pgn_file_grouping: "all"` — single big PGN file
+* `offer_draw_score: 0 -> 50` — was effectively "never accept"
+  (|score| <= 0 is impossible); now accepts draws when |score|
+  <= 50 cp for 10 moves with <= 10 pieces (sane endgame draw)
+* Greeting message updated to introduce Hypersion and link to
+  the GitHub repo
+
 ### Long-TC verification result
 
 200-game match HEAD (post-v2 cumulative) vs the published v2-tag
