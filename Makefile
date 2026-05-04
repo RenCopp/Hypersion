@@ -48,8 +48,9 @@ ifeq ($(ARCH),x86-64-bmi2)
 endif
 # AVX-VNNI: 256-bit VNNI dpbusd intrinsics (Intel Alder Lake+, Zen 4+ E-cores
 # do NOT have it). Adds ~15-25 % NNUE-FC speed via _mm256_dpbusd_epi32.
+# Use this for Intel 12th/13th/14th gen consumer CPUs (no AVX-512), Zen 4+.
 ifeq ($(ARCH),x86-64-avxvnni)
-    ARCH_FLAGS = -march=haswell -mavxvnni -mbmi2 -DUSE_POPCNT -DUSE_AVX2 -DUSE_PEXT -DUSE_AVXVNNI
+    ARCH_FLAGS = -march=alderlake -mavxvnni -mbmi2 -DUSE_POPCNT -DUSE_AVX2 -DUSE_PEXT -DUSE_AVXVNNI
 endif
 ifeq ($(ARCH),x86-64-avx512)
     ARCH_FLAGS = -march=skylake-avx512 -DUSE_POPCNT -DUSE_AVX2 -DUSE_AVX512 -DUSE_PEXT

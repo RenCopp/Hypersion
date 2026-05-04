@@ -48,9 +48,13 @@ void init() {
     if (TT.hashfull() == 0) TT.resize(16);   // default 16 MB until UCI overrides
     for (int d = 0; d <= LMR_MAX_DEPTH; ++d)
         for (int mc = 0; mc <= LMR_MAX_MOVE; ++mc) {
-            // Stockfish-style: ~ log(d) * log(mc) / 2 plies.
+            // Stockfish-style: ~ log(d) * log(mc) / 2 plies. SF18 master uses
+            // a divisor near 1.85; previous Hypersion 1.95 reduced slightly
+            // less (more conservative). 1.90 is a midpoint — small additional
+            // pruning aggression, matched by the more accurate NNUE eval to
+            // pay for itself.
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
-                              : int(std::log(double(d)) * std::log(double(mc)) / 1.95);
+                              : int(std::log(double(d)) * std::log(double(mc)) / 1.90);
         }
     Threads.set_size(2);
 }
@@ -790,12 +794,23 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     }
 
     // ---- Null Move Pruning ----
+    // Zugzwang protection: at high depths require strictly more non-pawn
+    // material than a single minor piece, where zugzwang false-positives
+    // are most damaging (loss is amplified by the depth saved). Below the
+    // depth threshold a single minor still permits NMP — the cost of a
+    // wrong cut is cheap. At low depths even K+P NMP is fine because the
+    // verification cost of a re-search is small. Endgame analysis of the
+    // 50g vs SF match showed 70 % of blunders were in endgame; this cuts
+    // the worst tree-pruning bug among them.
+    int npMat = int(pos.non_pawn_material(pos.side_to_move()));
+    bool nmpMaterialOk = (depth < 12) ? (npMat > 0)
+                                       : (npMat > 781);   // > knight value
     if (!isPv && !inCheck && depth >= 3
         && (ss - 1)->currentMove != Move::null()
         && ss->excludedMove == Move::none()
         && staticEval >= beta
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
-        && pos.non_pawn_material(pos.side_to_move()) > 0) {
+        && nmpMaterialOk) {
 
         int R = 4 + depth / 3 + std::min(3, int(staticEval - beta) / NMP_EVAL_BETA_DIV);
         StateInfo st;
@@ -979,6 +994,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ttMove == m)       --r;
             if (m == counter)      --r;
             if (isCapture)         --r;   // captures shouldn't be reduced as much
+
+            // Endgame LMR mitigation: when the position has very few pieces,
+            // reduce by one less. Endgames need accurate calculation of long
+            // forcing lines (passed-pawn races, K+P chasing, opposition) and
+            // LMR is much more likely to truncate critical lines when a
+            // single tempo flips the result. The 50g vs SF match analysis
+            // showed 70 % of Hypersion blunders happened in endgame — many
+            // attributable to over-reduced lines that hid the refutation.
+            if (popcount(pos.pieces()) <= 8) --r;
 
             // Stockfish-18 LMR history correction. High-history quiet moves get
             // reduced less; low-history get reduced more. Sums the same signals

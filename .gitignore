@@ -69,3 +69,4 @@ testing/Hypersion_*.exe
 testing/Hypersion_v0.exe
 testing/gauntlet_results.pgn
 testing/sprt_results.pgn
+testing/sprt_*.txt

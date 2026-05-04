@@ -453,8 +453,8 @@ inline int finny_key(int persp, int ksq) {
 }
 
 template<int L1>
-struct alignas(32) FinnyEntry {
-    alignas(32) std::int16_t acc[L1];
+struct alignas(64) FinnyEntry {
+    alignas(64) std::int16_t acc[L1];
     std::int32_t psqt[PSQT_BUCKETS];
     Bitboard pieces_bb[16];     // [Piece] -> squares occupied by that piece (12 used, 16 for index)
     bool valid = false;
@@ -707,8 +707,8 @@ struct Network {
         }
 
         // Threats remain non-incremental — refreshed each forward() call.
-        alignas(32) std::int16_t tw[1024], tb2[1024];
-        std::int32_t tpw[8] = {}, tpb[8] = {};
+        alignas(64) std::int16_t tw[1024], tb2[1024];
+        alignas(64) std::int32_t tpw[8] = {}, tpb[8] = {};
         if (is_big) {
             std::memset(tw,  0, l1 * sizeof(std::int16_t));
             std::memset(tb2, 0, l1 * sizeof(std::int16_t));
@@ -735,7 +735,7 @@ struct Network {
         std::int16_t*       taccs[2] = { (persp[0] == WHITE) ? tw  : tb2,
                                          (persp[0] == WHITE) ? tb2 : tw  };
         int clamp_max = is_big ? 255 : (127 * 2);
-        alignas(32) std::uint8_t transformed[1024];
+        alignas(64) std::uint8_t transformed[1024];
         for (int p = 0; p < 2; ++p) {
             int offset = (l1 / 2) * p;
             for (int j = 0; j < l1 / 2; ++j) {
@@ -750,24 +750,24 @@ struct Network {
 
         const FC* L = fc[bkt];
         int fc0_out = l2 + 1;
-        alignas(32) std::int32_t o0[64];
+        alignas(64) std::int32_t o0[64];
         for (int o = 0; o < fc0_out; ++o)
             o0[o] = L[0].bias[o] + simd_dot_i8_u8(&L[0].weight[o * L[0].pi], transformed, l1);
         std::int32_t skip = o0[l2] * (600 * OUTPUT_SCALE) / (127 * (1 << WSCALE));
 
         int fc1_in = 2 * l2;
-        alignas(32) std::uint8_t f1in[128];
+        alignas(64) std::uint8_t f1in[128];
         std::memset(f1in, 0, sizeof(f1in));
         for (int i = 0; i < l2; ++i) {
             f1in[i]      = std::uint8_t(std::min<std::int64_t>(127,
                               (std::int64_t(o0[i]) * o0[i]) >> 19));
             f1in[l2 + i] = std::uint8_t(std::clamp(o0[i] >> WSCALE, 0, 127));
         }
-        alignas(32) std::int32_t o1[64];
+        alignas(64) std::int32_t o1[64];
         for (int o = 0; o < l3; ++o)
             o1[o] = L[1].bias[o] + simd_dot_i8_u8(&L[1].weight[o * L[1].pi], f1in, fc1_in);
 
-        alignas(32) std::uint8_t f2in[64];
+        alignas(64) std::uint8_t f2in[64];
         std::memset(f2in, 0, sizeof(f2in));
         for (int i = 0; i < l3; ++i)
             f2in[i] = std::uint8_t(std::clamp(o1[i] >> WSCALE, 0, 127));
@@ -1012,8 +1012,8 @@ void make_valid(const Position& pos, Color c, bool big) {
     // Any divergence means a bug in the incremental update (DirtyPiece tracking,
     // king-move detection, chain ordering, etc.). Aborts on first mismatch.
     {
-        alignas(32) std::int16_t ref_acc[1024];
-        std::int32_t ref_psqt[PSQT_BUCKETS];
+        alignas(64) std::int16_t ref_acc[1024];
+        alignas(64) std::int32_t ref_psqt[PSQT_BUCKETS];
         net.refresh_psq(pos, ref_acc, ref_psqt, int(c));
         for (int i = 0; i < net.l1; ++i) {
             if (acc[i] != ref_acc[i]) {

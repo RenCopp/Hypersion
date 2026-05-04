@@ -33,9 +33,14 @@ struct DirtyPiece {
 // by hypersion::NNUE::make_valid(); evaluate() only walks the search-stack
 // chain and applies DirtyPiece deltas. Sized for the SF18 SFNNv10
 // architecture: big = 1024-d FT, small = 128-d FT.
+//
+// 64-byte alignment matches one cache line — eliminates the rare case where
+// a single accumulator straddles a line boundary and forces two L1d loads.
+// AVX-VNNI operates on 32-byte vectors so this only matters cosmetically for
+// the inner loops, but the cache-line alignment is a free win for streaming.
 struct NNUEAccState {
-    alignas(32) std::int16_t big_acc  [2][1024];
-    alignas(32) std::int16_t small_acc[2][128];
+    alignas(64) std::int16_t big_acc  [2][1024];
+    alignas(64) std::int16_t small_acc[2][128];
     std::int32_t big_psqt  [2][8];
     std::int32_t small_psqt[2][8];
     bool valid_big  [2] = { false, false };
