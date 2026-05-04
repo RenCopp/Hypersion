@@ -65,6 +65,10 @@ endif
 WARN     = -Wall -Wextra -Wcast-qual -Wshadow -pedantic -Wno-unused-parameter
 COMMON   = $(STD) $(WARN) $(ARCH_FLAGS) -pthread
 RELEASE  = -O3 -DNDEBUG -flto -fno-exceptions
+# NOTE: tried -funroll-loops; bench showed +9% NPS but 200g 5+0.05 match
+# regressed -22.6 ELO. Likely cause: aggressive unrolling expands the
+# instruction footprint, hurting i-cache hit rate when 8 cutechess
+# games run concurrently. Bench (single-thread) is misleading here.
 DEBUG    = -O0 -g3 -fsanitize=address,undefined -fno-omit-frame-pointer
 
 CXXFLAGS ?= $(COMMON) $(RELEASE)
