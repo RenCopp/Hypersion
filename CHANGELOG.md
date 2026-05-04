@@ -109,6 +109,42 @@ direction.
 
 ---
 
+## Post-v2 patches (on `main`, not yet tagged)
+
+### Lichess-bot config: `move_overhead` 2000 ms → 200 ms
+
+The lichess-bot wrapper was reserving **2 seconds per move** as
+"network safety margin" (the framework's default). On a 60+0 bullet
+game, this leaves 58 s for ~40 moves vs. an opponent that has the
+full 60 s — Hypersion was effectively flagging or playing very
+shallow moves through no fault of its own search.
+
+Fixed in `lichess-bot-master/config-hypersion.yml`:
+* `move_overhead: 2000` → `200` (top-level / wrapper)
+* `Move Overhead: 300` → `100` (engine UCI option)
+
+Total per-move safety reserve: **300 ms** (was 2300 ms).  This
+should give a noticeable strength bump in bullet/blitz games on
+lichess.
+
+### Close-major-pieces crash bug — RESOLVED
+
+The `ACCESS_VIOLATION 0xC0000005` crash on positions like
+`8/4kp2/3p4/3P1q2/8/4Q3/5PK1/8 w - - 0 1` through python-chess
+piped stdio (documented in this CHANGELOG as "NOT YET FIXED") is
+no longer reproducible.
+
+Verified with:
+* `testing/test_crash_repro.py` — 7 close-major-piece positions, all OK.
+* `testing/test_crash_stress.py` — 200 analyses across 8 positions
+  through python-chess `SimpleEngine.popen_uci`, **0 crashes** in 34 s.
+
+Most likely fixed by the v2 alignas(64) + AVX-VNNI rebuild — the
+bug had the signature of memory mis-alignment colliding with SIMD
+loads under specific stack-pressure scenarios.
+
+---
+
 ## Unreleased (in progress on `main`)
 
 Currently stacked, not yet tagged:
