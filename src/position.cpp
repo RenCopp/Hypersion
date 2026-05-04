@@ -692,6 +692,13 @@ bool Position::see_ge(Move m, Value threshold) const {
 
         // Stop pinned attackers from contributing if the king isn't already on `to`.
         // (Skipped for simplicity — costs a few elo of accuracy in very rare positions.)
+        // NOTE: tried porting SF18 pin-aware logic
+        //   `if (pinners(~stm) & occ) stmAttackers &= ~blockers_for_king(stm);`
+        // Result: -10.4 +/- 36.1 ELO at 200g 5+0.05.  Within noise but mildly
+        // negative — Hypersion's surrounding margins (SEE_QUIET_MARGIN etc.)
+        // are tuned assuming the simpler SEE; the more accurate version
+        // changes which moves get pruned, and re-tuning the margins is
+        // needed to capture the win.
 
         // Find the least-valued attacker for this side.
         PieceType pt;
