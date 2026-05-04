@@ -169,6 +169,42 @@ for it.
 
 ---
 
+## Round 3 — Bisection + LMR revert (commit `ff88bf7`)
+
+Goal: identify which of round-1's three changes caused the long-TC
+regression seen in the validation match.
+
+Built `search3` = round-1 + round-2 with the LMR formula change
+reverted (1.90 → 1.95). Other three changes (NMP zugzwang, endgame
+LMR mitigation, SE 6→5) preserved.
+
+**Bisection results:**
+
+| Test                                    | Result            | Conclusion |
+|----------------------------------------|-------------------|------------|
+| search3 vs search2, fast TC 5+0.05    | -41.9 ± 38.1     | LMR softening alone was contributing ~+42 ELO at fast TC |
+| search3 vs baseline, long TC 10+0.1   | +34.9 ± 63.3     | The other 3 changes give clear ELO at slow TC even without LMR softening |
+
+**Inferred final-state ELO vs pre-session baseline:**
+
+| Time control | search2 (LMR=1.90) | search3 (LMR=1.95) ← shipped |
+|-------------|--------------------|---------------------------------|
+| Fast 5+0.05 | ~+74 ELO          | ~+32 ELO                       |
+| Slow 10+0.1 | ~-7 ELO           | ~+35 ELO                       |
+
+The shipped version (`ff88bf7`) is the BALANCED configuration —
+positive ELO at every tested TC. The aggressive LMR softening
+(+74 at fast TC) is preserved in `testing/Hypersion_search2.exe`
+for fast-TC-only deployments.
+
+### Suggested next step: TC-aware LMR
+
+If both modes are wanted, add a UCI option `LMRDivisor` defaulting
+to 195 (equiv. of 1.95) with valid range 170–220. Tournament code
+can set 190 for fast TC, 195 for normal play.
+
+---
+
 ## Step 5 — SPSA tuning ⏸ SKELETON ONLY
 
 Files:
