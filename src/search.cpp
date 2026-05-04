@@ -564,6 +564,11 @@ void Worker::iterative_deepen(Position& pos) {
                     pos.do_move(rm.pv0, st);
                     TT.prefetch(pos.key());
                     pawnCorrHist.prefetch(pos.side_to_move(), pos.pawn_key());
+                    // Track per-root-move node effort for SF-style bestMoveEffort
+                    // time scaling. Capture the node count snapshot before this
+                    // root move's subtree begins.
+                    std::uint64_t nodesBeforeMove = pool ? pool->total_nodes()
+                                                         : nodes.load(std::memory_order_relaxed);
                     Value v;
                     if (moveIndex == 0) {
                         v = -search(pos, ss + 1, -windowBeta, -alpha, d - 1, childPv, true, false);
@@ -573,6 +578,11 @@ void Worker::iterative_deepen(Position& pos) {
                             v = -search(pos, ss + 1, -windowBeta, -alpha, d - 1, childPv, true, false);
                     }
                     pos.undo_move(rm.pv0);
+                    // Accumulate effort: nodes consumed by this root move's subtree.
+                    std::uint64_t nodesAfterMove = pool ? pool->total_nodes()
+                                                        : nodes.load(std::memory_order_relaxed);
+                    if (nodesAfterMove > nodesBeforeMove)
+                        rm.effort += nodesAfterMove - nodesBeforeMove;
 
                     if (should_stop()) break;
 
@@ -700,6 +710,37 @@ void Worker::iterative_deepen(Position& pos) {
                 if (gap >= 150)      scale = std::min(scale, 0.4);
                 else if (gap >= 80)  scale = std::min(scale, 0.6);
                 else if (gap >= 40)  scale = std::min(scale, 0.85);
+            }
+
+            // Best-move effort scaling (Stockfish 18 src/search.cpp). When
+            // the search has concentrated most of its node budget on the
+            // current best move, the engine is confident — save time.
+            // When effort is spread across many root moves, the position
+            // is unclear — keep searching at full budget.
+            //
+            // SF's reference points: nodesEffort = best.effort * 100000 /
+            // total_nodes. At 78 % effort, multiplier 0.96; at 94 %, 0.74.
+            // Linearly interpolated, clamped to [0.74, 0.96]. Adapted as
+            // an additional factor on the scale below.
+            //
+            // We also gate on d >= 6 so the early iterations (which
+            // naturally have wildly varying effort) don't trigger early
+            // exits.
+            if (d >= 6 && !rootMoves.empty()) {
+                std::uint64_t totN = pool ? pool->total_nodes() : nodes.load();
+                if (totN > 1) {
+                    std::uint64_t bestEffort = rootMoves[0].effort;
+                    int nodesEffort = int(bestEffort * 100000ULL / totN);
+                    double effortScale;
+                    if (nodesEffort <= 78000)      effortScale = 0.96;
+                    else if (nodesEffort >= 94000) effortScale = 0.74;
+                    else {
+                        // Linear interpolate 78000 -> 94000 :: 0.96 -> 0.74
+                        double t = double(nodesEffort - 78000) / 16000.0;
+                        effortScale = 0.96 + t * (0.74 - 0.96);
+                    }
+                    scale *= effortScale;
+                }
             }
 
             // KNOWN-ISSUE (user-reported bullet bug): at very low remaining

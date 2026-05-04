@@ -28,6 +28,10 @@ struct RootMove {
     Value   prevScore= -VALUE_INFINITE;
     int     selDepth = 0;
     PVLine  pv;
+    // SF18-style "effort" tracking: number of nodes consumed while this root
+    // move was the one being explored. Used by `bestMoveEffort` time scaling
+    // — when one root move dominates the search, time can be saved.
+    std::uint64_t effort = 0;
     bool    operator<(const RootMove& other) const { return score > other.score; }
 };
 
