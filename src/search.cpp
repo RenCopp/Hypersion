@@ -1033,6 +1033,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         if (depth >= 3 && moveCount > 1 + (isPv ? 1 : 0) && (!isCapture || cutNode)) {
             r = lmr_base(depth, moveCount);
             if (!improving)        ++r;
+            // NOTE: round 9 added `if (opponentWorsening) ++r;` here.
+            // Result: -33 ELO at 200 games. RFP and futility both work
+            // well with opponentWorsening because they affect tree
+            // ENTRY/EXIT (full subtree elision); LMR works on depth WITHIN
+            // a subtree where over-reducing critical late moves costs
+            // more than the saved nodes are worth.
             if (cutNode)           r += 2;
             if (isPv)              --r;
             if (ttPv)              --r;   // SF-style: TT-remembered PV positions reduced less
