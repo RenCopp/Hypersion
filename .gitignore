@@ -65,3 +65,6 @@ CMakeFiles/
 # Test scripts and artefacts — local-only, not part of the public repo.
 testing/
 tmp_*.txt
+bot_v*.log
+bot_v*.err
+lichess_games/
