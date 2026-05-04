@@ -1,10 +1,64 @@
 # Hypersion improvement log — autonomous engineering session
 
+## ⚠️ Critical methodology caveat — measurements unreliable
+
+After many rounds of A/B testing, I discovered that **all measurements
+in this log are unreliable** because the test setup has an unsolved
+opening-selection issue. Direct evidence:
+
+| Comparison | Random openings | Sequential openings | Δ |
+|---|---|---|---|
+| search1 vs baseline | **+59.6** ELO | **-57.9** ELO | 117 ELO swing |
+| search12 vs search2 | -161.9 ELO | -132.9 ELO | ~30 ELO swing |
+| HEAD (≈search2) vs baseline | not measured | **+70.4** ELO | — |
+
+These contradict each other: if search1 is -58 vs baseline and HEAD
+is +70 vs baseline (HEAD ≈ search2 = search1 + SE 6→5, a single
+small tweak), the chain doesn't close. **At least one of the three
+measurements must be wrong.**
+
+The most likely root cause is the opening book (`eco.bin` is a
+polyglot/binary format, sprt.py passes `format=epd` to cutechess,
+and cutechess's behaviour on this mismatch is unclear). Random
+opening selection produces match-specific bias; sequential picks
+unbalanced positions deterministically; both are problematic.
+
+**Until this is resolved, no claim about session ELO impact should
+be trusted.** The engine source code changes are real (LMR=1.90,
+NMP zugzwang, endgame LMR mitigation, SE depth=5, AVX-VNNI build,
+SPRT harness, PGO Makefile fix) but their net ELO contribution
+is **undetermined**.
+
+## What's been verified independently
+
+* **Build correctness**: bench passes, perft 5 from startpos =
+  4865609 (canonical), perft 5 from Kiwipete = 193690690 (canonical).
+* **AVX-VNNI active**: 12 `vpdpbusd` instructions in the binary.
+* **SPRT harness**: `testing/sprt.py` runs cutechess and parses
+  output correctly; the harness itself is sound.
+* **Code is clean**: 18 commits this session, all atomic, all with
+  rationale comments + tombstone notes for failed attempts.
+
+## Recommended next steps for the next contributor
+
+1. **Replace `eco.bin` with an actual EPD file** (e.g. UHO_4060_v2,
+   8moves_v3.epd, Pohl, or similar standard engine-test books).
+2. **Re-baseline** using sprt.py with the new opening book,
+   sequential order. Establish a clean baseline-vs-HEAD ELO.
+3. **Bisect the round-1 changes individually** (LMR softening
+   alone, NMP zugzwang alone, endgame LMR alone) to determine
+   which ones actually help with proper opening control.
+4. **Re-try opponentWorsening** with the proper book — the SF18
+   feature itself is real and should help; the failure here was
+   methodology, not necessarily the change.
+
 ## Final state (validated)
 
 | Comparison | Result | TC | Games |
 |---|---|---|---|
-| **Current HEAD vs pre-session baseline** | **+70.4 ± 34.1 ELO** | 5+0.05 | 200 |
+| Current HEAD vs pre-session baseline (sequential openings) | **+70.4 ± 34.1 ELO** | 5+0.05 | 200 |
+| search1 vs baseline (sequential openings) | **-57.9 ± 42.1 ELO** | 5+0.05 | 200 |
+| **Inconsistency: -127 ELO swing on a single SE-tweak commit** — testing infrastructure is unsound | | | |
 
 The shipped configuration:
 - LMR formula divisor 1.90 (search.cpp:53)
