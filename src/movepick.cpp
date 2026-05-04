@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "bitboard.h"
+#include "evaluate.h"   // PieceValueMG[]
 
 namespace hypersion {
 
@@ -78,20 +79,67 @@ void MovePicker::score_captures() {
 }
 
 void MovePicker::score_quiets() {
-    // Quiet move ordering: butterfly history + 1-ply continuation history.
-    // contHist2 (2-ply lookback) is UPDATED by search.cpp on cutoffs but is
-    // intentionally NOT read here: experiments adding it (with both /2 and
-    // /4 weights, plus 4-ply variants) regressed ~26 ELO. Re-tuning weights
-    // is left for a future Texel-style sweep.
+    // Quiet move ordering: butterfly history + 1-ply continuation history,
+    // PLUS Stockfish-18-style threat-aware bonus / penalty:
+    //
+    //   Penalty for moving a piece TO a square attacked by a LESSER piece
+    //   (e.g. queen walking into a pawn-attacked square is terrible).
+    //   Bonus for moving a piece AWAY from such a square (escape).
+    //
+    // Magnitudes use PieceValueMG[], so a queen escape bumps the score by
+    // ~50 k while butterfly history caps at ~7 k — threat-driven moves
+    // dominate when threats exist.  Source: SF18 movepick.cpp::score().
+    Color us   = pos.side_to_move();
+    Color them = ~us;
+
+    // attacks_by_lesser[pt] = squares attacked by enemy pieces strictly
+    // less valuable than `pt`.  Index 0 (NO_PIECE) and 7 (ALL_PIECES) unused.
+    Bitboard atkBy_PAWN   = 0, atkBy_KNIGHT = 0, atkBy_BISHOP = 0, atkBy_ROOK = 0;
+    {
+        Bitboard oppPawns = pos.pieces(them, PAWN);
+        atkBy_PAWN = (them == WHITE)
+            ? pawn_attacks_bb<WHITE>(oppPawns)
+            : pawn_attacks_bb<BLACK>(oppPawns);
+        Bitboard occ = pos.pieces();
+        Bitboard bb;
+        bb = pos.pieces(them, KNIGHT);
+        while (bb) atkBy_KNIGHT |= PseudoAttacks[KNIGHT][pop_lsb(bb)];
+        bb = pos.pieces(them, BISHOP);
+        while (bb) atkBy_BISHOP |= attacks_bb<BISHOP>(pop_lsb(bb), occ);
+        bb = pos.pieces(them, ROOK);
+        while (bb) atkBy_ROOK   |= attacks_bb<ROOK>  (pop_lsb(bb), occ);
+        // Queen attacks contribute only to threatByLesser[KING]; we don't
+        // bother since the king is never reordered by this heuristic in
+        // practice (the king is the most-mover-of-last-resort move type).
+    }
+    Bitboard threatByLesser[PIECE_TYPE_NB] = {};
+    threatByLesser[KNIGHT] = atkBy_PAWN;
+    threatByLesser[BISHOP] = atkBy_PAWN;
+    threatByLesser[ROOK]   = atkBy_PAWN | atkBy_KNIGHT | atkBy_BISHOP;
+    threatByLesser[QUEEN]  = threatByLesser[ROOK] | atkBy_ROOK;
+
     bool useCont1 = contHist1 != nullptr
                  && prevPc != NO_PIECE
                  && prevMv != Move::none()
                  && prevMv != Move::null();
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
-        int v = bhist ? bhist->get(pos.side_to_move(), m) : 0;
+        int v = bhist ? bhist->get(us, m) : 0;
         Piece moving = pos.piece_on(m.from_sq());
+        PieceType pt = type_of(moving);
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq());
+
+        // Threat-by-lesser bonus / penalty (SF18).
+        if (pt >= KNIGHT && pt <= QUEEN) {
+            Bitboard tBL  = threatByLesser[pt];
+            Bitboard toBB = Bitboard(1) << int(m.to_sq());
+            Bitboard frBB = Bitboard(1) << int(m.from_sq());
+            int signedV   = (tBL & toBB) ? -19
+                          : (tBL & frBB) ?  20
+                                         :   0;
+            v += int(Eval::PieceValueMG[pt]) * signedV;
+        }
+
         it->value = v;
     }
 }
