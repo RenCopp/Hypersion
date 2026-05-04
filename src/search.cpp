@@ -49,12 +49,13 @@ void init() {
     for (int d = 0; d <= LMR_MAX_DEPTH; ++d)
         for (int mc = 0; mc <= LMR_MAX_MOVE; ++mc) {
             // Stockfish-style: ~ log(d) * log(mc) / 2 plies. SF18 master uses
-            // a divisor near 1.85; previous Hypersion 1.95 reduced slightly
-            // less (more conservative). 1.90 is a midpoint — small additional
-            // pruning aggression, matched by the more accurate NNUE eval to
-            // pay for itself.
+            // a divisor near 1.85; Hypersion's 1.95 reduces slightly less
+            // (more conservative). A 1.90 round briefly hit fast-TC ELO, but
+            // a follow-up long-TC bisection showed it cost depth at slow TC
+            // where total node budget is generous. Reverted — keep 1.95 for
+            // the depth-conservation win.
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
-                              : int(std::log(double(d)) * std::log(double(mc)) / 1.90);
+                              : int(std::log(double(d)) * std::log(double(mc)) / 1.95);
         }
     Threads.set_size(2);
 }
