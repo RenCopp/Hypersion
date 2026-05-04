@@ -816,6 +816,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
         && nmpMaterialOk) {
 
+        // NMP reduction. SF18-master uses R = 7 + depth/3 with no eval-beta
+        // term. A 4 -> 5 base bump was tried (round 5) and regressed -50
+        // ELO at 104 games — Hypersion's 5x eval scale means the eval-beta
+        // bonus saturates at +3 with much smaller eval surpluses than SF,
+        // so the effective R is already SF-comparable at base=4. To safely
+        // re-tune NMP for Hypersion's eval scale, the eval-beta divisor
+        // and the base must move together.
         int R = 4 + depth / 3 + std::min(3, int(staticEval - beta) / NMP_EVAL_BETA_DIV);
         StateInfo st;
         ss->currentMove = Move::null();
