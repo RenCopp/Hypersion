@@ -1055,7 +1055,19 @@ bool use_small(const Position& pos) {
     int se = PAWN_VAL * (popcount(pos.pieces( c, PAWN))
                        - popcount(pos.pieces(~c, PAWN)))
            + int(pos.non_pawn_material(c)) - int(pos.non_pawn_material(~c));
-    return std::abs(se) > 962;
+    // Threshold raised from SF18's default 962 to 1500. The big net is
+    // more accurate at finding endgame conversion plans (passed-pawn
+    // races, K+R conversions, etc.) — exactly the situations a
+    // user-reported bullet bug surfaces. The cost is ~5 % NPS for
+    // those positions, but the eval improvement is worth it for the
+    // accuracy in winning-but-conversion-required scenarios.
+    //
+    // SF18 chose 962 because at that scale, small net is "good enough"
+    // to recognize the obvious winner. But the SF eval target is
+    // win-rate, which doesn't penalize sub-optimal but still-winning
+    // moves — exactly the moves that cause the bullet conversion
+    // bug for human-time-pressure opponents.
+    return std::abs(se) > 1500;
 }
 
 }  // namespace

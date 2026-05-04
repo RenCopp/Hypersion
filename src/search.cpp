@@ -540,6 +540,27 @@ void Worker::iterative_deepen(Position& pos) {
             else if (stableIters >= 2) scale = 0.75;
             if (bestMoveChanges >= 3 && d <= 12) scale *= 1.4;
 
+            // Falling-eval factor (Stockfish 18 src/search.cpp). When the
+            // score has DROPPED from the previous iteration, the position
+            // is harder than we thought — spend more time. When it has
+            // RISEN, we're finding the win — save time. This directly
+            // addresses the user-reported bullet bug: with a passed pawn
+            // and rook, eval starts high but if opponent finds a check
+            // that drops it temporarily, fallingEval bumps up and we
+            // search deeper to find the actual conversion.
+            //
+            // Clamped to [0.6, 1.7] — never less than 60 % of base time
+            // (so we don't blitz away the win) nor more than 170 %
+            // (so we don't flag).
+            //
+            // Scale: Hypersion's eval is at SF's 5x scale, so divide
+            // the eval-drop-to-time factor by 5 vs SF's coefficient.
+            if (d > 1) {
+                int drop = int(prevScore - bestScore);   // > 0 when eval dropped
+                double fallingEval = std::clamp(1.0 + drop / 1000.0, 0.6, 1.7);
+                scale *= fallingEval;
+            }
+
             // Endgame time bonus. SF analysis on a 50-game match against
             // full Stockfish showed 70% of Hypersion's blunders happen in
             // endgame phases (early-end + deep-end), and 35% involve king
@@ -565,6 +586,20 @@ void Worker::iterative_deepen(Position& pos) {
                 else if (gap >= 80)  scale = std::min(scale, 0.6);
                 else if (gap >= 40)  scale = std::min(scale, 0.85);
             }
+
+            // KNOWN-ISSUE (user-reported bullet bug): at very low remaining
+            // time with a winning advantage (passed pawn / extra rook), the
+            // engine plays "panic" moves that don't progress the conversion.
+            // Two attempted fixes (timeman mtg compression, scramble-time
+            // bonus) both regressed in 200-game A/Bs — they helped the
+            // specific case but cost overall ELO via flag-outs in long
+            // games. Root cause: at <1 s remaining there's genuinely not
+            // enough time per move to find a 12+ ply conversion sequence,
+            // and any time bonus pushes us past the safe maximum.
+            // Mitigation that DOES help: ensure SyzygyPath is configured
+            // (lichess-bot config-hypersion.yml has it). With Syzygy 3-4-5
+            // loaded, K+R+P-vs-K and similar small endings play perfectly
+            // from the tablebase regardless of remaining time.
 
             TimePoint optScaled = TimePoint(tm.optimum() * scale);
             // Hard cap — never let the endgame bonus push past tm.maximum().
