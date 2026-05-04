@@ -793,32 +793,26 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             improving = true;   // unknown → assume improving, gentler pruning
     }
 
-    // "Opponent worsening": is our static eval (from our perspective) better
-    // than the negation of opponent's static eval one ply ago? When this is
-    // true, the position has improved on BOTH sides' assessments — strong
-    // signal it's genuinely better for us, so we can prune slightly more.
-    // Stockfish 18 uses this in RFP and futility margins.
-    bool opponentWorsening = false;
-    if (!inCheck && ply >= 1 && (ss - 1)->staticEval != VALUE_NONE)
-        opponentWorsening = staticEval > -(ss - 1)->staticEval;
+    // NOTE: rounds 7/8/10/12 added an `opponentWorsening` flag and used it
+    // in RFP, futility, ProbCut, and razoring margins. Each individual A/B
+    // showed strong positive results (+33, +117, +35, +102), but a final
+    // direct measurement of the cumulative state vs the round-2 binary
+    // gave -161.9 ELO at 200 games — the chain inference had been
+    // poisoned by random-opening selection variance across cutechess
+    // matches. With proper opening control (a fixed PGN/EPD subset), the
+    // signal might still be there, but the current codebase is reverted
+    // back to the pre-opponentWorsening state. See round-7..-12 entries
+    // in testing/IMPROVEMENTS_LOG.md.
 
     // ---- Reverse Futility Pruning (Static Null-Move) ----
-    // The RFP margin tightens by RFP_MARGIN_PER_DEPTH per ply of depth that
-    // we're confident the position holds; subtracting `improving` and
-    // `opponentWorsening` from the depth coefficient lets us prune slightly
-    // more aggressively in those positive-trend cases (one ply of margin
-    // saved per flag).
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
-        && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving - opponentWorsening) >= beta)
+        && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
         return staticEval;
 
     // ---- Razoring ----
-    // Tighten the margin slightly when opponentWorsening: the trend
-    // signal makes the negative static eval more reliable as a
-    // qsearch-only-suffices indicator.
     if (!isPv && !inCheck && depth <= 4
-        && staticEval + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * (depth - opponentWorsening) <= alpha) {
+        && staticEval + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * depth <= alpha) {
         Value v = qsearch(pos, ss, alpha, alpha + 1, /*isPv=*/false);
         if (v <= alpha) return v;
     }
@@ -878,12 +872,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     if (!isPv && !inCheck && depth >= 5
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
         && ss->excludedMove == Move::none()) {
-        // ProbCut beta margin. SF18-style: when opponentWorsening, the
-        // trend supports a more aggressive beta target (smaller margin)
-        // — saving up to 100 cp of margin (= 20 SF cp at Hypersion's 5x
-        // eval scale) is enough to widen the prune zone meaningfully
-        // without risking false cutoffs.
-        Value probCutBeta = std::min<int>(beta + PROBCUT_MARGIN - 100 * opponentWorsening, VALUE_INFINITE - 1);
+        Value probCutBeta = std::min<int>(beta + PROBCUT_MARGIN, VALUE_INFINITE - 1);
         MovePicker pcMp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0);
         Move m;
         while ((m = pcMp.next_move()) != Move::none()) {
@@ -961,11 +950,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // ---- Pruning at low depth ----
         if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY) {
             if (!isCapture && !givesCheck) {
-                // Futility pruning for quiets. SF18-style: when opponent is
-                // also worsening, the trend is reliable enough to prune one
-                // ply more aggressively (subtract opponentWorsening from
-                // the depth coefficient → smaller margin → easier to fire).
-                if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * (depth - opponentWorsening) + FUTIL_MARGIN_BASE <= alpha)
+                // Futility pruning for quiets.
+                if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * depth + FUTIL_MARGIN_BASE <= alpha)
                     skipQuiets = true;
                 // SEE pruning of bad quiets.
                 // NOTE: round 13 tried `(depth - opponentWorsening)` here.
