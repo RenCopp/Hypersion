@@ -871,7 +871,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     if (!isPv && !inCheck && depth >= 5
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
         && ss->excludedMove == Move::none()) {
-        Value probCutBeta = std::min<int>(beta + PROBCUT_MARGIN, VALUE_INFINITE - 1);
+        // ProbCut beta margin. SF18-style: when opponentWorsening, the
+        // trend supports a more aggressive beta target (smaller margin)
+        // — saving up to 100 cp of margin (= 20 SF cp at Hypersion's 5x
+        // eval scale) is enough to widen the prune zone meaningfully
+        // without risking false cutoffs.
+        Value probCutBeta = std::min<int>(beta + PROBCUT_MARGIN - 100 * opponentWorsening, VALUE_INFINITE - 1);
         MovePicker pcMp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0);
         Move m;
         while ((m = pcMp.next_move()) != Move::none()) {
