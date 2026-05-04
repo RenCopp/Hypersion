@@ -28,6 +28,21 @@ positives across chained development.
 opening prefix from the file — chain inferences become trustworthy.
 Old behaviour preserved behind `--random-openings`.
 
+**Re-test confirmation**: `search12` (= round-2 + all four
+opponentWorsening additions) vs `search2` with sequential
+openings: **-132.9 ± 36.6 ELO** (20W-87D-93L) at 200 games. The
+cumulative regression confirms the revert was correct.
+
+| Comparison method | search12 vs search2 |
+|---|---|
+| Chain inference (+33 +117 +35 +102 from random-opening A/Bs) | +290 ELO claimed |
+| Direct measurement (random openings) | -161.9 ELO |
+| Direct measurement (sequential openings) | -132.9 ELO |
+
+Both direct measurements (random and sequential) confirm the
+opponentWorsening series was a regression. The chain inference
+was off by ~400 ELO due to compounding per-match opening bias.
+
 
 
 This log tracks the changes made during the no-GPU best-path session.
