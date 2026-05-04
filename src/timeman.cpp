@@ -54,6 +54,13 @@ void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
 
     optimumTime = std::max<int64_t>(optimum, MIN_MOVE_TIME_MS);
     maximumTime = std::max<int64_t>(maximum, MIN_MOVE_TIME_MS);
+
+    // Ponder bonus (Stockfish 18 src/timeman.cpp). When the GUI's UCI
+    // `Ponder` option is on, the engine spends part of think time on the
+    // opponent's clock — so the wall-clock optimum here can safely be 25 %
+    // larger. Bumps optimum only; maximum stays the safe hard ceiling.
+    if (limits.ponderEnabled)
+        optimumTime += optimumTime / 4;
 }
 
 }  // namespace hypersion

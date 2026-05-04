@@ -23,6 +23,11 @@ struct SearchLimits {
     bool    infinite  = false;      // ignore time / depth, search until "stop"
     bool    ponder    = false;
     int     mate      = 0;
+    // SF18-style: when the GUI's UCI `Ponder` option is enabled, the engine
+    // knows pondering will cover part of think time. TimeManager uses this
+    // to bump the optimum-time budget by 25 %, since wall-clock optimum
+    // shrinks when part of the work happens on the opponent's clock.
+    bool    ponderEnabled = false;
 
     // `go searchmoves m1 m2 ...` — restrict the root search to these moves.
     // Empty vector means "search all legal root moves" (the normal case).

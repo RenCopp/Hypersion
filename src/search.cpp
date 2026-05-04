@@ -712,36 +712,34 @@ void Worker::iterative_deepen(Position& pos) {
                 else if (gap >= 40)  scale = std::min(scale, 0.85);
             }
 
-            // Best-move effort scaling (Stockfish 18 src/search.cpp). When
-            // the search has concentrated most of its node budget on the
-            // current best move, the engine is confident — save time.
-            // When effort is spread across many root moves, the position
-            // is unclear — keep searching at full budget.
+            // Best-move effort scaling (Stockfish 18 master src/search.cpp).
+            // When the search has concentrated >= ~93 % of its node budget
+            // on the current best move, the engine is confident — drop time
+            // by a hard 24 %. Below that threshold, no scaling. Simpler and
+            // sharper than the old interpolation, matches SF master.
             //
-            // SF's reference points: nodesEffort = best.effort * 100000 /
-            // total_nodes. At 78 % effort, multiplier 0.96; at 94 %, 0.74.
-            // Linearly interpolated, clamped to [0.74, 0.96]. Adapted as
-            // an additional factor on the scale below.
-            //
-            // We also gate on d >= 6 so the early iterations (which
-            // naturally have wildly varying effort) don't trigger early
-            // exits.
+            // Gated on d >= 6 so the early iterations (which naturally
+            // have wildly varying effort) don't trigger early exits.
             if (d >= 6 && !rootMoves.empty()) {
                 std::uint64_t totN = pool ? pool->total_nodes() : nodes.load();
                 if (totN > 1) {
                     std::uint64_t bestEffort = rootMoves[0].effort;
                     int nodesEffort = int(bestEffort * 100000ULL / totN);
-                    double effortScale;
-                    if (nodesEffort <= 78000)      effortScale = 0.96;
-                    else if (nodesEffort >= 94000) effortScale = 0.74;
-                    else {
-                        // Linear interpolate 78000 -> 94000 :: 0.96 -> 0.74
-                        double t = double(nodesEffort - 78000) / 16000.0;
-                        effortScale = 0.96 + t * (0.74 - 0.96);
-                    }
-                    scale *= effortScale;
+                    if (nodesEffort >= 93340)
+                        scale *= 0.76;
                 }
             }
+
+            // NOTE: tried SF18 `bestMoveInstability` factor here:
+            //   scale *= 1.02 + 2.14 * bestMoveChanges / threads.size()
+            // Result: -111 ELO at 200 games (5+0.05).
+            // Root cause: Hypersion's `bestMoveChanges` is CUMULATIVE
+            // across iterations (only ever increments), while SF's
+            // `totBestMoveChanges` resets/decays per iteration. With a
+            // cumulative counter on a single-threaded run, the multiplier
+            // explodes (10×+), gobbling the whole clock. To safely port
+            // this, Hypersion would need to track per-iteration changes
+            // separately — left as future work.
 
             // KNOWN-ISSUE (user-reported bullet bug): at very low remaining
             // time with a winning advantage (passed pawn / extra rook), the

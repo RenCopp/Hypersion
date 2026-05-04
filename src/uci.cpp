@@ -42,6 +42,11 @@ struct {
     bool analyseMode  = false;
     bool showWDL      = false;
     int  contempt     = 0;
+    bool ponder       = false;       // UCI Ponder mode (think on opponent's clock).
+                                     // Used by TimeManager to give an extra 25 % to the
+                                     // optimum-time budget — the engine spends part of its
+                                     // think on the opponent's time, so the wall-clock
+                                     // optimum can safely be larger.
     std::string bookFile = "Perfect2023.bin";
     std::string evalFile      = "nn-c288c895ea92.nnue";   // SF18 big default
     std::string evalFileSmall = "nn-37f18f62d772.nnue";   // SF18 small default
@@ -243,6 +248,7 @@ void cmd_go(std::istringstream& is) {
     lim.moveOverhead  = Options.moveOverhead;
     lim.contempt      = Options.contempt;
     lim.showWDL       = Options.showWDL;
+    lim.ponderEnabled = Options.ponder;
 
     // Try the opening book first — but never when in analyse mode (the GUI
     // wants the engine's actual evaluation, not a pre-canned book reply).
@@ -308,7 +314,7 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("MultiPV"))        { parse_int(Options.multiPV); }
     else if (eq("Move Overhead"))  { parse_int(Options.moveOverhead); }
     else if (eq("Clear Hash"))     { TT.clear(); }
-    else if (eq("Ponder"))         { /* accepted, no behavior yet */ }
+    else if (eq("Ponder"))         { parse_bool(Options.ponder); }
     else if (eq("OwnBook"))        { parse_bool(Options.ownBook); }
     else if (eq("BookBestMove"))   { parse_bool(Options.bookBest); }
     else if (eq("BookFile"))       {
