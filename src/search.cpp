@@ -832,6 +832,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     int npMat = int(pos.non_pawn_material(pos.side_to_move()));
     bool nmpMaterialOk = (depth < 12) ? (npMat > 0)
                                        : (npMat > 781);   // > knight value
+    // NOTE: round 11 tried `staticEval >= beta - 100 * opponentWorsening`
+    // to loosen NMP entry on positive trends. Result: -12.2 ELO at 200
+    // games. Likely cause: NMP already fires very often, the borderline
+    // entries added by the 100 cp slack mostly fail-low and waste work.
     if (!isPv && !inCheck && depth >= 3
         && (ss - 1)->currentMove != Move::null()
         && ss->excludedMove == Move::none()
