@@ -968,6 +968,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * (depth - opponentWorsening) + FUTIL_MARGIN_BASE <= alpha)
                     skipQuiets = true;
                 // SEE pruning of bad quiets.
+                // NOTE: round 13 tried `(depth - opponentWorsening)` here.
+                // Result: -47 ELO at 200 games. Reinforces the round-9
+                // lesson: opponentWorsening helps subtree elision but
+                // hurts per-move within-subtree decisions.
                 if (depth <= 8 && !pos.see_ge(m, Value(SEE_QUIET_MARGIN * depth)))
                     continue;
                 // NOTE: SF18-style continuation-history pruning was
