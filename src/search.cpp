@@ -949,8 +949,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // ---- Pruning at low depth ----
         if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY) {
             if (!isCapture && !givesCheck) {
-                // Futility pruning for quiets.
-                if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * depth + FUTIL_MARGIN_BASE <= alpha)
+                // Futility pruning for quiets. SF18-style: when opponent is
+                // also worsening, the trend is reliable enough to prune one
+                // ply more aggressively (subtract opponentWorsening from
+                // the depth coefficient → smaller margin → easier to fire).
+                if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * (depth - opponentWorsening) + FUTIL_MARGIN_BASE <= alpha)
                     skipQuiets = true;
                 // SEE pruning of bad quiets.
                 if (depth <= 8 && !pos.see_ge(m, Value(SEE_QUIET_MARGIN * depth)))
