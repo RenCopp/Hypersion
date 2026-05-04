@@ -778,6 +778,16 @@ struct Network {
         int pv = int(psqt_raw / OUTPUT_SCALE);
         int pp = int(positional / OUTPUT_SCALE);
         int nnue = (125 * pv + 131 * pp) / 128;
+        // NOTE: tried SF18 NNUE-complexity damping (`nnue -= nnue *
+        // |pv-pp| / 91180`) here. Result: -13.9 +/- 36.8 ELO at 200g
+        // 5+0.05. Same pattern as the rule50 attempt above — within
+        // noise but mildly negative point estimate. Both SF eval-side
+        // damping features may pay off at long TC where eval accuracy
+        // compounds, but the long-TC verification (HEAD vs v2-tag at
+        // 60+0.6) already showed -8.7 ELO. Adding more neutral-mildly-
+        // negative changes risks compounding. Left for future work
+        // when there's a separate eval-tuning effort with paired
+        // Texel/SPSA calibration.
 
         // Material scaling matching SF18 evaluate.cpp
         int mat = 534 * popcount(pos.pieces(PAWN));

@@ -111,6 +111,25 @@ direction.
 
 ## Post-v2 patches (on `main`, not yet tagged)
 
+### Long-TC verification result
+
+200-game match HEAD (post-v2 cumulative) vs the published v2-tag
+binary at TC 60+0.6:
+
+* **Result: -8.7 +/- 38.8 ELO**  (62W-71D-67L)
+* CI [-86, +69] crosses zero — statistically neutral
+
+Decision: do NOT tag v2.1. The post-v2 commits don't show a clear
+gain at long TC large enough to justify a new release, and the
+point estimate is mildly negative. Future work should focus on
+features that improve long-TC strength (deeper-search accuracy)
+rather than fast-TC tuning.
+
+Cross-check at fast TC: HEAD vs v2-tag at 5+0.05 (same 200 games):
+**+1.7 +/- 38.2 ELO**. Both regimes within noise of zero.
+
+
+
 ### Lichess-bot config: `move_overhead` 2000 ms → 200 ms
 
 The lichess-bot wrapper was reserving **2 seconds per move** as
