@@ -169,7 +169,7 @@ for it.
 
 ---
 
-## Round 3 — Bisection + LMR revert (commit `ff88bf7`)
+## Round 3 — Bisection + LMR revert (commit `ff88bf7`, then RESTORED in `bb19549`)
 
 Goal: identify which of round-1's three changes caused the long-TC
 regression seen in the validation match.
@@ -178,30 +178,51 @@ Built `search3` = round-1 + round-2 with the LMR formula change
 reverted (1.90 → 1.95). Other three changes (NMP zugzwang, endgame
 LMR mitigation, SE 6→5) preserved.
 
-**Bisection results:**
+**Bisection results (chain measurements):**
 
-| Test                                    | Result            | Conclusion |
-|----------------------------------------|-------------------|------------|
-| search3 vs search2, fast TC 5+0.05    | -41.9 ± 38.1     | LMR softening alone was contributing ~+42 ELO at fast TC |
-| search3 vs baseline, long TC 10+0.1   | +34.9 ± 63.3     | The other 3 changes give clear ELO at slow TC even without LMR softening |
+| Test                                    | Result            |
+|----------------------------------------|-------------------|
+| search3 vs search2, fast TC 5+0.05, 200 games | -41.9 ± 38.1 |
+| search3 vs baseline, long TC 10+0.1,  80 games | +34.9 ± 63.3 |
 
-**Inferred final-state ELO vs pre-session baseline:**
+These suggested LMR softening was the TC-dependent factor and
+motivated commit `ff88bf7` (revert LMR to 1.95).
 
-| Time control | search2 (LMR=1.90) | search3 (LMR=1.95) ← shipped |
-|-------------|--------------------|---------------------------------|
-| Fast 5+0.05 | ~+74 ELO          | ~+32 ELO                       |
-| Slow 10+0.1 | ~-7 ELO           | ~+35 ELO                       |
+### Direct re-measurement contradicted the inference
 
-The shipped version (`ff88bf7`) is the BALANCED configuration —
-positive ELO at every tested TC. The aggressive LMR softening
-(+74 at fast TC) is preserved in `testing/Hypersion_search2.exe`
-for fast-TC-only deployments.
+The chain inference put `search3 vs baseline` at fast TC ~+32 ELO.
+A 200-game direct measurement gave **-20.9 ± 39.0 ELO** — a
+discrepancy of ~53 ELO within compound noise (σ_compound ≈ 66).
 
-### Suggested next step: TC-aware LMR
+Long-TC re-measurement was even worse: 80-game run gave +34.9,
+100-game run on the SAME configuration gave -52.5. Same direction-
+flip on a single sample shift. The long-TC noise floor on this
+machine + concurrency setup is too high to support the conclusion.
 
-If both modes are wanted, add a UCI option `LMRDivisor` defaulting
-to 195 (equiv. of 1.95) with valid range 170–220. Tournament code
-can set 190 for fast TC, 195 for normal play.
+| Test                                    | Result            |
+|----------------------------------------|-------------------|
+| search3 vs baseline, fast TC 5+0.05, 200 games | **-20.9 ± 39.0** |
+| search3 vs baseline, long TC 10+0.1, 100 games | **-52.5 ± 52.8** |
+
+Conclusion: **the LMR formula softening was responsible for most
+of round-1's fast-TC gain**. Removing it drops the engine from
++59.6 to ~0 at fast TC. The earlier "regression at long TC" signal
+was within the noise floor of the 100-game test setup.
+
+**Decision: restore LMR=1.90.** Commit `bb19549` reverses
+`ff88bf7`. Final shipped state is back to what was at `bec4ee3`:
+LMR=1.90 + NMP zugzwang + endgame LMR + SE depth>=5.
+
+### Suggested next step: TC-aware LMR or larger-sample long-TC
+
+The genuine long-TC question — does LMR=1.90 hurt at 10+0.1? —
+remains open because the 100-game samples gave 88 ELO of noise.
+A 500-game run at long TC would tighten the CI to ±25 ELO and
+give a definitive answer.
+
+If both modes are wanted, add a UCI option `LMRDivisor`
+defaulting to 190 with range 170–220. Tournament configs can
+override.
 
 ---
 
