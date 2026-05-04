@@ -48,24 +48,22 @@ struct {
     std::string syzygyPath = "<empty>";
     // Opponent-aware strength matching. When matchOpponent=true and the GUI
     // sends UCI_Opponent (lichess-bot does this automatically), Hypersion
-    // auto-sets UCI_LimitStrength=true and UCI_Elo to a rating slightly above
-    // the opponent's level, giving a "zone of proximal development" experience:
-    // beginners get a beatable-but-stretching opponent, strong players get a
-    // real fight at near-equal strength.
+    // auto-sets UCI_LimitStrength=true and UCI_Elo to roughly the opponent's
+    // level — slightly BELOW for beginners (so a 600 player can actually
+    // win) and slightly above for experts (so they get a real fight).
     //
-    // Offset curve (matches educational chess training-tool conventions):
-    //     <1000      +150  (brand-new players get a clear stretch goal)
-    //     1000-1399  +100  (beginners — slight handicap)
-    //     1400-1799  +75   (intermediate)
-    //     1800-2199  +50   (advanced)
-    //     2200-2599  +25   (expert)
-    //     >=2600     0     (master+ — exact match, no patronizing offset)
+    // Updated offset curve (user feedback: bot was too strong even at +0
+    // because Hypersion's calibration is approximate at low ELOs):
+    //     <800       -100  (very low: bot plays well below opponent — they win)
+    //     800-1199   -50   (beginner: bot plays slightly weaker)
+    //     1200-1599   0    (intermediate: exact match)
+    //     1600-1999  +25   (mid: slight stretch goal)
+    //     2000-2399  +50   (advanced: visible challenge)
+    //     >=2400     +75   (expert+: small edge for the engine)
     //
-    // Final target clamped to [matchFloor=600, matchCeiling=3200]. Below 600
-    // Hypersion's skill-level capping makes play essentially random; above
-    // 2660 the engine is at its practical ceiling anyway.
+    // Final target clamped to [matchFloor=500, matchCeiling=3200].
     bool matchOpponent = false;
-    int  matchFloor    = 600;
+    int  matchFloor    = 500;
     int  matchCeiling  = 3200;
     // Per-game rated flag, set by lichess-bot before each game. When the
     // game is rated, we override matchOpponent and play at full strength
@@ -74,15 +72,16 @@ struct {
     bool gameRated     = false;
 } Options;
 
-// Educational offset curve: bot plays slightly stronger than opponent, with
-// the gap narrowing as opponent rating rises. See comment in Options.
+// Opponent matching offset. Below 1200 the bot plays BELOW the opponent's
+// rating to give beginners a real chance to win; above 1600 the bot adds
+// a small stretch-goal offset for experts.
 inline int opponent_match_offset(int rating) {
-    if (rating < 1000) return 150;
-    if (rating < 1400) return 100;
-    if (rating < 1800) return 75;
-    if (rating < 2200) return 50;
-    if (rating < 2600) return 25;
-    return 0;
+    if (rating <  800) return -100;   // very-low: bot 100 below opp
+    if (rating < 1200) return  -50;   // beginner: bot 50 below opp
+    if (rating < 1600) return    0;   // intermediate: exact match
+    if (rating < 2000) return  +25;
+    if (rating < 2400) return  +50;
+    return                      +75;
 }
 
 void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
