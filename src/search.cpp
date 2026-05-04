@@ -158,6 +158,7 @@ void Worker::clear() {
     killers.clear();
     counterMoves.clear();
     pawnCorrHist.clear();
+    materialCorrHist.clear();
     for (auto& ch : contHist) ch->clear();
     // Note: TT clearing is the pool's responsibility — done once across all threads.
 }
@@ -771,6 +772,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
         ss->staticEval = staticEval;
     }
+    // NOTE: round-6 added a parallel materialCorrHist with averaged
+    // contributions. Result: -26 ELO at 200 games. Two issues: the
+    // 14-bit material key has heavy bucket collisions (many dissimilar
+    // positions share each bucket, so the signal is noisy), and the
+    // averaging logic halved the existing pawn-correction strength.
+    // Kept the materialCorrHist field so a future contributor can try
+    // a better integration (additive with weight, or a separate small
+    // bonus) without re-laying the plumbing.
 
     // "Improving": did our static eval go up since 2 plies ago? Used to soften pruning
     // when our position is getting better (we have time to wait for a real refutation).
