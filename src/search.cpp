@@ -793,10 +793,24 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             improving = true;   // unknown → assume improving, gentler pruning
     }
 
+    // "Opponent worsening": is our static eval (from our perspective) better
+    // than the negation of opponent's static eval one ply ago? When this is
+    // true, the position has improved on BOTH sides' assessments — strong
+    // signal it's genuinely better for us, so we can prune slightly more.
+    // Stockfish 18 uses this in RFP and futility margins.
+    bool opponentWorsening = false;
+    if (!inCheck && ply >= 1 && (ss - 1)->staticEval != VALUE_NONE)
+        opponentWorsening = staticEval > -(ss - 1)->staticEval;
+
     // ---- Reverse Futility Pruning (Static Null-Move) ----
+    // The RFP margin tightens by RFP_MARGIN_PER_DEPTH per ply of depth that
+    // we're confident the position holds; subtracting `improving` and
+    // `opponentWorsening` from the depth coefficient lets us prune slightly
+    // more aggressively in those positive-trend cases (one ply of margin
+    // saved per flag).
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
-        && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
+        && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving - opponentWorsening) >= beta)
         return staticEval;
 
     // ---- Razoring ----
