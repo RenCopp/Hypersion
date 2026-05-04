@@ -814,8 +814,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         return staticEval;
 
     // ---- Razoring ----
+    // Tighten the margin slightly when opponentWorsening: the trend
+    // signal makes the negative static eval more reliable as a
+    // qsearch-only-suffices indicator.
     if (!isPv && !inCheck && depth <= 4
-        && staticEval + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * depth <= alpha) {
+        && staticEval + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * (depth - opponentWorsening) <= alpha) {
         Value v = qsearch(pos, ss, alpha, alpha + 1, /*isPv=*/false);
         if (v <= alpha) return v;
     }
