@@ -531,6 +531,20 @@ void Worker::iterative_deepen(Position& pos) {
             else if (stableIters >= 2) scale = 0.75;
             if (bestMoveChanges >= 3 && d <= 12) scale *= 1.4;
 
+            // Endgame time bonus. SF analysis on a 50-game match against
+            // full Stockfish showed 70% of Hypersion's blunders happen in
+            // endgame phases (early-end + deep-end), and 35% involve king
+            // moves. In low-piece-count positions every move can be decisive,
+            // and the stability heuristic above tends to cut us short on the
+            // exact positions where we need precision. Boost time when the
+            // total piece count is low. The bonus stacks on top of (or
+            // mitigates) the stability cut, which is the right direction:
+            // stable+endgame -> still spend reasonable time.
+            int totalPieces = popcount(rootPos.pieces());
+            if (totalPieces <= 8)        scale *= 1.6;   // K+R+P-ish endgames
+            else if (totalPieces <= 12)  scale *= 1.4;   // light endgame
+            else if (totalPieces <= 16)  scale *= 1.2;   // late middlegame transition
+
             // Phase 5: easy-move detection. When the best root move is
             // clearly better than the 2nd-best AND has been stable, we don't
             // need to keep thinking. NNUE-aware thresholds (~/3 divisor puts
@@ -544,6 +558,8 @@ void Worker::iterative_deepen(Position& pos) {
             }
 
             TimePoint optScaled = TimePoint(tm.optimum() * scale);
+            // Hard cap — never let the endgame bonus push past tm.maximum().
+            optScaled = std::min<TimePoint>(optScaled, tm.maximum());
             if (tm.elapsed() > optScaled) break;
         }
     }
