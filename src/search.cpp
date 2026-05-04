@@ -737,9 +737,9 @@ done:
             if (roll <= skillBlunderPct) {
                 std::stable_sort(rootMoves.begin(), rootMoves.end());
                 // Blunder pool: top half of root moves, minimum 2.
-                int pool = std::max<int>(2, int(rootMoves.size()) / 2);
-                pool = std::min<int>(pool, int(rootMoves.size()));
-                int pick = std::uniform_int_distribution<int>(0, pool - 1)(prng);
+                int blunderPool = std::max<int>(2, int(rootMoves.size()) / 2);
+                blunderPool = std::min<int>(blunderPool, int(rootMoves.size()));
+                int pick = std::uniform_int_distribution<int>(0, blunderPool - 1)(prng);
                 bestMove = rootMoves[pick].pv0;
             }
         }

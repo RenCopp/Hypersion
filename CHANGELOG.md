@@ -13,6 +13,102 @@ work stays on `main` (no release needed).
 
 ---
 
+## v2 (released 2026-05-04)
+
+Tagged `v2`. Source: commit at the v2 tag.
+
+### UCI_LimitStrength — complete rewrite + Maia/dala calibration
+
+The v1 strength limiter was found to be **broken** (testing/test_elo_scaling.py
+at internal monotonicity exposed it: Hypersion@900 beat Hypersion@1100 by
+**95 %** because every level under UCI_Elo 2000 played near-randomly —
+best-move probability ~5 % regardless of skill setting).
+
+Replaced with two clean levers:
+- **Per-bucket node cap** (lookup table). Caps search work, smooth across
+  all UCI_Elo values. No depth caps — those caused horizon-effect
+  inversions where lower-depth-but-still-tactical search outperformed
+  slightly-deeper search.
+- **Low-rate blunder probability** — small chance per move to pick a
+  sub-optimal move from the top half of root moves. Reduced from 45 %
+  to 8 % at ELO 500 specifically because user feedback called the high
+  rate "obvious random play". Weakness now comes mostly from limited
+  search depth, which produces natural-looking weak moves.
+
+Validated against real human-trained bots:
+- **Maia 1100/1500/1900** ([CSSLab](https://github.com/CSSLab/maia-chess))
+- **dala-700/900** ([hrschubert](https://github.com/hrschubert/dala-training))
+
+| Hypersion@N | vs | Score | Verdict |
+|---|---|---|---|
+| @700 | dala-700 (~881 actual) | 25.0 % | Bullseye — matches expected 26 % for true 700 vs 881 |
+| @900 | dala-900 (~1000 actual) | 60.0 % | OK (slightly strong, within 10-game noise) |
+| @1100 | Maia 1100 | 45.0 % | OK |
+| @1500 | Maia 1500 | 50.0 % | OK |
+| @1900 | Maia 1900 | 40.0 % | OK |
+
+### Search refinements
+
+- LMR formula softening (1.95 → 1.90 in the log/log table).
+- NMP zugzwang strengthening at depth ≥ 12 (require non_pawn_material
+  > knight value).
+- Endgame LMR mitigation: subtract 1 ply when total piece count ≤ 8.
+- Singular extension threshold 6 → 5 (matches Stockfish 18).
+- Stockfish-18 `fallingEval` time scaling — score-trend-based per-iteration
+  scale factor in [0.6, 1.7].
+- NNUE big-net threshold 962 → 1500 — small NNUE was activating for
+  K + R-class endgames where conversion accuracy matters.
+
+### Build
+
+- AVX-VNNI build target with `-march=alderlake -mavxvnni`.
+  Bench NPS up ~9 % (median over 7 samples) on Intel 12th gen+ /
+  AMD Zen 4+ CPUs. v1 was AVX2-only with no `vpdpbusd` instructions.
+- 64-byte cache-line alignment on NNUE accumulators and on-stack
+  buffers in the inference path.
+- PGO Makefile fix: `make profile` now succeeds with
+  `-Wno-coverage-mismatch -Wno-error=coverage-mismatch` on the
+  use pass.
+
+### Bug fixes
+
+- **Repetition during search**: `Worker::prepare()` now deep-copies the
+  full StateInfo chain. v1 discarded history, so search couldn't see
+  a 3-fold repetition still pending from the actual game (engine
+  evaluated perpetuals as winning). User-reported case from
+  https://lichess.org/0ljEy9Fu.
+- **50-move-rule + checkmate** edge case in position.cpp.
+- **Cosmetic UCI eval scale**: `cp` output now uses Stockfish's
+  "1 pawn = 100 cp" convention.
+
+### Tooling
+
+- `testing/sprt.py` — cutechess-cli wrapper with live SPRT tracking.
+- `testing/test_elo_scaling.py` — internal Hyp@N vs Hyp@M monotonicity.
+- `testing/test_vs_maia.py` — Hypersion vs Maia at matched ELO.
+- `testing/test_vs_dala.py` — Hypersion vs dala bots.
+- `testing/test_full_elo_grid.py` — full 500–2500 grid.
+- `testing/test_bullet_conversion.py` — low-time winning-position smoke.
+- Default opening book switched from `eco.bin` (polyglot, mis-passed
+  as EPD) to `popularpos_lichess_v3.epd` (200 k real positions, CC0-1.0).
+
+### Investigated but reverted
+
+Tombstone-commented in source so future work doesn't retry blind:
+
+- SF18 continuation-history pruning at low depth (regressed −207 ELO).
+- NMP base R bump 4 → 5 (regressed −50 ELO).
+- Material-keyed correction history (regressed −26 ELO).
+- LMR `opponentWorsening` adjustment (−33 ELO).
+- SEE-quiet `opponentWorsening` (−47 ELO).
+
+`opponentWorsening` flag itself was kept where structurally sound
+(RFP / futility / razoring / probcut margins) — within ±35 ELO noise
+in direct measurement, theoretically positive in the conversion-aware
+direction.
+
+---
+
 ## Unreleased (in progress on `main`)
 
 Currently stacked, not yet tagged:
