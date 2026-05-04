@@ -925,6 +925,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // SEE pruning of bad quiets.
                 if (depth <= 8 && !pos.see_ge(m, Value(SEE_QUIET_MARGIN * depth)))
                     continue;
+                // NOTE: SF18-style continuation-history pruning was
+                // attempted with threshold -4097*depth but regressed
+                // -207 ELO at 86 games.  Hypersion's history-value
+                // scale is different — needs a per-codebase threshold
+                // search before this can be re-tried.  See round-4
+                // notes in testing/IMPROVEMENTS_LOG.md.
             } else {
                 // SEE pruning of bad captures.
                 if (depth <= 6 && !pos.see_ge(m, Value(SEE_CAPT_MARGIN * depth)))
