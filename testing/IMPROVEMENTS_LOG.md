@@ -113,17 +113,59 @@ A SPRT [0, 5] would have terminated earlier and accepted H1 — for
 this magnitude of improvement, after roughly 30–60 games. We used
 fixed-games for a sharper point estimate.
 
+### Long-TC follow-up: result was TC-DEPENDENT
+
+**100-game A/B at 10+0.1, search1 vs baseline: -20.9 ELO ± 53.1**
+(27W-40D-33L). CI crosses zero — statistically not significant — but
+the point estimate is negative.
+
+Interpretation: round-1 changes appear to give a clear gain at fast
+TC (+59.6 at 5+0.05) but converge to ~0 (or slightly negative) at
+slower TC. Possible mechanisms:
+
+- **LMR softening (1.95 → 1.90)** trades depth for accuracy. At fast
+  TC where total node budget is tight, accuracy wins. At slow TC the
+  baseline already has enough depth, so the tighter reduction's depth
+  advantage matters more.
+- **Endgame LMR mitigation** fires whenever piece count ≤ 8. At slow
+  TC the search reaches more endgame positions, so the `-1 ply`
+  reduction adjustment compounds and can over-extend non-critical
+  lines.
+- **NMP zugzwang strengthening** has no obvious TC sensitivity.
+
+This is a noisy result — 100 games at long TC is at the limit of
+reliability. The negative point estimate is well within the noise band.
+
+**Decision: keep round-1.** At 5+0.05 the gain is clear and large;
+at 10+0.1 the result is statistically tied. The likely cause-and-effect
+suggests the engine should be re-tuned for the user's actual TC profile.
+
 ### Recommended follow-up
 
-1. **Long-TC re-validation**: SPRT [0, 5] at 60+0.6 to confirm the
-   gain holds at slow time controls. The 5+0.05 result may be
-   inflated by tactical mistakes that disappear at slower TC.
+1. **Larger long-TC sample**: 400+ games at 10+0.1 to tighten the CI.
+   This needs ~30 min of wall time but gives a definitive answer.
 2. **Per-change attribution**: bisect 4a/4b/4c with separate SPRTs.
-   The current bundle gain is real, but we don't yet know which of
-   the three changes did most of the work — useful for future tuning.
-3. **Long-TC vs Stockfish gauntlet**: re-run the original 50g vs SF
-   match at full strength; the endgame-LMR mitigation should show
-   measurable reduction in endgame blunder rate.
+   The TC-dependence likely traces to LMR softening or endgame LMR;
+   knowing which lets us keep the safe parts and revert the rest.
+3. **TC-aware tuning**: if the user primarily plays at lichess
+   (where TCs vary 3+0 to 10+5), keeping round-1 is reasonable.
+   For long-TC tournaments, consider reverting the LMR softening
+   while keeping NMP zugzwang and endgame LMR mitigation.
+
+---
+
+## Round 2 — Singular extension threshold (commit `bec4ee3`)
+
+Source: `src/search.cpp:935`. Lowered SE depth threshold from
+`depth >= 6` to `depth >= 5`, matching Stockfish 18.
+
+**200-game A/B vs round-1 binary at 5+0.05: +13.9 ELO ± 35.5**
+(58W-92D-50L). Marginal positive — the 95 % CI lower bound is
+below the SPRT [0, 5] H1 gate, so this is low-confidence.
+
+Bench cost: NPS drops ~10 % (more SE attempts is more expensive
+per node), but the deeper effective search at TT moves should pay
+for it.
 
 ---
 
