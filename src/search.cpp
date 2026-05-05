@@ -127,7 +127,9 @@ constexpr int FUTIL_MARGIN_PER_DEPTH  = 330;    // Futility for quiets (was 110)
 constexpr int FUTIL_MARGIN_BASE       = 390;    // (was 130; previously inline)
 constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets (was -60)
 constexpr int SEE_CAPT_MARGIN         = -300;   // SEE pruning of bad captures (was -100)
-constexpr int NMP_EVAL_BETA_DIV       = 600;    // NMP reduction-bonus divisor (was 200)
+constexpr int NMP_EVAL_BETA_DIV       = 800;    // NMP reduction-bonus divisor.
+    // Sweep: 600 (was) -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
+    // 800 is the sweet spot — kept.
 constexpr int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
     //   500: -24.4 ELO (too aggressive)
     //   600: baseline
