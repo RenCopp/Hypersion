@@ -36,6 +36,7 @@ docs/LICHESS-BOT.md
 
 # Release-build staging area + the binary release zips themselves.
 release_staging/
+release_staging_*/
 Hypersion-*-windows-*.zip
 Hypersion-*-linux-*.tar.gz
 

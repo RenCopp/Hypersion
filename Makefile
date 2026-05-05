@@ -43,6 +43,12 @@ FATHOM_OBJECTS = $(patsubst $(FATHOM_DIR)/%.c,$(OBJDIR)/fathom_%.o,$(FATHOM_SOUR
 ifeq ($(ARCH),x86-64-avx2)
     ARCH_FLAGS = -march=haswell -DUSE_POPCNT -DUSE_AVX2
 endif
+# x86-64 baseline (no AVX2 / no BMI2). Targets very old CPUs (pre-2013
+# Intel, pre-2015 AMD) — runs but with much lower NPS due to no SIMD.
+# For users on old hardware who can't run the AVX2 build.
+ifeq ($(ARCH),x86-64)
+    ARCH_FLAGS = -march=x86-64 -msse2 -DUSE_POPCNT
+endif
 ifeq ($(ARCH),x86-64-bmi2)
     ARCH_FLAGS = -march=haswell -mbmi2 -DUSE_POPCNT -DUSE_AVX2 -DUSE_PEXT
 endif

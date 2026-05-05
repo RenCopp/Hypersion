@@ -989,6 +989,9 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         return staticEval;
 
     // ---- Razoring ----
+    // NOTE: tried bumping depth ceiling 4 -> 5; -12.2 +/- 36.6 ELO
+    // at 200g 5+0.05.  Within noise but mildly negative; razoring at
+    // depth 5 mis-cuts more often than the savings justify here.
     if (!isPv && !inCheck && depth <= 4
         && staticEval + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * depth <= alpha) {
         Value v = qsearch(pos, ss, alpha, alpha + 1, /*isPv=*/false);
