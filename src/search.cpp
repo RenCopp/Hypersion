@@ -120,7 +120,9 @@ void update_pv(PVLine& parent, Move m, const PVLine& child) {
 // from the original classical-Texel-tuned values so the pruning logic still
 // represents the same number of pawns of margin. Note: history bonuses and
 // LMR depth-based reductions are NOT scaled — they're not eval-magnitude.
-constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80)
+constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
+    // Sweep: 200 = -8.1 ELO at 129g (incomplete, trending negative);
+    // 280 = -15.6 ELO at 200g.  Kept at 240.
 constexpr int RAZOR_MARGIN_BASE       = 720;    // Razoring (was 240)
 constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130)
 constexpr int FUTIL_MARGIN_PER_DEPTH  = 330;    // Futility for quiets (was 110)
