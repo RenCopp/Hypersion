@@ -133,7 +133,9 @@ constexpr int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
     //   600: baseline
     //   800: +22.6 ELO (sweet spot, shipped)
     //   1000: -45.4 ELO vs 800 (too conservative — under-prunes)
-constexpr int ASPIRATION_DELTA0       = 51;     // initial aspiration delta (was 17)
+constexpr int ASPIRATION_DELTA0       = 51;     // initial aspiration delta.
+    // Tested 30: -10.4 ELO (too tight), 80: +1.7 ELO (within noise).
+    // Kept at 51.
 constexpr int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable" (was 20)
 constexpr int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap (was 1100)
 
@@ -1171,6 +1173,9 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             && (tte->bound() & BOUND_LOWER)
             && tte->depth() >= depth - 3
             && ply > 0) {
+            // singularBeta = ttValue - depth * 2.  Tested depth*3:
+            //   -6.9 +/- 38 ELO at 200g 5+0.05 (within noise, mildly
+            // negative).  Kept at 2.
             Value singularBeta = Value(ttValue - depth * 2);
             Depth singularDepth = (depth - 1) / 2;
             ss->excludedMove = m;
