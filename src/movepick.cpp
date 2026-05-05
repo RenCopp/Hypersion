@@ -132,10 +132,11 @@ void MovePicker::score_quiets() {
         Piece moving = pos.piece_on(m.from_sq());
         PieceType pt = type_of(moving);
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq());
-        // Read 2-ply continuation history at half weight (SF18 reads up
-        // to 5 plies; Hypersion only updates contHist[1] but until now
-        // didn't read it). Earlier 18-game sample regressed -26 ELO but
-        // CI was ±170 — re-test at 200g for cleaner signal.
+        // Read 2-ply continuation history at half weight.
+        // Half-weight tested at +34.9 ELO @ 200g vs no-read.
+        // Full weight tested at 0.0 +/- 38 ELO vs half weight (equivalent
+        // by measurement); kept half weight as the conventional choice
+        // (less aggressive, robust to overfitting).
         if (useCont2) v += contHist2->get(prevPc2, prevMv2.to_sq(), moving, m.to_sq()) / 2;
 
         // Threat-by-lesser bonus / penalty (SF18).
