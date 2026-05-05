@@ -106,6 +106,14 @@ private:
     std::vector<RootMove> rootMoves;
     int                   selDepth       = 0;
     int                   completedDepth = 0;
+    // NOTE: tried SF18-style nmpMinPly + verification search at depth>=16.
+    // Result: -20.9 +/- 38.3 ELO at 200g 5+0.05.  Hypersion's existing
+    // NMP material guard already catches the dangerous false-cutoff cases;
+    // verification just adds work without compensating accuracy gain.
+    // Reverted, but a future contributor exploring NMP refinement should
+    // pair the verification with a paired R bump (Round-5 attempted R=5
+    // alone and got -50; verification might compensate IF Hypersion's
+    // surrounding params are also re-tuned).
 
     // History & killers — owned per-thread.
     ButterflyHistory mainHist;
