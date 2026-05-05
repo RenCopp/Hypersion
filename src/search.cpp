@@ -128,7 +128,10 @@ constexpr int FUTIL_MARGIN_BASE       = 390;    // (was 130; previously inline)
 constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets (was -60)
 constexpr int SEE_CAPT_MARGIN         = -300;   // SEE pruning of bad captures (was -100)
 constexpr int NMP_EVAL_BETA_DIV       = 600;    // NMP reduction-bonus divisor (was 200)
-constexpr int PROBCUT_MARGIN          = 600;    // ProbCut beta margin (was 200)
+constexpr int PROBCUT_MARGIN          = 800;    // ProbCut beta margin.
+    // 600 -> 800 tested at +22.6 +/- 37.6 ELO at 200g 5+0.05; 600 -> 500
+    // tested at -24.4 ELO. The original 600 was too aggressive — more
+    // conservative margin lets ProbCut prune fewer false positives.
 constexpr int ASPIRATION_DELTA0       = 51;     // initial aspiration delta (was 17)
 constexpr int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable" (was 20)
 constexpr int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap (was 1100)
