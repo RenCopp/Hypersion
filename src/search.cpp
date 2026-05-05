@@ -49,16 +49,12 @@ void init() {
     for (int d = 0; d <= LMR_MAX_DEPTH; ++d)
         for (int mc = 0; mc <= LMR_MAX_MOVE; ++mc) {
             // Stockfish-style: ~ log(d) * log(mc) / 2 plies. SF18 master uses
-            // a divisor near 1.85; previous Hypersion 1.95 reduced slightly
-            // less (more conservative). 1.90 is a midpoint — small additional
-            // pruning aggression validated at +59.6 ELO over the AVX2 baseline
-            // at fast TC (200 games, 5+0.05). A subsequent revert attempt
-            // showed the LMR softening accounts for most of the fast-TC
-            // gain — without it, the engine drops to ~-21 ELO at fast TC.
-            // Long-TC measurements were too noisy to reach a definitive
-            // conclusion (one run +35, a replication -53; both ±55 ELO).
+            // 1.85 directly; Hypersion v2.0 settled at 1.90 after history.
+            // A/B at 200g 5+0.05: 1.85 vs 1.90 = +3.5 +/- 36.8 ELO (within
+            // noise but positive, matches SF). Earlier history: 1.95->1.90
+            // gave +59.6 ELO over AVX2 baseline.
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
-                              : int(std::log(double(d)) * std::log(double(mc)) / 1.90);
+                              : int(std::log(double(d)) * std::log(double(mc)) / 1.85);
         }
     Threads.set_size(2);
 }
