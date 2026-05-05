@@ -122,12 +122,21 @@ void MovePicker::score_quiets() {
                  && prevPc != NO_PIECE
                  && prevMv != Move::none()
                  && prevMv != Move::null();
+    bool useCont2 = contHist2 != nullptr
+                 && prevPc2 != NO_PIECE
+                 && prevMv2 != Move::none()
+                 && prevMv2 != Move::null();
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
         int v = bhist ? bhist->get(us, m) : 0;
         Piece moving = pos.piece_on(m.from_sq());
         PieceType pt = type_of(moving);
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq());
+        // Read 2-ply continuation history at half weight (SF18 reads up
+        // to 5 plies; Hypersion only updates contHist[1] but until now
+        // didn't read it). Earlier 18-game sample regressed -26 ELO but
+        // CI was ±170 — re-test at 200g for cleaner signal.
+        if (useCont2) v += contHist2->get(prevPc2, prevMv2.to_sq(), moving, m.to_sq()) / 2;
 
         // Threat-by-lesser bonus / penalty (SF18).
         if (pt >= KNIGHT && pt <= QUEEN) {
