@@ -126,7 +126,11 @@ constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
 constexpr int RAZOR_MARGIN_BASE       = 850;    // Razoring base.
     // Sweep vs BASE (720): 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3.
     // Both within noise but 850 trended positive.
-constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130)
+constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130).
+    // Sweep: 300 = -34.9 +/- 89.8 ELO @ 30g (clear regression),
+    //        480 = +46.6 +/- 93.0 @ 30g but -51.6 +/- 72.9 @ 61g (200g
+    //              aborted) — 30g was lucky tail, 480 actually regresses.
+    // Reinforces: do not ship 30g winners without 200g confirm.
 constexpr int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
     // 330 -> 400 tested at +15.6 +/- 37.6 ELO @ 200g. Original 330
     // was too aggressive — futility was over-pruning quiet moves
@@ -144,6 +148,14 @@ constexpr int SEE_CAPT_MARGIN         = -250;   // SEE pruning of bad captures.
 constexpr int NMP_EVAL_BETA_DIV       = 800;    // NMP reduction-bonus divisor.
     // Sweep: 600 (was) -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
     // 800 is the sweet spot — kept.
+    // NOTE: NMP R formula sweeps R = 4 + depth/3 (kept):
+    //   R = 5 + depth/3:    +107.5 ELO @ 30g but +0.00 +/- 38 @ 200g.
+    //                       Classic 30g positive-tail fakeout.
+    //   R = 4 + depth/4:    -82.6 +/- 109.6 ELO @ 30g (rejected, too
+    //                       conservative).
+    //   doDeeperSearch / doShallowerSearch SF18 LMR refinement:
+    //                       -46.6 +/- 105.1 @ 30g (likely needs
+    //                       different magnitude scaling for Hypersion).
 constexpr int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
     //   500: -24.4 ELO (too aggressive)
     //   600: baseline
