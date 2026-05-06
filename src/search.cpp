@@ -131,7 +131,10 @@ constexpr int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
     // 330 -> 400 tested at +15.6 +/- 37.6 ELO @ 200g. Original 330
     // was too aggressive — futility was over-pruning quiet moves
     // that had real follow-through.
-constexpr int FUTIL_MARGIN_BASE       = 390;    // (was 130; previously inline)
+constexpr int FUTIL_MARGIN_BASE       = 390;    // FUTIL base (was 130; previously inline).
+    // Sweep: 480 = -23.2 +/- 110.1 ELO @ 30g (within noise but trending bad),
+    // 300 = -46.6 +/- 93.0 ELO @ 30g (clear regression). Both directions
+    // worse — kept at 390.
 constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets.
     // Sweep: -150 = -70 ELO @ 30g (clear regression), -220 = -1.7 +/- 38.5
     // ELO @ 200g (within noise). Kept at -180.
