@@ -152,8 +152,14 @@ constexpr int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
 constexpr int ASPIRATION_DELTA0       = 51;     // initial aspiration delta.
     // Tested 30: -10.4 ELO (too tight), 80: +1.7 ELO (within noise).
     // Kept at 51.
-constexpr int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable" (was 20)
-constexpr int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap (was 1100)
+constexpr int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable" (was 20).
+    // Sweep: 100 = -11.6 +/- 107.2 ELO @ 30g (looser, cuts time too early),
+    // 40 = -11.6 +/- 107.2 ELO @ 30g (stricter, no measurable gain).
+    // Both directions worse — kept at 60.
+constexpr int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap (was 1100).
+    // Sweep: 2200 = -209 ELO @ 13g (stopped early, clear regression — below
+    // queen value cuts real captures), 5000 = +0.0 +/- 109.8 ELO @ 30g
+    // (no measurable gain). Kept at 3300.
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
