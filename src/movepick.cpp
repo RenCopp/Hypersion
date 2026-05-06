@@ -140,6 +140,12 @@ void MovePicker::score_quiets() {
         if (useCont2) v += contHist2->get(prevPc2, prevMv2.to_sq(), moving, m.to_sq()) / 2;
 
         // Threat-by-lesser bonus / penalty (SF18).
+        // NOTE: tested SF18 check-bonus +16384 (after SEE >= -75 filter)
+        // here. Result: -11.6 +/- 95.8 ELO @ 30g. Within noise but mildly
+        // negative — Hypersion's threat-by-lesser already pulls forcing
+        // moves earlier; the additional check bonus gave no clean win.
+        // Keep it filed under "may need a smaller magnitude or wider
+        // sample size" for later.
         if (pt >= KNIGHT && pt <= QUEEN) {
             Bitboard tBL  = threatByLesser[pt];
             Bitboard toBB = Bitboard(1) << int(m.to_sq());
