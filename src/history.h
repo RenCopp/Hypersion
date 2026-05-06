@@ -81,6 +81,27 @@ struct ContinuationHistory {
     }
 };
 
+// Phase-2/3/6 attempts tombstone (this session, after PawnHistory fail):
+//   Low-ply history (Worker member + LMR statScore read at ply<4):
+//     -70.4 +/- 105.9 ELO @ 30g (clear regression).
+//   Mate-threat extension (NMP-detects-mate, then ext=1 in move loop):
+//     -11.6 +/- 101.6 ELO @ 30g (within noise but trending negative).
+//   SE double-extension (when v < singularBeta - 150, extension=2):
+//     -107.5 +/- 97.3 ELO @ 30g (search explosion — too aggressive).
+//   CorrectionValue LMR adjust (r -= |corrVal| / 8192):
+//     -147.2 +/- 110.5 ELO @ 30g (catastrophic — corr stored as cp*256
+//     so the divisor was wildly miscalibrated).
+//   Eval cache (thread_local 16K hash->Value):
+//     +11.6 ELO @ 30g but -35 +/- 50 ELO @ 70/200g (i-cache pressure
+//     under cutechess concurrency=6 — same pattern as PGO/-funroll-loops).
+// Pattern: Hypersion at v2.1 is at a tight local optimum. Isolated
+// SF18-style ports keep regressing because the engine's bonus formulas,
+// eval magnitudes, and pruning constants are jointly tuned for the
+// existing feature set. Forward progress requires (a) joint SPSA across
+// multiple constants, (b) a stronger NNUE network, or (c) coordinated
+// multi-feature ports (e.g., pawn-history + butterfly weight + bonus
+// formula together) — not single-feature additions.
+
 // Counter-move table: [prev_piece][prev_to] -> recommended reply.
 struct CounterMoveTable {
     Move data[PIECE_NB][SQUARE_NB] = {};
