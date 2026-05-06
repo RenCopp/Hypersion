@@ -89,6 +89,21 @@ struct CounterMoveTable {
     void set(Piece prevPc, Square prevTo, Move m) { data[prevPc][prevTo] = m; }
 };
 
+// NOTE: SF18 PawnHistory was attempted (port of src/history.h:152 +
+// src/movepick.cpp:162 + src/search.cpp:1904). Result tombstone:
+//   2x weight (matches SF butterfly 2x):  -46.6 +/- 105.1 ELO @ 30g
+//   1x weight (matches Hypersion 1x bf):  -22.2 +/- 70.3 ELO @ 47g,
+//                                         -49.0 +/- 51.4 ELO @ 100g
+//   0.5x bonus multipliers (450/250):     -23.2 +/- 104.6 ELO @ 30g
+//   0.25x bonus multipliers (225/125):    -94.9 +/- 100.5 ELO @ 30g
+// Conclusion: pawn-structure history does not transfer to Hypersion's
+// already-tuned move ordering. Hypersion's bonus formula gives larger
+// updates than SF's and the existing butterfly + 1-ply contHist + 2-ply
+// contHist already provides comparable signal. Adding pawn-history
+// disrupts the local optimum at any tested magnitude. A future attempt
+// would need joint SPSA over (bonus magnitudes, butterfly weight, contHist
+// weights) — single-parameter sweeps cannot reach a new optimum.
+
 // Correction history: tweaks the static eval based on past (best - eval) errors.
 // Indexed by side-to-move and a 14-bit pawn-key fragment so positions with the
 // same pawn structure share a slot. Capped to keep noise bounded.
