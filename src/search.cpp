@@ -125,7 +125,10 @@ constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
     // 280 = -15.6 ELO at 200g.  Kept at 240.
 constexpr int RAZOR_MARGIN_BASE       = 720;    // Razoring (was 240)
 constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130)
-constexpr int FUTIL_MARGIN_PER_DEPTH  = 330;    // Futility for quiets (was 110)
+constexpr int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
+    // 330 -> 400 tested at +15.6 +/- 37.6 ELO @ 200g. Original 330
+    // was too aggressive — futility was over-pruning quiet moves
+    // that had real follow-through.
 constexpr int FUTIL_MARGIN_BASE       = 390;    // (was 130; previously inline)
 constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets (was -60)
 constexpr int SEE_CAPT_MARGIN         = -300;   // SEE pruning of bad captures (was -100)
