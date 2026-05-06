@@ -1085,6 +1085,13 @@ bool use_small(const Position& pos) {
     // win-rate, which doesn't penalize sub-optimal but still-winning
     // moves — exactly the moves that cause the bullet conversion
     // bug for human-time-pressure opponents.
+    // Sweep results @ 30g vs 1500 baseline:
+    //   962  (SF18 default) : -94.9 +/- 93.5 ELO  (clear regression)
+    //   1200                 : -94.9 +/- 119.6 ELO (regression)
+    //   2000                 : +0.0 +/- 109.8 ELO (no measurable gain)
+    // Hypersion sits at the inflection point — going below hurts because
+    // small net is less accurate at endgame conversion patterns; going
+    // above adds NPS cost (more big-net evals) without measurable benefit.
     return std::abs(se) > 1500;
 }
 

@@ -144,7 +144,17 @@ bench: build
 	./$(TARGET) bench
 
 # PGO: build with instrumentation, run bench to collect profile, rebuild using
-# the profile. Typically a 5–10 % nps gain on top of the LTO release build.
+# the profile. Bench shows ~5-15 % NPS gain on top of the LTO release build,
+# and depth-18 single-thread search can run up to ~38 % faster.
+#
+# DEPLOYMENT NOTE: PGO is a real win for single-instance production use
+# (lichess-bot, analysis tools) but REGRESSES at high concurrent-process
+# load. Tested at concurrency=6 cutechess match against non-PGO base:
+#   30g  : +34.9 +/- 96.0 ELO  (lucky positive tail)
+#   61g  : -45.8 +/- 75.6 ELO  (regression-to-mean made true direction visible)
+# Same i-cache pressure pattern as -funroll-loops (which also bench-faster /
+# concurrent-match-slower). Use PGO build for production binaries; do NOT
+# use it as the SPRT testing baseline.
 PGO_DIR = ./pgo
 profile:
 	$(MAKE) clean
