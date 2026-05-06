@@ -736,17 +736,72 @@ struct Network {
                                          (persp[0] == WHITE) ? tb2 : tw  };
         int clamp_max = is_big ? 255 : (127 * 2);
         alignas(64) std::uint8_t transformed[1024];
+        const int half = l1 / 2;
+#if defined(HC_SIMD_AVX2)
+        // SIMD: process 8 j's per iteration in int32 (safe against int16
+        // overflow when accs[i] + taccs[i] exceeds int16 range — happens for
+        // the BIG net's larger accumulator values).
+        const __m256i vzero32 = _mm256_setzero_si256();
+        const __m256i vclamp32 = _mm256_set1_epi32(clamp_max);
         for (int p = 0; p < 2; ++p) {
-            int offset = (l1 / 2) * p;
-            for (int j = 0; j < l1 / 2; ++j) {
-                int s0 = int(accs[p][j]);
-                int s1 = int(accs[p][j + l1 / 2]);
-                if (is_big) { s0 += int(taccs[p][j]); s1 += int(taccs[p][j + l1 / 2]); }
+            int offset = half * p;
+            const std::int16_t* a_lo = accs[p];
+            const std::int16_t* a_hi = accs[p] + half;
+            const std::int16_t* t_lo = taccs[p];
+            const std::int16_t* t_hi = taccs[p] + half;
+            int j = 0;
+            for (; j + 8 <= half; j += 8) {
+                // Load 8 int16, sign-extend to 8 int32
+                __m256i s0 = _mm256_cvtepi16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a_lo + j)));
+                __m256i s1 = _mm256_cvtepi16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a_hi + j)));
+                if (is_big) {
+                    __m256i t0 = _mm256_cvtepi16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(t_lo + j)));
+                    __m256i t1 = _mm256_cvtepi16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(t_hi + j)));
+                    s0 = _mm256_add_epi32(s0, t0);
+                    s1 = _mm256_add_epi32(s1, t1);
+                }
+                // Clamp [0, clamp_max] in int32 — no overflow risk
+                s0 = _mm256_max_epi32(s0, vzero32);
+                s0 = _mm256_min_epi32(s0, vclamp32);
+                s1 = _mm256_max_epi32(s1, vzero32);
+                s1 = _mm256_min_epi32(s1, vclamp32);
+                // Multiply: 8 int32 lanes, product in [0, 255*255=65025] fits
+                __m256i prod = _mm256_mullo_epi32(s0, s1);
+                // Shift right 9 (unsigned, since values are non-negative)
+                prod = _mm256_srli_epi32(prod, 9);
+                // Pack 8 int32 -> 8 uint16 (saturated) -> 8 uint8
+                // _mm256_packus_epi32: per-lane pack of 8 int32 -> 16 uint16
+                //   feed (prod, prod): result has [a0..a3|a0..a3|a4..a7|a4..a7]
+                __m256i pack16 = _mm256_packus_epi32(prod, prod);
+                __m128i lo16 = _mm256_castsi256_si128(pack16);   // [a0..a3|a0..a3]
+                __m128i hi16 = _mm256_extracti128_si256(pack16, 1); // [a4..a7|a4..a7]
+                __m128i u16  = _mm_unpacklo_epi64(lo16, hi16);   // [a0..a3|a4..a7] = 8 uint16
+                __m128i u8   = _mm_packus_epi16(u16, _mm_setzero_si128()); // 8 uint8 + 8 zeros
+                _mm_storel_epi64(reinterpret_cast<__m128i*>(transformed + offset + j), u8);
+            }
+            // Scalar tail
+            for (; j < half; ++j) {
+                int s0 = int(a_lo[j]);
+                int s1 = int(a_hi[j]);
+                if (is_big) { s0 += int(t_lo[j]); s1 += int(t_hi[j]); }
                 s0 = std::clamp(s0, 0, clamp_max);
                 s1 = std::clamp(s1, 0, clamp_max);
                 transformed[offset + j] = std::uint8_t(unsigned(s0 * s1) / 512);
             }
         }
+#else
+        for (int p = 0; p < 2; ++p) {
+            int offset = half * p;
+            for (int j = 0; j < half; ++j) {
+                int s0 = int(accs[p][j]);
+                int s1 = int(accs[p][j + half]);
+                if (is_big) { s0 += int(taccs[p][j]); s1 += int(taccs[p][j + half]); }
+                s0 = std::clamp(s0, 0, clamp_max);
+                s1 = std::clamp(s1, 0, clamp_max);
+                transformed[offset + j] = std::uint8_t(unsigned(s0 * s1) / 512);
+            }
+        }
+#endif
 
         const FC* L = fc[bkt];
         int fc0_out = l2 + 1;
