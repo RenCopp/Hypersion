@@ -123,7 +123,9 @@ void update_pv(PVLine& parent, Move m, const PVLine& child) {
 constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
     // Sweep: 200 = -8.1 ELO at 129g (incomplete, trending negative);
     // 280 = -15.6 ELO at 200g.  Kept at 240.
-constexpr int RAZOR_MARGIN_BASE       = 720;    // Razoring (was 240)
+constexpr int RAZOR_MARGIN_BASE       = 850;    // Razoring base.
+    // Sweep vs BASE (720): 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3.
+    // Both within noise but 850 trended positive.
 constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130)
 constexpr int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
     // 330 -> 400 tested at +15.6 +/- 37.6 ELO @ 200g. Original 330
