@@ -132,8 +132,12 @@ constexpr int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
     // was too aggressive — futility was over-pruning quiet moves
     // that had real follow-through.
 constexpr int FUTIL_MARGIN_BASE       = 390;    // (was 130; previously inline)
-constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets (was -60)
-constexpr int SEE_CAPT_MARGIN         = -300;   // SEE pruning of bad captures (was -100)
+constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets.
+    // Sweep: -150 = -70 ELO @ 30g (clear regression), -220 = -1.7 +/- 38.5
+    // ELO @ 200g (within noise). Kept at -180.
+constexpr int SEE_CAPT_MARGIN         = -250;   // SEE pruning of bad captures.
+    // Sweep vs -300: -400 = -58 ELO @ 30g (bad), -250 = +8.7 +/- 39.7
+    // ELO @ 200g (positive). -300 was too aggressive.
 constexpr int NMP_EVAL_BETA_DIV       = 800;    // NMP reduction-bonus divisor.
     // Sweep: 600 (was) -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
     // 800 is the sweet spot — kept.
