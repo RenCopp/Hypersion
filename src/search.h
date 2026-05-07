@@ -143,6 +143,21 @@ private:
     // contHist[1] = 2-ply lookback (follow-up history) — updated on cutoff
     // but currently NOT read for quiet ordering: a Phase-4 experiment with
     // 4-ply lookback + decaying weights (1, 1/2, 1/4, 1/8) regressed -26 ELO.
+    //
+    // NOTE: re-tested 6-deep with SF18's SPSA-tuned non-monotonic weights
+    // [1133, 683, 312, 582, 149, 474]/1024 (matching SF18 src/search.cpp:
+    // 1877-1888 conthist_bonuses array). LMR statScore read 5 of 6 levels
+    // (skip index 4) with /11248 divisor matching SF tuning. Result:
+    //   30g:  -34.9 +/- 96.0 ELO  (noise, trending negative)
+    //   100g: +6.9  +/- 49.4 ELO  (lucky bounce)
+    //   200g: -24.4 +/- 37.7 ELO  (REJECT, tombstone)
+    // Same pattern as the earlier monotonic-weight attempt — SF's exact
+    // weights don't transfer either. Likely cause: 6 tables = ~24MB per
+    // thread (3x cache footprint vs 2 tables), and 6x update writes per
+    // cutoff. Hypersion's current-codebase calibration around the simpler
+    // 2-deep version is more important than the marginal contHist accuracy
+    // gain.
+    //
     // Each ContinuationHistory is ~4MB; 2 tables = ~8MB per thread.
     std::unique_ptr<ContinuationHistory> contHist[2];
 };
