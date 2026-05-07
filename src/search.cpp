@@ -943,6 +943,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     bool inCheck   = pos.checkers();
     ss->inCheck    = inCheck;
     ss->moveCount  = 0;
+    // SF18: zero (ss+2)->cutoffCnt only — NOT ss->cutoffCnt itself. Our own
+    // cutoffCnt accumulates across recursive calls from our parent's move
+    // loop, which is precisely what makes the LMR heuristic work: parent
+    // reads (parent_ss + 1)->cutoffCnt = OUR cutoffCnt to decide reductions
+    // for its NEXT sibling move. (Our +2 frame is the slot a future
+    // grandchild recursion will accumulate into; clearing it prepares that.)
+    // Source: SF18 src/search.cpp:699.
+    (ss + 2)->cutoffCnt = 0;
 
     // ---- TT probe ----
     bool ttHit = false;
@@ -1286,6 +1294,20 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             // attributable to over-reduced lines that hid the refutation.
             if (popcount(pos.pieces()) <= 8) --r;
 
+            // SF18 cutoffCnt LMR adjustment. When the previously-searched
+            // sibling moves' subtrees produced many fail-highs in our child
+            // ply, the position is cut-off-heavy — reduce more aggressively
+            // for the current move (we're likely to cut off too, so verify
+            // with less depth). Conservative integer-ply port of SF's
+            // fixed-point version (which uses +256 / +1024 ply-1024ths):
+            //   SF: r += 256 + 1024*(cnt>2) + 1024*allNode  if cnt > 1
+            // Hypersion approximation:
+            //   if cnt > 2:           +1 ply
+            //   if allNode && cnt>1:  +1 ply
+            // Source: SF18 src/search.cpp:1208-1209.
+            if ((ss + 1)->cutoffCnt > 2) ++r;
+            if ((ss + 1)->cutoffCnt > 1 && !isPv && !cutNode) ++r;
+
             // Stockfish-18 LMR history correction. High-history quiet moves get
             // reduced less; low-history get reduced more. Sums the same signals
             // MovePicker uses for quiet ordering: butterfly (×2) + 1-ply contHist
@@ -1330,6 +1352,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 bestMove = m;
                 if (isPv) update_pv(pv, m, childPv);
                 if (v >= beta) {
+                    // SF18 cutoffCnt tally: count this fail-high so that any
+                    // sibling-move's child LMR (which reads (ss+1)->cutoffCnt)
+                    // can use the cutoff concentration as a reduction signal.
+                    // SF gates with `(extension < 2) || PvNode` to avoid
+                    // double-counting double-extension paths; Hypersion's
+                    // singular extension only ever produces extension <= 1
+                    // so the gate is always true here -> just increment.
+                    // Source: SF18 src/search.cpp:1374.
+                    ++ss->cutoffCnt;
                     // ---- History updates on beta cutoff ----
                     int bonus = history_bonus(depth);
                     if (!isCapture) {

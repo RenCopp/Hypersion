@@ -43,6 +43,11 @@ struct Stack {
     Value staticEval        = VALUE_NONE;
     int   moveCount         = 0;
     int   ply               = 0;
+    int   cutoffCnt         = 0;   // SF18: count of fail-highs in this
+                                   // node's child subtrees. Read by parent
+                                   // in LMR — concentrated cutoffs in
+                                   // siblings hint we should reduce more.
+                                   // Source: SF18 src/search.cpp:699,1208,1374.
     bool  ttPv              = false;
     bool  inCheck           = false;
 };
