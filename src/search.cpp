@@ -1270,6 +1270,23 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (should_stop()) return VALUE_ZERO;
             if (v < singularBeta) {
                 extension = 1;          // singular — extend
+                // NOTE: tested SF18 src/search.cpp:1151 SE depth++ — when
+                // singularity is detected, also bump the current depth by 1
+                // for the whole subtree.  Result trajectory:
+                //   30g triage: +70.4 +/- 93.3 ELO  (looked PROMISING)
+                //   200g confirm: +10.4 +/- 37.7 ELO  (at ship bar)
+                //   300g extended: -4.6 +/- 30.3 ELO  (REJECT, tombstone)
+                // Classic PROTOCOL.md fakeout pattern (+70 -> +10 -> -5).
+                // The depth++ adds significant work on ~1% of nodes (SE
+                // firing rate), and the extra subtree depth doesn't pay
+                // back in this codebase's calibration.  SF gates this with
+                // their full doubleMargin/tripleMargin family which we
+                // don't have; trying just depth++ in isolation under-
+                // performs because we lack the compensating rate-control.
+                // Future contributor wanting to retry should pair with
+                // SF's doubleMargin/tripleMargin tunables (require
+                // ttCapture flag + ttPv tracking + correctionValue
+                // computation, all SF18 src/search.cpp:1142-1149).
             } else if (singularBeta >= beta) {
                 // Multi-cut: another move already meets beta in the reduced search,
                 // so the position is at least beta — return early.
