@@ -551,6 +551,15 @@ void Worker::iterative_deepen(Position& pos) {
     Move  prevBestMove    = Move::none();
     int   bestMoveChanges = 0;     // how many recent iterations changed bestmove
     int   stableIters     = 0;     // consecutive iterations with same bestmove + small score change
+    // SF18-style per-iteration bestMoveChanges tracking (src/search.cpp:480, 503).
+    // SF accumulates intra-iteration bestmove changes across PV lines, then
+    // decays /=2 between iterations so the time-scale factor reflects RECENT
+    // instability rather than cumulative-since-iter-1. Hypersion's previous
+    // bestMoveChanges was cumulative-only and exploded the SF time factor
+    // (-111 ELO at 200g). Per-iter version is the correct port.
+    double totBestMoveChanges = 0.0;
+    int    iterBestMoveChanges = 0;
+    int    moveCountAtLastBest = 0;
 
     // SMP diversity (Stockfish-style depth skipping for helpers). Helpers
     // skip iterations of the iterative-deepening loop on a per-thread
@@ -572,6 +581,8 @@ void Worker::iterative_deepen(Position& pos) {
                 continue;
         }
         selDepth = 0;
+        iterBestMoveChanges = 0;   // reset per-iter counter; accumulated on
+                                   // each non-first root move that becomes best
 
         // ---- MultiPV loop: search top-N root moves separately ----
         // pvIdx is the rank we're searching for. After each pvIdx, we've fixed
@@ -629,6 +640,13 @@ void Worker::iterative_deepen(Position& pos) {
                         update_pv(iterPV, rm.pv0, childPv);
                         rm.pv = iterPV;
                         if (v > alpha) alpha = v;
+                        // SF18-style intra-iter bestmove change tracking.
+                        // Increment whenever a non-first move (moveIndex > 0)
+                        // raises the iter's best — only on first PV line so
+                        // multipv runs don't double-count. Source: SF18
+                        // src/search.cpp:1342-1346.
+                        if (moveIndex > 0 && pvIdx == 0)
+                            ++iterBestMoveChanges;
                     }
                     ++moveIndex;
                 }
@@ -692,6 +710,13 @@ void Worker::iterative_deepen(Position& pos) {
             if (!sameMove)              ++bestMoveChanges;
         }
         prevBestMove = bestMove;
+
+        // SF18 totBestMoveChanges decay (src/search.cpp:327, 480-481):
+        // halve the running total then add this iter's changes. The /2
+        // decay means the time factor reflects RECENT instability rather
+        // than cumulative-since-start.
+        totBestMoveChanges = totBestMoveChanges / 2.0 + iterBestMoveChanges;
+        (void)moveCountAtLastBest;  // reserved for future SF-port use
 
         // Soft-stop: scale optimum budget by stability. Stable for 4+ iterations
         // → take only ~50 % of optimum; volatile (recent move changes) → 1.4 ×.
@@ -785,16 +810,26 @@ void Worker::iterative_deepen(Position& pos) {
                 }
             }
 
-            // NOTE: tried SF18 `bestMoveInstability` factor here:
-            //   scale *= 1.02 + 2.14 * bestMoveChanges / threads.size()
-            // Result: -111 ELO at 200 games (5+0.05).
-            // Root cause: Hypersion's `bestMoveChanges` is CUMULATIVE
-            // across iterations (only ever increments), while SF's
-            // `totBestMoveChanges` resets/decays per iteration. With a
-            // cumulative counter on a single-threaded run, the multiplier
-            // explodes (10×+), gobbling the whole clock. To safely port
-            // this, Hypersion would need to track per-iteration changes
-            // separately — left as future work.
+            // NOTE: Phase 6.3 attempted SF18 best-move-instability time
+            // factor with proper per-iteration tracking (totBestMoveChanges
+            // with /2 decay per iter, per-iter `iterBestMoveChanges` fed
+            // by intra-iter bestmove changes at root).  This was meant to
+            // fix the previous tombstone (-111 ELO) which used a cumulative
+            // counter. Tested two coefficient strengths:
+            //   v1: SF's 1.02 + 2.14*tBMC/nThreads, clamp [0.8, 2.0]
+            //       30g: -46.6, 200g: -27.9 ELO (reject)
+            //   v2: 1.0 + 1.0*tBMC/nThreads, clamp [0.9, 1.5]
+            //       30g: -107.5 ELO (worse — lower clamp doesn't help)
+            // Both regress because at fast TC (5+0.05), any time-bonus on
+            // unstable iterations pushes us toward flag-outs in the endgame.
+            // The instability signal IS real, but the "spend more time"
+            // response is wrong for Hypersion's bullet calibration.
+            // Future contributor: try INVERSE — REDUCE time on stable
+            // iters (instabilityFactor between [0.7, 1.0]) so the
+            // benefit shows in shorter total time.  Or test only at
+            // longer TC where flag-out isn't a concern.
+            (void)totBestMoveChanges;
+            (void)iterBestMoveChanges;
 
             // KNOWN-ISSUE (user-reported bullet bug): at very low remaining
             // time with a winning advantage (passed pawn / extra rook), the
