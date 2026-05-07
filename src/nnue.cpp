@@ -858,16 +858,23 @@ struct Network {
         int pv = int(psqt_raw / OUTPUT_SCALE);
         int pp = int(positional / OUTPUT_SCALE);
         int nnue = (125 * pv + 131 * pp) / 128;
-        // NOTE: tried SF18 NNUE-complexity damping (`nnue -= nnue *
-        // |pv-pp| / 91180`) here. Result: -13.9 +/- 36.8 ELO at 200g
-        // 5+0.05. Same pattern as the rule50 attempt above — within
-        // noise but mildly negative point estimate. Both SF eval-side
-        // damping features may pay off at long TC where eval accuracy
-        // compounds, but the long-TC verification (HEAD vs v2-tag at
-        // 60+0.6) already showed -8.7 ELO. Adding more neutral-mildly-
-        // negative changes risks compounding. Left for future work
-        // when there's a separate eval-tuning effort with paired
-        // Texel/SPSA calibration.
+        // Phase 5.3 SF18 NNUE-complexity damping. When PSQT eval and
+        // positional eval disagree (large |pv - pp|), the position is
+        // "complex" — SF damps the final eval magnitude to reduce
+        // over-confidence in those cases. Source: SF18 evaluate.cpp.
+        //
+        // SPRT trajectory at 5+0.05, conc=6 (post-cutoffCnt+VNNI baseline):
+        //   30g  triage:    -11.6 +/- 101.6 ELO  (noise)
+        //   200g run 1:     +24.4 +/-  38.0 ELO  (clear ship)
+        //   300g run 2:      +8.1 +/-  31.1 ELO  (marginal)
+        //   200g run 3:      -3.5 +/-  36.8 ELO  (noise dipped negative)
+        //   Combined 730g:   ~+5-10 ELO point estimate, ±20 CI
+        //
+        // Marginal SHIP. Pre-cutoffCnt the same change was -13.9 +/- 36.8
+        // (similar magnitude, opposite sign). Post-cutoffCnt search dynamics
+        // make it slightly net-positive. If long-TC verification shows a
+        // regression at 60+0.6, revert this line.
+        nnue -= nnue * std::abs(pv - pp) / 91180;
 
         // Material scaling matching SF18 evaluate.cpp
         int mat = 534 * popcount(pos.pieces(PAWN));
