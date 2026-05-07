@@ -864,6 +864,17 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     } else {
         staticEval = ttHit && tte->eval() != VALUE_NONE ? tte->eval() : Eval::evaluate(pos);
         bestValue  = staticEval;
+        // NOTE: tested SF18 src/search.cpp:1577-1579 qsearch ttValue stand-pat
+        //   `if (ttHit && bound matches) bestValue = ttValue`
+        // Trajectory:
+        //   30g:  -11.6 +/- 107.2 ELO  (noise)
+        //   100g: +10.4 +/-  52.6 ELO  (at ship bar)
+        //   200g: -12.2 +/-  38.2 ELO  (REJECT, tombstone)
+        // Noise band, trending negative.  Hypothesis: using a deeper
+        // search's ttValue at qsearch means we stand-pat earlier and skip
+        // captures that would have refuted that ttValue at qsearch's
+        // local horizon — qsearch loses tactical accuracy.  In SF this is
+        // compensated by tighter capture pruning gates we don't have.
         if (bestValue >= beta)  { return bestValue; }
         if (bestValue >  alpha) alpha = bestValue;
     }
