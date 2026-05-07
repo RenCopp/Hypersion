@@ -56,6 +56,14 @@ struct Stack {
                                    // line) or down (we over-searched a
                                    // not-so-interesting one).
                                    // Source: SF18 src/search.cpp:696-697.
+    int   statScore         = 0;   // SF18: cached LMR statScore for the
+                                   // current move (history sum: 2*mainHist +
+                                   // contHist0 + contHist1, or capture
+                                   // history). Stored on stack so the
+                                   // child's history-update can fold in
+                                   // (ss-1)->statScore / 32 as parent-quality
+                                   // feedback. Source: SF18 src/search.cpp:
+                                   // 698, 1216-1224, 1834.
     bool  ttPv              = false;
     bool  inCheck           = false;
 };

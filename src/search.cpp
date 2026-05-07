@@ -973,13 +973,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     bool inCheck   = pos.checkers();
     ss->inCheck    = inCheck;
     ss->moveCount  = 0;
+    ss->statScore  = 0;       // SF18: cleared at entry, set per-move below.
     // SF18: zero (ss+2)->cutoffCnt only — NOT ss->cutoffCnt itself. Our own
     // cutoffCnt accumulates across recursive calls from our parent's move
     // loop, which is precisely what makes the LMR heuristic work: parent
     // reads (parent_ss + 1)->cutoffCnt = OUR cutoffCnt to decide reductions
     // for its NEXT sibling move. (Our +2 frame is the slot a future
     // grandchild recursion will accumulate into; clearing it prepares that.)
-    // Source: SF18 src/search.cpp:699.
+    // Source: SF18 src/search.cpp:698-699.
     (ss + 2)->cutoffCnt = 0;
 
     // ---- TT probe ----
@@ -1489,6 +1490,27 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     // sweep magnitude (e.g. 100, 175, 250) and possibly
                     // gate on depth >= 4 (only at higher depths where TT
                     // signal is more trustworthy).
+                    // NOTE: Phase 4.1 cluster-port attempt — combine SF18's
+                    // linear bonus + ttMove bonus + parent-statScore feedback
+                    // + progressive malus + capHist scaling all together as a
+                    // coherent bundle. Result: -223.3 +/- 121.7 ELO at 30g
+                    // (disastrous, well below -50 reject bar).
+                    //
+                    // Diagnosis: even the FULL cluster regresses badly because
+                    // Hypersion lacks SF's supporting infrastructure that the
+                    // cluster's tuning depends on:
+                    //   - LowPlyHistory (separate table for ply < 4)
+                    //   - PawnHistory (tombstoned at -49 ELO)
+                    //   - 6-deep contHist (tombstoned at -24 ELO)
+                    //   - Specific LMR statScore divisor calibrated to /11248
+                    //     against the 5-of-6 contHist sum (not Hypersion's
+                    //     /8192 against 2-deep).
+                    //
+                    // Future contributor wanting to retry: must FIRST add
+                    // LowPlyHistory, PawnHistory, AND 6-deep contHist with
+                    // their tuned divisors. Phase 4.1 'cluster' really
+                    // requires the full SF history infrastructure, not just
+                    // the bonus formula change.
                     int bonus = history_bonus(depth);
                     if (!isCapture) {
                         killers.update(ply, m);
