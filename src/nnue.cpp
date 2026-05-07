@@ -1217,6 +1217,11 @@ Value evaluate(const Position& pos) {
     //      tactically balanced despite the material gap — recompute with the
     //      more accurate big net.
     //   3) Otherwise default to the big net.
+    // NOTE: tested lowering SMALL_FALLBACK_TH from 277 to 150 to reduce the
+    // small->big fallback rate (~+15% NPS in bench). Result: -82.6 +/- 96.8
+    // ELO at 30g 5+0.05 — clear regression. The fallback path catches
+    // positions where the small net misjudges balance (the 150-277 cp band),
+    // and skipping those re-evaluations costs more ELO than the NPS buys.
     // SF uses 277 cp in raw NNUE units. Our values are post-/NNUE_DIVISOR.
     constexpr int SMALL_FALLBACK_TH = 277 / NNUE_DIVISOR;
     static_assert(SMALL_FALLBACK_TH >= 90, "small-net fallback threshold sanity");
