@@ -48,6 +48,14 @@ struct Stack {
                                    // in LMR — concentrated cutoffs in
                                    // siblings hint we should reduce more.
                                    // Source: SF18 src/search.cpp:699,1208,1374.
+    int   reduction         = 0;   // SF18: how much LMR reduced the search
+                                   // we just spawned at (ss+1). Child reads
+                                   // (ss-1)->reduction at entry to decide
+                                   // whether to bump its own depth back up
+                                   // (we may have under-searched a stable
+                                   // line) or down (we over-searched a
+                                   // not-so-interesting one).
+                                   // Source: SF18 src/search.cpp:696-697.
     bool  ttPv              = false;
     bool  inCheck           = false;
 };

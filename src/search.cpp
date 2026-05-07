@@ -1011,6 +1011,29 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
         ss->staticEval = staticEval;
     }
+
+    // NOTE: tested SF18 priorReduction hindsight depth bump: parent records
+    // its LMR amount at (ss-1)->reduction; child reads at entry and bumps
+    // own depth by 1 if reduction was >= 3 plies (under-search compensation,
+    // matching SF18 src/search.cpp:753-754).
+    // Result: -120.4 +/- 93.7 ELO at 30g 5+0.05 (clear regression).
+    //
+    // Diagnosis: directly anti-synergistic with the just-shipped cutoffCnt
+    // LMR adjustment (commit 820c06f). cutoffCnt INCREASES reduction in
+    // cut-y subtrees (where many siblings already failed high). priorReduction
+    // then BUMPS DEPTH BACK UP at children that were heavily reduced — so
+    // the cutoffCnt savings are immediately spent re-searching the very
+    // children it tried to skip. Net: same node count as without cutoffCnt
+    // but with worse priors (we're now committing extra work to leaves the
+    // sibling-cutoff signal told us were unlikely to be principal).
+    //
+    // To retry: would need to pair priorReduction with weakened cutoffCnt
+    // thresholds (e.g. only the > 2 case, drop the allNode path) so the two
+    // heuristics don't cancel. Or skip priorReduction entirely — SF gates it
+    // with !opponentWorsening which we don't have, and the SF tuning may
+    // depend on that gate to keep the bump-up rate low enough to win.
+    // Stack::reduction field kept (cheap) so a future contributor can wire
+    // it back in without re-laying the plumbing.
     // NOTE: round-6 added a parallel materialCorrHist with averaged
     // contributions. Result: -26 ELO at 200 games. Two issues: the
     // 14-bit material key has heavy bucket collisions (many dissimilar
@@ -1338,6 +1361,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             }
             r = std::clamp(r, 0, newDepth - 1);
         }
+        // Record how much we reduced for SF18-style hindsight depth adjustment
+        // at the child's entry. r=0 for first move (no LMR) and full-window
+        // re-searches; otherwise r > 0 means we under-searched the child.
+        // Source: SF18 src/search.cpp:1240-1242.
+        ss->reduction = r;
 
         Value v;
         if (moveCount == 1) {
