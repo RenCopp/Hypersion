@@ -1144,6 +1144,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // At a non-PV node with depth >= 5, scan captures whose SEE clears the bar
     // toward beta + margin. If a capture reaches that bar via a real reduced
     // search, prune the whole subtree.
+    // NOTE: tested lowering threshold to depth >= 4 (matching SF18 closer at
+    // depth >= 3). Trajectory:
+    //   30g:  +34.9 +/- 96.0 ELO  (noise band, mildly positive)
+    //   200g: +6.9  +/- 36.4 ELO  (between reject +5 and ship +10)
+    //   300g: -1.2  +/- 30.6 ELO  (REJECT, converged to ~0)
+    // Same fakeout pattern as SE depth++. Lowering threshold adds ~20% more
+    // ProbCut attempts at depth 4 but the cost (re-search on probcut hit)
+    // doesn't pay back at this calibration.
     if (!isPv && !inCheck && depth >= 5
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
         && ss->excludedMove == Move::none()) {
