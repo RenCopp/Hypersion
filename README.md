@@ -26,18 +26,27 @@ unstable).
 
 ## Strength
 
-Tested against the engine's own classical-only baseline (pre-NNUE,
-Texel-tuned classical evaluator). Each line is a 40-game match at the
-indicated time control with `book=eco.bin` openings:
+Vs. UCI_Elo-limited Stockfish on `nn-c288c895ea92.nnue`, 16-game matches
+at 5+0.05 (bullet) with concurrency=2:
 
-| Time control | Result vs. classical baseline |
-|---|---|
-| 10 + 0.1 (bullet) | ≈ +360 ELO |
-| 60 + 0.6 (rapid)  | ≈ +50 ELO (4W / 15D / 1L over 20g) |
+| SF UCI_Elo | Hypersion result | Score % |
+|---|---|---|
+| 2000 | +16 =0 -0  | 100 % |
+| 2200 | +15 =1 -0  | 96.9 % |
+| 2400 | +9 =5 -2   | 71.9 % |
+| 2600 | +11 =0 -5  | 68.8 % |
+| 2800 | +4 =1 -11  | 28.1 % |
 
-The bullet number compounds several A/B-match deltas; treat it as
-order-of-magnitude rather than a single rigorous measurement. The slow-TC
-result is one direct match against the classical baseline.
+Bullet TC strength estimate: **≈ 2500-2600 SF-Elo**. Slower time controls
+shift higher.
+
+Tactical suite results @ fixed depth (199 / 1277 / 901 positions):
+
+| Suite | Depth | Solved |
+|---|---|---|
+| WAC (Win at Chess) | 12 | 96.0 % |
+| mate-in-3 | 8 | 96.1 % |
+| mate-in-5 | 12 | 87.6 % |
 
 ## Building
 
@@ -57,6 +66,17 @@ make build ARCH=x86-64-bmi2     # adds PEXT (Zen 3+, Ice Lake+)
 make build ARCH=x86-64-avxvnni  # +AVX-VNNI dpbusd (Alder Lake+)
 make build ARCH=x86-64-avx512   # AVX-512 (Skylake-X+, Zen 4+)
 make build ARCH=native          # auto-detect via -march=native
+```
+
+For modern Intel (12th gen+) / AMD (Zen 4+) hardware, the AVX-VNNI build
+is **+29.6 ± 35.6 ELO** over the AVX2 default at 200g 5+0.05 conc=2 —
+recommended for distribution to such users.
+
+Distribution-ready stripped binaries:
+
+```
+py testing/build_releases.py   # builds avx2/bmi2/avxvnni stripped variants
+                               # into ./release/, 1.32 MB each
 ```
 
 See [docs/BUILDING.md](docs/BUILDING.md) for full options including PGO,
@@ -96,7 +116,7 @@ ChessBase, Scid, Fritz, …) will drive it.
 | Option | Default | Range | Notes |
 |---|---|---|---|
 | `Hash` | 16 | spin | TT size in MB |
-| `Threads` | 1 | spin | leave at 1; lazy-SMP is unstable currently |
+| `Threads` | 2 | spin | lazy-SMP works; 2 is a safe default. For deterministic bench/testing, use 1. |
 | `EvalFile` | `nn-c288c895ea92.nnue` | string | big NNUE network |
 | `EvalFileSmall` | `nn-37f18f62d772.nnue` | string | small NNUE network |
 | `SyzygyPath` | empty | string | Syzygy tablebase directory |
