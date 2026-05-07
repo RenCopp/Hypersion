@@ -160,6 +160,41 @@ struct CorrectionHistory {
     }
 };
 
+// LowPlyHistory: per-ply move-ordering bonus for shallow plies. SF18 uses
+// it for ply < 5 to bias root-near move ordering toward moves that historically
+// did well at the same ply — early-iter PV moves are stable signals.
+//
+// Indexed by [ply][move.raw()] where move.raw() is the 16-bit Move encoding.
+// Size: 5 * 65536 * 2 bytes = 640 KB per Worker. With Threads=2 default,
+// ~1.3 MB total — acceptable.
+//
+// SF source: history.h:42, 137-139; movepick.cpp:178-179.
+struct LowPlyHistory {
+    static constexpr int LOW_PLY = 5;          // matches SF18 LOW_PLY_HISTORY_SIZE
+    static constexpr int MOVE_SLOTS = 65536;   // uint16 raw move encoding
+    static constexpr int LIMIT = 7183;         // soft cap matching SF18
+    std::int16_t data[LOW_PLY][MOVE_SLOTS];
+    LowPlyHistory() { fill(97); }              // SF18 search.cpp:314
+    void fill(int v) {
+        for (int p = 0; p < LOW_PLY; ++p)
+            for (int m = 0; m < MOVE_SLOTS; ++m)
+                data[p][m] = std::int16_t(v);
+    }
+    void clear() { fill(97); }
+    int  get(int ply, std::uint16_t mv) const {
+        return ply < LOW_PLY ? int(data[ply][mv]) : 0;
+    }
+    void update(int ply, std::uint16_t mv, int bonus) {
+        if (ply >= LOW_PLY) return;
+        // SF18-style soft-cap update (entry += bonus - entry*|bonus|/LIMIT).
+        std::int16_t& slot = data[ply][mv];
+        int raw = int(slot) + bonus - int(slot) * std::abs(bonus) / LIMIT;
+        if (raw >  LIMIT) raw =  LIMIT;
+        if (raw < -LIMIT) raw = -LIMIT;
+        slot = std::int16_t(raw);
+    }
+};
+
 }  // namespace hypersion
 
 #endif  // HYPERSION_HISTORY_H

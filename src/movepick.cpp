@@ -30,9 +30,12 @@ MovePicker::MovePicker(const Position& p,
                        Piece pp,
                        const ContinuationHistory* contH2,
                        Move pm2,
-                       Piece pp2)
+                       Piece pp2,
+                       const LowPlyHistory* lph,
+                       int ply)
     : pos(p), bhist(bh), chist(ch),
       contHist1(contH), contHist2(contH2),
+      lphist(lph), plyCtx(ply),
       ttMove(ttm),
       killer0(killers ? killers[0] : Move::none()),
       killer1(killers ? killers[1] : Move::none()),
@@ -154,6 +157,12 @@ void MovePicker::score_quiets() {
                           : (tBL & frBB) ?  20
                                          :   0;
             v += int(Eval::PieceValueMG[pt]) * signedV;
+        }
+
+        // SF18 LowPlyHistory contribution to move ordering at low ply.
+        // Source: SF18 movepick.cpp:178-179 — `value += 8 * lph[ply][raw] / (1 + ply)`.
+        if (lphist && plyCtx >= 0 && plyCtx < LowPlyHistory::LOW_PLY) {
+            v += 8 * lphist->get(plyCtx, std::uint16_t(m.raw())) / (1 + plyCtx);
         }
 
         it->value = v;

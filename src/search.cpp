@@ -237,6 +237,7 @@ void Worker::clear() {
     counterMoves.clear();
     pawnCorrHist.clear();
     materialCorrHist.clear();
+    lowPlyHist.clear();
     for (auto& ch : contHist) ch->clear();
     // Note: TT clearing is the pool's responsibility — done once across all threads.
 }
@@ -1305,7 +1306,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     PVLine childPv;
     MovePicker mp(pos, ttMove, &mainHist, &captureHist, killers.killers[ply], depth,
                   contHist[0].get(), prevMove1, prevPiece1,
-                  contHist[1].get(), prevMove2, prevPiece2);
+                  contHist[1].get(), prevMove2, prevPiece2,
+                  &lowPlyHist, ply);
 
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
@@ -1594,6 +1596,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                         mainHist.update(pos.side_to_move(), m, bonus);
                         if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
+                        // SF18 LowPlyHistory bonus on cutoff at low ply.
+                        // Sized 5 plies (LOW_PLY=5) — early-iter PV moves
+                        // get the most signal; deeper plies skip silently.
+                        // SF18 src/search.cpp:1899-1900.
+                        lowPlyHist.update(ply, std::uint16_t(m.raw()), bonus * 805 / 1024);
+                        // Demote tried-but-failed quiets in lowPlyHist too.
+                        for (int i = 0; i < quietCount; ++i)
+                            lowPlyHist.update(ply, std::uint16_t(quietsTried[i].raw()), -bonus * 805 / 1024);
                         // Demote tried-but-failed quiets.
                         for (int i = 0; i < quietCount; ++i)
                             mainHist.update(pos.side_to_move(), quietsTried[i], -bonus);

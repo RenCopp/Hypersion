@@ -44,7 +44,9 @@ public:
                Piece            prevPiece = NO_PIECE,
                const ContinuationHistory* contHist2 = nullptr,
                Move             prevMove2 = Move::none(),
-               Piece            prevPiece2= NO_PIECE);
+               Piece            prevPiece2= NO_PIECE,
+               const LowPlyHistory* lph   = nullptr,   // SF18: ply-< 5 ordering
+               int              ply       = -1);       // -1 = no ply context
 
     // Quiescence-only constructor (no killers, no quiets).
     MovePicker(const Position&  p,
@@ -66,6 +68,8 @@ private:
     const CaptureHistory*      chist;
     const ContinuationHistory* contHist1 = nullptr;   // 1-ply back (counter-move)
     const ContinuationHistory* contHist2 = nullptr;   // 2-ply back (follow-up; updated, not read)
+    const LowPlyHistory*       lphist    = nullptr;   // SF18 ply-< 5 ordering, may be null
+    int                        plyCtx    = -1;        // current ply, -1 if not provided
 
     Move    ttMove;
     Move    killer0;
