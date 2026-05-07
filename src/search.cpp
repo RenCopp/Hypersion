@@ -1168,6 +1168,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // ---- Internal Iterative Reductions ----
     // PV/cut nodes without a TT move are likely to need the extra work — but
     // searching at the requested depth is wasteful. Reduce by 1.
+    // NOTE: tested raising IIR threshold from depth>=4 to depth>=6 (matching
+    // SF18 src/search.cpp:932) post-cutoffCnt-ship.  Result: +0.0 +/- 92.8
+    // ELO at 30g 5+0.05 — pure noise. Threshold change doesn't matter at
+    // current calibration. Kept at 4. Future contributor wanting to
+    // re-tune should also try the SF gate `priorReduction <= 3` paired
+    // with priorReduction's plumbing being live.
     if ((isPv || cutNode) && depth >= 4 && ttMove == Move::none())
         depth -= 1;
 
