@@ -732,6 +732,25 @@ void Worker::iterative_deepen(Position& pos) {
             // mitigates) the stability cut, which is the right direction:
             // stable+endgame -> still spend reasonable time.
             int totalPieces = popcount(rootPos.pieces());
+            // NOTE: tested rebalancing time multipliers post-cutoffCnt-ship
+            // (which made endgame play reliable: 10.5/12 vs SF-2400 with no
+            // >200cp endgame blunders). Reduced endgame bonuses (1.6/1.4/1.2
+            // -> 1.4/1.25/1.1) and added middlegame boost (>=24 pieces: x1.15)
+            // to redirect budget toward the remaining 100-200cp middlegame
+            // tactical inaccuracies.
+            // Trajectory:
+            //   30g:  +11.6 +/- 101.6 ELO  (noise band)
+            //   200g: +13.9 +/-  38.0 ELO  (above SHIP bar — looked promising)
+            //   300g: -39.5 +/-  28.6 ELO  (REJECT — 200g was an opening-set
+            //                              outlier; combined 500g gives ~-18 ELO)
+            // The two SPRT runs use independent random opening subsets — the
+            // 200g run drew openings that favoured the rebalance, the 300g run
+            // drew unfavourable ones. Combined, the rebalance is mildly
+            // negative.  Lesson: at 200g with CI ±35-40 a +14 result still
+            // has substantial chance of being noise.  Future contributor
+            // wanting to retry should run 500g+ in one shot, or pair the
+            // rebalance with a measured-from-game-data piece-count profile
+            // showing where Hypersion actually loses the most time.
             if (totalPieces <= 8)        scale *= 1.6;   // K+R+P-ish endgames
             else if (totalPieces <= 12)  scale *= 1.4;   // light endgame
             else if (totalPieces <= 16)  scale *= 1.2;   // late middlegame transition
@@ -1318,6 +1337,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             }
         }
         // In-check move that's not yet at a mate-distance edge — small extension.
+        // NOTE: tested lowering depth threshold from >= 8 to >= 6.
+        //   30g:  -46.6 +/- 110.7  (noise)
+        //   100g:   0.0 +/- 54.0   (recovered to neutral)
+        //   200g: -15.6 +/- 38.2   (REJECT, just outside noise band)
+        // Extra extensions at depth 6-7 cost more search work than they
+        // recover in tactical accuracy at this calibration. Kept at >= 8.
         else if (givesCheck && depth >= 8 && !inCheck) {
             extension = 1;
         }
