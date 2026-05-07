@@ -98,10 +98,17 @@ TARGET = $(BINDIR)/$(ENGINE)$(EXE)
 # -----------------------------------------------------------------------------
 # Targets
 # -----------------------------------------------------------------------------
-.PHONY: all build debug profile bench clean help tuner
+.PHONY: all build debug profile bench clean help tuner release
 all: build
 
 build: $(TARGET)
+
+# Strip debug info + symbol table for distribution. Reduces .exe size
+# significantly on MinGW (~15-25 % typical), no perf impact. Used for
+# release tarballs / GitHub releases. Run AFTER `make` (or `make profile`).
+release: build
+	strip --strip-all $(TARGET)
+	@echo "Stripped $(TARGET) for distribution"
 
 # ----- Texel tuner ----------------------------------------------------------
 # Loads labeled positions, reports MSE on Hypersion's classical eval.
