@@ -375,18 +375,19 @@ void cmd_setopt(std::istringstream& is) {
         // (e.g. "none 600 human RisotPlayer" or "GM 2700 computer Stockfish").
         // We scan tokens for:
         //   - the first integer in [100, 4000]  -> opponent rating
-        //   - "computer"/"engine" or "human"    -> player type
-        // and apply the ELO limit ONLY for humans. Bots always get full strength.
+        //   - "computer"/"engine" or "human"    -> player type (informational)
+        // and apply the ELO limit in CASUAL games regardless of human/bot.
+        // Rated games always full-strength (counts for ELO).
         if (Options.matchOpponent) {
             // Reset to full strength first so each new game starts clean.
-            // (e.g. previous game was vs human at low ELO -> next game vs bot
-            // should not inherit the limit.)
+            // (e.g. previous game was vs low-rated opp -> next vs higher
+            // shouldn't inherit the limit.)
             Options.limitStrength = false;
 
             std::istringstream iss(value);
             std::string tok;
             int rating = -1;
-            bool isHuman = true;            // assume human if not otherwise indicated
+            bool isHuman = true;            // informational only — kept for log clarity
             bool typeSeen = false;
             while (iss >> tok) {
                 // Type token detection (case-insensitive).
@@ -405,27 +406,27 @@ void cmd_setopt(std::istringstream& is) {
                 }
             }
             // Rated game override: regardless of opponent type, play full
-            // strength because rated games count for ELO. Only casual
-            // games trigger the educational ELO matching for humans.
+            // strength because rated games count for ELO.
+            // Casual games trigger ELO matching for ANY opponent (human OR
+            // bot) when a rating is provided. This keeps casual games
+            // educational/balanced even against weaker bots.
+            const char* oppType = typeSeen ? (isHuman ? "human" : "bot") : "unknown";
             if (Options.gameRated) {
                 std::cerr << "info string UCI_MatchOpponent: rated game"
                           << (rating > 0 ? (" (opp=" + std::to_string(rating) + ")") : "")
-                          << " -> full strength\n";
-            } else if (!isHuman) {
-                std::cerr << "info string UCI_MatchOpponent: opp is computer/bot"
-                          << (rating > 0 ? (" (rating=" + std::to_string(rating) + ")") : "")
                           << " -> full strength\n";
             } else if (rating > 0) {
                 int offset = opponent_match_offset(rating);
                 int target = std::clamp(rating + offset, Options.matchFloor, Options.matchCeiling);
                 Options.limitStrength = true;
                 Options.uciElo = target;
-                std::cerr << "info string UCI_MatchOpponent: casual human opp=" << rating
+                std::cerr << "info string UCI_MatchOpponent: casual " << oppType
+                          << " opp=" << rating
                           << " offset=+" << offset
                           << " -> UCI_Elo=" << target << '\n';
             } else {
                 std::cerr << "info string UCI_MatchOpponent: no rating found"
-                          << (typeSeen ? " (human)" : "")
+                          << " (" << oppType << ")"
                           << " -> full strength\n";
             }
         }
