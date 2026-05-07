@@ -957,6 +957,19 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     TTEntry* tte = TT.probe(pos.key(), ttHit);
     Value ttValue = ttHit ? TT.value_from_tt(tte->value(), ply, pos.rule50_count()) : VALUE_NONE;
     Move  ttMove  = ttHit ? tte->move() : Move::none();
+    // NOTE: tested SF18 ttCapture flag for LMR — `if (ttCapture && m != ttMove)
+    // ++r` (matching SF18 src/search.cpp:1204-1205 `r += 1119` ~= +1 ply).
+    // Result: -17.4 +/- 36.1 ELO at 200g 5+0.05 (within noise band, but
+    // negative point estimate). Hypothesis: over-reduction stacking with
+    // the just-shipped cutoffCnt adjustment, which already adds +1..+2 plies
+    // in cut-y subtrees. Adding another +1 in ttCapture cases compounds to
+    // up to +3 ply extra reduction in worst case, which over-prunes the
+    // tactical alternatives the heuristic tries to skip. SF's tuning has
+    // both heuristics calibrated together; Hypersion's integer-ply rounding
+    // amplifies each addition relative to SF's 1024ths-of-a-ply granularity.
+    // Future contributor wanting to retry should:
+    //   (a) gate ttCapture on `(ss+1)->cutoffCnt <= 2` to avoid stacking, or
+    //   (b) make the cutoffCnt thresholds stricter (>3, >2 instead of >2, >1).
     // SF-style ttPv: position is "PV" if it's currently being searched as PV,
     // OR if the TT remembers it was once part of a PV. Sticky — encourages
     // less-aggressive pruning on positions that have ever been principal.
@@ -1307,6 +1320,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             // Source: SF18 src/search.cpp:1208-1209.
             if ((ss + 1)->cutoffCnt > 2) ++r;
             if ((ss + 1)->cutoffCnt > 1 && !isPv && !cutNode) ++r;
+            // (See ttCapture tombstone above TT probe.)
 
             // Stockfish-18 LMR history correction. High-history quiet moves get
             // reduced less; low-history get reduced more. Sums the same signals
