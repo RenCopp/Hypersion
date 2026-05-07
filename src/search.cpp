@@ -1404,6 +1404,24 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     // Source: SF18 src/search.cpp:1374.
                     ++ss->cutoffCnt;
                     // ---- History updates on beta cutoff ----
+                    // NOTE: tested SF18 ttMove confirmation bonus
+                    //   `bonus = history_bonus(depth) + (m == ttMove ? 350 : 0)`
+                    // matching SF18 src/search.cpp:1834 (`+347*(bestMove==ttMove)`,
+                    // scaled for Hypersion's 0..2000 bonus cap vs SF's 0..1515).
+                    // Result: 30g triage +82.6 +/- 89.9 (PROMISING) but
+                    // 200g confirm -5.2 +/- 37.2 — classic PROTOCOL.md "30g
+                    // fakeout" pattern. Within noise band, point estimate
+                    // mildly negative.
+                    // Hypothesis: over-weighting the TT signal in history at
+                    // the expense of discovery. Or magnitude wrong for
+                    // Hypersion's quadratic bonus shape (Hypersion bonus
+                    // grows faster, so adding +350 atop a depth-9 cap of
+                    // 2000 only nudges by 17 % at saturation but by 100+ %
+                    // at low depth — the low-depth over-weighting may
+                    // dominate). Future contributor wanting to retry should
+                    // sweep magnitude (e.g. 100, 175, 250) and possibly
+                    // gate on depth >= 4 (only at higher depths where TT
+                    // signal is more trustworthy).
                     int bonus = history_bonus(depth);
                     if (!isCapture) {
                         killers.update(ply, m);
