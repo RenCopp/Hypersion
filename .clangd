@@ -1,0 +1,39 @@
+# clangd configuration for Hypersion
+# Generated for the MSYS2 MinGW64 g++ toolchain so clangd can resolve
+# <atomic>, <vector>, intrinsics, etc.
+
+CompileFlags:
+  Compiler: C:/msys64/mingw64/bin/g++.exe
+  Add:
+    # clangd doesn't compile through to LTO; strip the flag and exception
+    # disabling so static analysis sees full code paths.
+    - -std=c++20
+    - -march=haswell
+    - -DUSE_POPCNT
+    - -DUSE_AVX2
+    # clangd-specific: silence MSYS2-specific warnings that aren't actionable.
+    - -Wno-unknown-pragmas
+  Remove:
+    - -flto
+    - -fno-exceptions
+
+# Enable clang-tidy diagnostics. Pick high-signal checks; skip the noisy ones.
+Diagnostics:
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - performance-*
+      - modernize-use-nullptr
+      - modernize-use-override
+      - readability-misleading-indentation
+      - readability-redundant-control-flow
+    Remove:
+      # Hypersion intentionally uses C-style arrays for SIMD-aligned tables.
+      - modernize-avoid-c-arrays
+      - cppcoreguidelines-avoid-c-arrays
+      # Hypersion uses `int` for plies/depths by convention (matches SF).
+      - bugprone-easily-swappable-parameters
+      - bugprone-implicit-widening-of-multiplication-result
+      # Magic numbers are tuned constants; clutter to flag them.
+      - readability-magic-numbers
+      - cppcoreguidelines-avoid-magic-numbers
