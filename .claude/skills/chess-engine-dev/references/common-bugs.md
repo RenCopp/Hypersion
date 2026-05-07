@@ -44,8 +44,11 @@ single readings. Hypersion bench varies ±25-40% across processes
 make it deterministic — just use SPRT (which is unbiased).
 
 **Bug if**: Threads=1 also produces different results. SF Threads=1 is
-deterministic; Hypersion's is not (root cause unidentified, likely TT
-or memory-ordering related).
+deterministic; Hypersion's at explicit `setoption name Threads value 1` IS
+deterministic too (verified 2026-05-07 — same 1,105,922 bench nodes across
+5 runs at depth 13). Earlier claim of "Threads=1 non-determinism" was based
+on bench being run WITHOUT explicit Threads=1, which inherited the default
+Threads=2 (lazy SMP, non-deterministic by design).
 
 ## TT corruption / wrong-bestmove from TT
 

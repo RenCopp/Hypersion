@@ -12,8 +12,10 @@ Stockfish-style architecture but tuned independently. Author: RenCopp.
   `make ARCH=x86-64-avxvnni -j` for **+29.6 ± 35.6 ELO** (200g, 5+0.05,
   conc=2) — uses 256-bit VNNI `dpbusd` for the NNUE FC dot product.
 - **Bench**: `Hypersion bench [depth]` — 8 fixed positions, default depth 13.
-  *Note: NOT deterministic across processes even at Threads=1 (open bug,
-  documented in testing/PROTOCOL.md).*
+  *Note: bench inherits `Threads` setting (default 2 = lazy SMP non-deterministic).
+  For deterministic bench, prefix with `setoption name Threads value 1`. Earlier
+  "non-deterministic at Threads=1" claim was an artefact of not setting Threads
+  explicitly; resolved 2026-05-07. See testing/PROTOCOL.md.*
 - **NNUE**: SF18 SFNNv10 architecture (HalfKAv2_hm + FullThreats), big net
   `nn-c288c895ea92.nnue` (102384, 1024, 15, 32, 1), small net
   `nn-37f18f62d772.nnue` (22528, 128, 15, 32, 1). L2=15, L3=32.
