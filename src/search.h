@@ -201,6 +201,12 @@ void shutdown();
 extern ThreadPool Threads;
 inline Worker& MainWorker() { return Threads.main_worker(); }
 
+// SPSA-style runtime tunable setter. Returns true on a recognized name
+// (and updates the internal value), false if name is unknown. UCI
+// options of the form `setoption name Tune_<NAME> value <int>` route here
+// from cmd_setopt. See src/search.cpp::tunables::*.
+bool set_tunable(const std::string& name, int value);
+
 }  // namespace hypersion::Search
 
 #endif  // HYPERSION_SEARCH_H

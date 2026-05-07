@@ -430,6 +430,18 @@ void cmd_setopt(std::istringstream& is) {
             }
         }
     }
+    // SPSA-tunable knob — `setoption name Tune_<KNOB> value <int>` writes
+    // to a runtime variable in src/search.cpp. Used by SPSA scripts to
+    // perturb constants between matches without rebuilding. Names match
+    // the C++ identifiers in tunables namespace (RFP_MARGIN_PER_DEPTH etc).
+    else if (name.rfind("Tune_", 0) == 0) {
+        int v = 0; std::istringstream(value) >> v;
+        if (Search::set_tunable(name.substr(5), v)) {
+            std::cerr << "info string Tune_" << name.substr(5) << " = " << v << '\n';
+        } else {
+            std::cerr << "info string Tune_: unknown knob '" << name.substr(5) << "'\n";
+        }
+    }
 }
 
 void cmd_perft(std::istringstream& is) {

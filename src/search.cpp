@@ -60,6 +60,33 @@ void init() {
 }
 void shutdown() { Threads.stop_all(); Threads.wait_all(); Threads.set_size(0); }
 
+// Forward decl — definition below the tunables namespace.
+namespace tunables {
+extern int RFP_MARGIN_PER_DEPTH, RAZOR_MARGIN_BASE, RAZOR_MARGIN_PER_DEPTH,
+           FUTIL_MARGIN_PER_DEPTH, FUTIL_MARGIN_BASE,
+           SEE_QUIET_MARGIN, SEE_CAPT_MARGIN,
+           NMP_EVAL_BETA_DIV, PROBCUT_MARGIN,
+           ASPIRATION_DELTA0, STABILITY_SWING_TH, QSEARCH_CAP_GAIN;
+}
+
+bool set_tunable(const std::string& name, int value) {
+    using namespace tunables;
+    if      (name == "RFP_MARGIN_PER_DEPTH")    RFP_MARGIN_PER_DEPTH    = value;
+    else if (name == "RAZOR_MARGIN_BASE")       RAZOR_MARGIN_BASE       = value;
+    else if (name == "RAZOR_MARGIN_PER_DEPTH")  RAZOR_MARGIN_PER_DEPTH  = value;
+    else if (name == "FUTIL_MARGIN_PER_DEPTH")  FUTIL_MARGIN_PER_DEPTH  = value;
+    else if (name == "FUTIL_MARGIN_BASE")       FUTIL_MARGIN_BASE       = value;
+    else if (name == "SEE_QUIET_MARGIN")        SEE_QUIET_MARGIN        = value;
+    else if (name == "SEE_CAPT_MARGIN")         SEE_CAPT_MARGIN         = value;
+    else if (name == "NMP_EVAL_BETA_DIV")       NMP_EVAL_BETA_DIV       = value;
+    else if (name == "PROBCUT_MARGIN")          PROBCUT_MARGIN          = value;
+    else if (name == "ASPIRATION_DELTA0")       ASPIRATION_DELTA0       = value;
+    else if (name == "STABILITY_SWING_TH")      STABILITY_SWING_TH      = value;
+    else if (name == "QSEARCH_CAP_GAIN")        QSEARCH_CAP_GAIN        = value;
+    else return false;
+    return true;
+}
+
 namespace {
 
 // Hypersion's NNUE eval lives at roughly 5x Stockfish's "1 pawn = 100 cp"
@@ -120,58 +147,73 @@ void update_pv(PVLine& parent, Move m, const PVLine& child) {
 // from the original classical-Texel-tuned values so the pruning logic still
 // represents the same number of pawns of margin. Note: history bonuses and
 // LMR depth-based reductions are NOT scaled — they're not eval-magnitude.
-constexpr int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
+// SPSA-tunable search constants — converted from `constexpr int` to plain
+// `int` so UCI options (Tune_*) can perturb them at runtime for SPSA-style
+// parameter tuning. Costs ~1-2% NPS over compile-time-folded constants
+// (no longer eligible for constant propagation), accepted in exchange for
+// runtime tunability without rebuild. After SPSA campaign converges,
+// freeze optima back into these defaults.
+//
+// NOT in anonymous namespace — needs external linkage so the UCI handler
+// in uci.cpp can write to them via Search::set_tunable(). External-linkage
+// is contained in `namespace tunables { ... }` to keep call sites readable.
+}  // close existing anonymous namespace
+namespace tunables {
+
+int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
     // Sweep: 200 = -8.1 ELO at 129g (incomplete, trending negative);
     // 280 = -15.6 ELO at 200g.  Kept at 240.
-constexpr int RAZOR_MARGIN_BASE       = 850;    // Razoring base.
+int RAZOR_MARGIN_BASE       = 850;    // Razoring base.
     // Sweep vs BASE (720): 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3.
     // Both within noise but 850 trended positive.
-constexpr int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130).
+int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130).
     // Sweep: 300 = -34.9 +/- 89.8 ELO @ 30g (clear regression),
     //        480 = +46.6 +/- 93.0 @ 30g but -51.6 +/- 72.9 @ 61g (200g
     //              aborted) — 30g was lucky tail, 480 actually regresses.
     // Reinforces: do not ship 30g winners without 200g confirm.
-constexpr int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
+int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
     // 330 -> 400 tested at +15.6 +/- 37.6 ELO @ 200g. Original 330
     // was too aggressive — futility was over-pruning quiet moves
     // that had real follow-through.
-constexpr int FUTIL_MARGIN_BASE       = 390;    // FUTIL base (was 130; previously inline).
+int FUTIL_MARGIN_BASE       = 390;    // FUTIL base (was 130; previously inline).
     // Sweep: 480 = -23.2 +/- 110.1 ELO @ 30g (within noise but trending bad),
     // 300 = -46.6 +/- 93.0 ELO @ 30g (clear regression). Both directions
     // worse — kept at 390.
-constexpr int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets.
+int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets.
     // Sweep: -150 = -70 ELO @ 30g (clear regression), -220 = -1.7 +/- 38.5
     // ELO @ 200g (within noise). Kept at -180.
-constexpr int SEE_CAPT_MARGIN         = -250;   // SEE pruning of bad captures.
+int SEE_CAPT_MARGIN         = -250;   // SEE pruning of bad captures.
     // Sweep vs -300: -400 = -58 ELO @ 30g (bad), -250 = +8.7 +/- 39.7
     // ELO @ 200g (positive). -300 was too aggressive.
-constexpr int NMP_EVAL_BETA_DIV       = 800;    // NMP reduction-bonus divisor.
+int NMP_EVAL_BETA_DIV       = 800;    // NMP reduction-bonus divisor.
     // Sweep: 600 (was) -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
     // 800 is the sweet spot — kept.
-    // NOTE: NMP R formula sweeps R = 4 + depth/3 (kept):
-    //   R = 5 + depth/3:    +107.5 ELO @ 30g but +0.00 +/- 38 @ 200g.
-    //                       Classic 30g positive-tail fakeout.
-    //   R = 4 + depth/4:    -82.6 +/- 109.6 ELO @ 30g (rejected, too
-    //                       conservative).
-    //   doDeeperSearch / doShallowerSearch SF18 LMR refinement:
-    //                       -46.6 +/- 105.1 @ 30g (likely needs
-    //                       different magnitude scaling for Hypersion).
-constexpr int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
+int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
     //   500: -24.4 ELO (too aggressive)
     //   600: baseline
     //   800: +22.6 ELO (sweet spot, shipped)
     //   1000: -45.4 ELO vs 800 (too conservative — under-prunes)
-constexpr int ASPIRATION_DELTA0       = 51;     // initial aspiration delta.
+int ASPIRATION_DELTA0       = 51;     // initial aspiration delta.
     // Tested 30: -10.4 ELO (too tight), 80: +1.7 ELO (within noise).
-    // Kept at 51.
-constexpr int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable" (was 20).
-    // Sweep: 100 = -11.6 +/- 107.2 ELO @ 30g (looser, cuts time too early),
-    // 40 = -11.6 +/- 107.2 ELO @ 30g (stricter, no measurable gain).
-    // Both directions worse — kept at 60.
-constexpr int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap (was 1100).
-    // Sweep: 2200 = -209 ELO @ 13g (stopped early, clear regression — below
-    // queen value cuts real captures), 5000 = +0.0 +/- 109.8 ELO @ 30g
-    // (no measurable gain). Kept at 3300.
+int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable".
+    // 100 / 40 both regress; kept at 60.
+int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap.
+    // 2200 -209 ELO @ 13g, 5000 0.0 ELO @ 30g; kept at 3300.
+
+}  // namespace tunables
+namespace {  // re-open anonymous namespace
+using tunables::RFP_MARGIN_PER_DEPTH;
+using tunables::RAZOR_MARGIN_BASE;
+using tunables::RAZOR_MARGIN_PER_DEPTH;
+using tunables::FUTIL_MARGIN_PER_DEPTH;
+using tunables::FUTIL_MARGIN_BASE;
+using tunables::SEE_QUIET_MARGIN;
+using tunables::SEE_CAPT_MARGIN;
+using tunables::NMP_EVAL_BETA_DIV;
+using tunables::PROBCUT_MARGIN;
+using tunables::ASPIRATION_DELTA0;
+using tunables::STABILITY_SWING_TH;
+using tunables::QSEARCH_CAP_GAIN;
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -938,7 +980,7 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     Move bestMove = Move::none();
 
     // Maximum gain a capture could possibly produce (queen value plus a small slack).
-    constexpr int MaxQsearchGain = QSEARCH_CAP_GAIN;
+    const int MaxQsearchGain = QSEARCH_CAP_GAIN;  // was constexpr; runtime now (SPSA-tunable)
     Move m;
     while ((m = mp.next_move()) != Move::none()) {
         if (!pos.legal(m)) continue;
