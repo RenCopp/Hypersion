@@ -7,7 +7,10 @@ Stockfish-style architecture but tuned independently. Author: RenCopp.
 
 - **Source layout**: `src/` (engine), `testing/` (SPRT + analysis scripts),
   `Hypersion.exe` at repo root after `make`.
-- **Build**: `make -j` from MSYS2 MinGW64 (`-march=haswell -O3 -flto`).
+- **Build**: `make -j` from MSYS2 MinGW64 (default `ARCH=x86-64-avx2`,
+  `-O3 -flto`). For Alder Lake+ / Zen 4+ CPUs, use
+  `make ARCH=x86-64-avxvnni -j` for **+29.6 ± 35.6 ELO** (200g, 5+0.05,
+  conc=2) — uses 256-bit VNNI `dpbusd` for the NNUE FC dot product.
 - **Bench**: `Hypersion bench [depth]` — 8 fixed positions, default depth 13.
   *Note: NOT deterministic across processes even at Threads=1 (open bug,
   documented in testing/PROTOCOL.md).*

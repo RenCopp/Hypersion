@@ -55,6 +55,10 @@ endif
 # AVX-VNNI: 256-bit VNNI dpbusd intrinsics (Intel Alder Lake+, Zen 4+ E-cores
 # do NOT have it). Adds ~15-25 % NNUE-FC speed via _mm256_dpbusd_epi32.
 # Use this for Intel 12th/13th/14th gen consumer CPUs (no AVX-512), Zen 4+.
+# **+29.6 +/- 35.6 ELO @ 200g 5+0.05 conc=2** vs avx2 build (post-cutoffCnt
+# baseline) on i7-14700F. Earlier conc=6 testing showed -45 ELO and was
+# rejected — that result was a cache-contention artefact (cutechess #630),
+# not a real regression. Re-test with conc=2 if you suspect this.
 ifeq ($(ARCH),x86-64-avxvnni)
     ARCH_FLAGS = -march=alderlake -mavxvnni -mbmi2 -DUSE_POPCNT -DUSE_AVX2 -DUSE_PEXT -DUSE_AVXVNNI
 endif
