@@ -1454,6 +1454,20 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));
                         if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
+                        // NOTE: tested SF18 capture-history scaling
+                        // (best capture: bonus*1395/1024 = +36% emphasis,
+                        // tried-but-failed: -bonus*1448/1024 = +41% demote)
+                        // matching SF18 src/search.cpp:1856,1869.
+                        // Result: 30g triage +23.2 +/- 98.9, 200g confirm
+                        // +5.2 +/- 36.3 — at the PROTOCOL.md REJECT bar
+                        // (<= +5 with CI ±35).  The trend is mildly
+                        // positive but not clean enough to ship.
+                        // Future retry: try smaller scaling (1.10-1.20x)
+                        // or sweep with longer SPRT (300-500g) since the
+                        // signal might be real-but-weak. Hypersion's
+                        // bonus is already much larger than SF's at low
+                        // depth (quadratic vs linear), so SF's exact
+                        // multiplier may over-amplify here.
                         captureHist.update(moving, m.to_sq(), victim, bonus);
                     }
                     for (int i = 0; i < captureCount; ++i) {
