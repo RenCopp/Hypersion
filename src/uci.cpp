@@ -325,11 +325,19 @@ void cmd_setopt(std::istringstream& is) {
     }
     else if (eq("EvalFile"))       {
         Options.evalFile = value;
-        if (!value.empty() && value != "<empty>") NNUE::load_big(value);
+        if (value.empty() || value == "<empty>") {
+            NNUE::unload();   // forces classical fallback for testing
+        } else {
+            NNUE::load_big(value);
+        }
     }
     else if (eq("EvalFileSmall"))  {
         Options.evalFileSmall = value;
-        if (!value.empty() && value != "<empty>") NNUE::load_small(value);
+        if (value.empty() || value == "<empty>") {
+            // small net handled by unified unload()
+        } else {
+            NNUE::load_small(value);
+        }
     }
     else if (eq("SyzygyPath"))     {
         Options.syzygyPath = value;

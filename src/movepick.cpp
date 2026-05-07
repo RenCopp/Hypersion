@@ -235,6 +235,17 @@ top:
         cur = endMoves = movesBuf;
         endMoves = generate<QUIETS>(pos, movesBuf);
         score_quiets();
+        // NOTE: tested std::stable_sort here for tie-determinism (Hypersion's
+        // bench is non-deterministic across processes even with Threads=1,
+        // unlike Stockfish; std::sort with strict-weak-only comparator gives
+        // unspecified order on equal-score ties, varying with ASLR's effect
+        // on introsort partitioning). Result: -56.1 +/- 54.3 ELO @ 100g
+        // 5+0.05. The deterministic-tie order from stable_sort isn't worth
+        // the per-call overhead. Bench non-determinism is upstream of move
+        // ordering — leaving the search non-deterministic for now (game
+        // SPRT still gives unbiased ELO since both sides are equally
+        // affected). Future fix: identify the actual root cause of
+        // non-determinism (NOT a movepick sort issue) and address that.
         std::sort(movesBuf, endMoves,
                   [](const ExtMove& a, const ExtMove& b) { return a.value > b.value; });
         ++stage;
@@ -263,6 +274,7 @@ top:
         cur = endMoves = movesBuf;
         endMoves = generate<EVASIONS>(pos, movesBuf);
         score_evasions();
+        // (See QUIET_INIT tombstone for stable_sort tradeoff.)
         std::sort(movesBuf, endMoves,
                   [](const ExtMove& a, const ExtMove& b) { return a.value > b.value; });
         ++stage;

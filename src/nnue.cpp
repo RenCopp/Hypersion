@@ -269,6 +269,31 @@ bool read_leb128_2(std::ifstream& f, T* a, std::size_t na, T* b2, std::size_t nb
 
 inline int pad32(int n) { return ((n + 31) / 32) * 32; }
 
+// NOTE: tested SF18-style scrambled FC weight layout
+// (`(col/4) * padded_out * 4 + row * 4 + (col % 4)`) with broadcast-input
+// dpbusd that processes 8 output rows in parallel per 4-byte input chunk
+// (matches SF18 src/nnue/layers/affine_transform.h:208-260). Implemented for
+// FC0 (1024->16) and FC1 (32->32). Verified byte-equivalent eval across 200
+// positions and identical PV at depth 12. Bench NPS varied wildly (run-to-run
+// non-determinism — see std::sort fix in movepick.cpp), but a 200g SPRT at
+// concurrency=2 (so cache contention doesn't mask the win) gave only
+// +5.2 +/- 37.9 ELO — within noise band, so it does NOT clear the
+// PROTOCOL.md +10-with-CI-35 ship bar.
+//
+// Why no win despite the structural change? Hypersion's existing
+// per-row simd_dot_i8_u8 already uses the same dpbusd intrinsic for the
+// 1024->16 FC0 dot product. The SF "scrambled" layout doesn't reduce
+// instruction count; it reduces per-row LOOP COUNT (1024 input pass for ALL
+// outputs vs 16 separate 1024-pass loops). With AVX2 prefetch and the row
+// weights already cache-resident after the first FC0 row, the per-row layout
+// is already memory-fast. The scramble likely only pays off with much wider
+// output dimensions (SF's 64x64 path vs Hypersion's 16x and 32x layers).
+//
+// Future contributor wanting to retry: profile the FC0 hot loop with
+// `perf stat` (cycles, L1d misses, branch mispredicts) to see where time
+// actually goes. If memory-bound on the row-major version, scramble could
+// help; if compute-bound, it won't.
+
 // ─────────────────────────────────────────────────────────────────────────
 // SIMD primitives (AVX2 / SSE2 / scalar)
 // ─────────────────────────────────────────────────────────────────────────
