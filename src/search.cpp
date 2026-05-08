@@ -789,7 +789,24 @@ void Worker::iterative_deepen(Position& pos) {
             double scale = 1.0;
             if (stableIters >= 4) scale = 0.5;
             else if (stableIters >= 2) scale = 0.75;
-            if (bestMoveChanges >= 3 && d <= 12) scale *= 1.4;
+
+            // Compute *current* remaining clock (limits.time[us] is at
+            // search-start; tm.elapsed() is what we've already burned this
+            // move). Drives the "very-low-clock" gates below.
+            Color usCol = rootPos.side_to_move();
+            int64_t remMs = (limits.time[usCol] > 0)
+                ? int64_t(limits.time[usCol]) - int64_t(tm.elapsed())
+                : INT64_MAX;
+            const bool veryLowClock = (remMs >= 0 && remMs < 2000);   // < 2 s
+
+            // SF18-style "spend more on volatile bestmove" — but ONLY when
+            // we have enough clock to chase the answer. blunder_histogram.py
+            // (testing/, 2026-05-08) measured 94 % of Hypersion's
+            // self-detected blunders happen with < 2 s remaining; the
+            // volatility bump amplifies the leak by burning clock on
+            // volatile positions whose tactics we can't resolve at the
+            // depth we'd reach anyway. Below 2 s we keep scale flat.
+            if (bestMoveChanges >= 3 && d <= 12 && !veryLowClock) scale *= 1.4;
 
             // Falling-eval factor (Stockfish 18 src/search.cpp). When the
             // score has DROPPED from the previous iteration, the position
@@ -852,9 +869,19 @@ void Worker::iterative_deepen(Position& pos) {
             // — never extends past the existing scale.
             if (d >= 6 && rootMoves.size() >= 2 && stableIters >= 3) {
                 int gap = int(rootMoves[0].score - rootMoves[1].score);
-                if (gap >= 150)      scale = std::min(scale, 0.4);
-                else if (gap >= 80)  scale = std::min(scale, 0.6);
-                else if (gap >= 40)  scale = std::min(scale, 0.85);
+                // At low remaining clock (< 2 s), be more aggressive about
+                // saving time on easy moves — we need the headroom for the
+                // hard tactical positions in the endgame conversion. Same
+                // motivation as the volatility-bump skip above.
+                if (veryLowClock) {
+                    if (gap >= 80)        scale = std::min(scale, 0.30);
+                    else if (gap >= 40)   scale = std::min(scale, 0.50);
+                    else if (gap >= 20)   scale = std::min(scale, 0.75);
+                } else {
+                    if (gap >= 150)       scale = std::min(scale, 0.4);
+                    else if (gap >= 80)   scale = std::min(scale, 0.6);
+                    else if (gap >= 40)   scale = std::min(scale, 0.85);
+                }
             }
 
             // Best-move effort scaling (Stockfish 18 master src/search.cpp).

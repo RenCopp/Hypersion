@@ -54,17 +54,36 @@ sample size, reason, future-contributor hint. Examples in `src/search.cpp`,
 
 ## Known open issues
 
-1. **Bench non-determinism** at Threads=1 (Hypersion only; SF is deterministic).
-   Eval is byte-equivalent, sort is std::sort (stable_sort regressed -56 ELO).
-   Root cause unidentified. Cause is upstream of move ordering.
-2. **Bullet flag-out** with passed pawn + winning advantage — engine "panics"
+1. **Bullet flag-out** with passed pawn + winning advantage — engine "panics"
    under <1s remaining. Mitigation: load Syzygy. See timeman tombstone in
-   `search.cpp` for failed fix attempts.
+   `search.cpp` for failed fix attempts. Investigation queued (testing/
+   test_bullet_conversion.py exists).
+2. **Search at tight local optimum** — single-feature SF18 ports keep
+   regressing because the engine's pruning margins, history bonuses, and
+   eval magnitudes are jointly tuned for the existing feature set. To
+   move forward: joint multi-feature SPSA over coordinated parameter
+   groups, NOT one-at-a-time ports. Tombstones in src/search.cpp
+   (tunables namespace), src/history.h, src/nnue.cpp document the
+   pattern.
+
+## Resolved (kept for context)
+
+- **Bench non-determinism** at Threads=1 — was lazy SMP at default
+  Threads=2. Bench IS deterministic with `setoption name Threads value 1`
+  set explicitly. Resolved 2026-05-07. See PROTOCOL.md "Bench Signature".
 
 ## Recent ship history (newest first)
 
 Run `git log --oneline -20` to see recent commits. Look for commits with
 "tombstone" or "ship" in message — they document what was tested.
+
+Most recent SHIPPED state: commit ebf491f (2026-05-08), Hypersion v2.1
++118 ELO over pre-overhaul baseline. The session leading up to it tested
+8+ SF18-style ports (LowPlyHistory, 6-deep contHist, mate-threat extension,
+SE double-extension, eval cache, NMP verification, history-update cluster,
+12-param SPSA at 4g/iter) — all rejected. The infrastructure for runtime
+SPSA tuning (UCI Tune_* options, set_tunable, testing/spsa.py) stays
+shipped for future joint-parameter campaigns.
 
 ## Specialized skill
 
