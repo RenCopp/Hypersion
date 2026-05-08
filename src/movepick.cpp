@@ -10,10 +10,10 @@
 namespace hypersion {
 
 // Forward decls into Search::tunables for A2 SPSA campaign.
-// Definitions live in src/search.cpp::tunables; see there for rationale.
-// Defaults (100, 100, 50) reproduce pre-A2 weights of 1.0x, 1.0x, 0.5x.
-// A2 campaign 2026-05-08 tombstoned at -34.9 ELO @ 200g; infra stays
-// for future retries with 32+ games/iter or wider step sizes.
+// Definitions live in src/search.cpp::tunables. A2 SPSA-v2 shipped
+// values 101/99/47 (vs pre-A2 fixed weights 100/100/50) worth
+// +27.9 ELO @ 400g (combined of two independent 200g confirms).
+// Runtime-tunable via `setoption name Tune_<NAME> value <int>`.
 namespace Search::tunables {
 extern int BFLY_WEIGHT;
 extern int CONT1_WEIGHT;

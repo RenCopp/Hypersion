@@ -23,10 +23,9 @@ constexpr int HISTORY_MAX = 7183;   // Stockfish-tuned cap
 
 // Forward decls into Search::tunables — lets history_bonus() be SPSA-tunable
 // at runtime without a header-coupling explosion. Definitions live in
-// src/search.cpp::tunables. The A2 SPSA campaign (2026-05-08) tested
-// these and tombstoned them at -34.9 ELO @ 200g; see src/search.cpp
-// tunables namespace for full diagnosis. Infrastructure stays for
-// future retries with 32+ games/iter or wider perturbation steps.
+// src/search.cpp::tunables. A2 SPSA-v2 campaign (2026-05-08) shipped
+// values BONUS_D2=16, BONUS_D1=30, CAP=2059 worth +27.9 ELO @ 400g.
+// Re-tunable at runtime via `setoption name Tune_<NAME> value <int>`.
 namespace Search::tunables {
 extern int HIST_BONUS_DEPTH2;
 extern int HIST_BONUS_DEPTH1;

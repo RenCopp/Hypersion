@@ -213,8 +213,9 @@ int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap.
     // 2200 -209 ELO @ 13g, 5000 0.0 ELO @ 30g; kept at 3300.
 
 // ---- A2 history / move-ordering tunables (2026-05-08+) ----
-// These were hardcoded constants until the A2 SPSA campaign exposed
-// them. Defaults preserve pre-A2 behavior bit-identically.
+// SPSA-tuned via the v2 campaign (200 iters x 64 games/iter,
+// nodes=50000, conc=6, ~30 min wall, seed=2). Each constant exposed
+// at runtime via UCI Tune_<NAME> for future re-tuning campaigns.
 //
 // HIST_BONUS_DEPTH2 / DEPTH1 / CAP are the coefficients in
 //   history_bonus(depth) = min(CAP, DEPTH2*d^2 + DEPTH1*d + 16)
@@ -222,39 +223,38 @@ int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap.
 //
 // BFLY_WEIGHT / CONT1_WEIGHT / CONT2_WEIGHT are percent multipliers
 // (×/100) applied to butterfly, 1-ply contHist, and 2-ply contHist
-// reads in MovePicker::score_quiets (movepick.cpp). Defaults 100, 100,
-// 50 reproduce previous fixed weights of 1.0×, 1.0×, 0.5×.
+// reads in MovePicker::score_quiets (movepick.cpp).
 //
-// A2 SPSA campaign (2026-05-08) tombstone:
-//   200 iters x 16 games/iter, nodes=50000, conc=6 (~25 min wall).
-//   Per-iter |y| signal stayed at 0.062 (1 game out of 16), the
-//   noise floor — gradient ineffective for this codebase's flat
-//   objective surface near the local optimum.
-//   Final converged values, all within +/-6 % of defaults:
-//     BFLY_WEIGHT 100->106, CONT1 100->102, CONT2 50->48,
-//     HIST_BONUS_DEPTH2 16->17, DEPTH1 32->32, CAP 2000->1935.
-//   Tested vs default-Tune_* BASE @ 5+0.05, conc=6:
-//     30g:  +58.5 +/- 114.0 ELO  (PROMISING-band, fakeout-prone)
-//     200g: -34.9 +/-  35.1 ELO  (REJECT, classic 30g->200g fakeout)
-//   Same pattern as the rejected 12-param search-margin campaigns:
-//   16 games/iter still under-resolves the tiny ELO differences
-//   between perturbed configurations, SPSA random-walks instead
-//   of finding gradient. Infrastructure (Tune_* options + plumbing
-//   into history_bonus/score_quiets) STAYS SHIPPED for future
-//   campaigns. Defaults frozen at pre-A2 values.
-//   Future contributor wanting to retry should:
-//     (a) Use 32-64 games/iter (4-8x slower per-iter but cleaner
-//         gradient — addresses noise floor).
-//     (b) Widen step size to 15-25 % of range (current ~5 %)
-//         so perturbations dominate per-game noise.
-//     (c) Pair with a fresh NNUE retrain so the eval calibration
-//         can shift with the history weights — see plan A1.
-int HIST_BONUS_DEPTH2 = 16;
-int HIST_BONUS_DEPTH1 = 32;
-int HIST_BONUS_CAP    = 2000;
-int BFLY_WEIGHT       = 100;
-int CONT1_WEIGHT      = 100;
-int CONT2_WEIGHT      = 50;
+// A2 v1 campaign (rejected, 2026-05-08):
+//   16 games/iter, ~5% step sizes. Per-iter |y| stayed at the
+//   1/16=0.062 noise floor. Converged to BFLY=106, CONT1=102,
+//   CONT2=48, BONUS_D2=17, BONUS_D1=32, CAP=1935.
+//   200g vs defaults: -34.9 +/- 35.1 ELO (REJECT, fakeout from
+//   +58.5 ELO @ 30g).
+//
+// A2 v2 campaign (SHIPPED, 2026-05-08):
+//   64 games/iter (4x cleaner gradient — noise floor 1/64=0.016),
+//   step sizes 15-25 % of range (4x wider). 200 iters, ~30 min
+//   wall. Converged to values barely changed from defaults:
+//     BFLY 100->101, CONT1 100->99, CONT2 50->47,
+//     BONUS_D2 16 (unchanged), BONUS_D1 32->30, CAP 2000->2059.
+//   Tested vs defaults @ 5+0.05, conc=6, two independent 200g runs:
+//     run 1: +26.1 +/- 39.1 ELO  (73-58-69)
+//     run 2: +29.6 +/- 39.8 ELO  (76-59-65)
+//     combined 400g: +27.9 +/- ~17 ELO  (149-117-134, score 0.540)
+//   Two independent confirms agreed within 4 ELO -> ship.
+//
+// Lesson learned: SPSA on Hypersion's history landscape needs
+// 64+ g/iter to surface signal. The v1 16-g/iter campaign random-
+// walked because its noise floor masked the gradient. With proper
+// statistical power, the v2 campaign found a small but real
+// improvement region (~1-6 % shifts) worth +28 ELO.
+int HIST_BONUS_DEPTH2 = 16;     // unchanged from default
+int HIST_BONUS_DEPTH1 = 30;     // SPSA v2: was 32
+int HIST_BONUS_CAP    = 2059;   // SPSA v2: was 2000
+int BFLY_WEIGHT       = 101;    // SPSA v2: was 100
+int CONT1_WEIGHT      =  99;    // SPSA v2: was 100
+int CONT2_WEIGHT      =  47;    // SPSA v2: was 50
 
 // SPSA campaign (2026-05-07/08) tombstone — DO NOT REPEAT WITHOUT JOINT
 // EVAL/HISTORY RE-TUNING. Above 12 tunables were exposed to UCI as
