@@ -124,6 +124,28 @@ struct CounterMoveTable {
 // disrupts the local optimum at any tested magnitude. A future attempt
 // would need joint SPSA over (bonus magnitudes, butterfly weight, contHist
 // weights) — single-parameter sweeps cannot reach a new optimum.
+//
+// NOTE: 2026-05-07/08 SF18 "tables-cluster" experiment, attempted as a
+// coordinated multi-feature port (per the joint-SPSA hint above):
+//   (a) LowPlyHistory: per-ply [ply<5][from-to] table (640 KB), used in
+//       MovePicker quiet scoring at low plies. Source: SF18
+//       src/history.h::LowPlyHistory + src/movepick.cpp:158.
+//   (b) 6-deep ContinuationHistory with SF SPSA-tuned non-monotonic
+//       weights [1133, 683, 312, 582, 149, 474]/1024 (paired with LMR
+//       statScore divisor /11248, matching SF18 src/search.cpp:1216-1224).
+// Tested in 4 SPRT runs:
+//   un-tuned tables only:        +8.7 +/- 35 ELO @ 200g  (marginal,
+//                                            below +10 ship threshold)
+//   slow-SPSA-tuned (9h, TC):   -75.9 +/- ~30 ELO @ 93g  (REJECT)
+//   fast-SPSA-tuned (2h40m, nodes=50000): -8.7 +/- ~36 ELO @ 200g (REJECT)
+// Conclusion: SPSA over 12 search constants with these tables added
+// cannot reach an optimum that beats Hypersion's hand-tuned defaults.
+// The tables themselves give marginal raw signal (+8.7 ELO) but the
+// memory cost (~25 MB extra per thread) and ordering-pipeline complexity
+// don't justify ship without a stronger gain. Reverted in commit f201186.
+// Future attempts: try EITHER tables alone with SPSA on history-bonus
+// formulas only (NOT search margins), OR a stronger NNUE that resets the
+// eval-margin coupling.
 
 // Correction history: tweaks the static eval based on past (best - eval) errors.
 // Indexed by side-to-move and a 14-bit pawn-key fragment so positions with the

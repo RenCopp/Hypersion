@@ -200,6 +200,29 @@ int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable".
 int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap.
     // 2200 -209 ELO @ 13g, 5000 0.0 ELO @ 30g; kept at 3300.
 
+// SPSA campaign (2026-05-07/08) tombstone — DO NOT REPEAT WITHOUT JOINT
+// EVAL/HISTORY RE-TUNING. Above 12 tunables were exposed to UCI as
+// `setoption name Tune_<NAME> value <int>` (commit 69a15fa) and run through
+// SPSA over 250 iters x 4 games/iter (1000 games total). Two campaigns:
+//   Slow (TC 5+0.05, conc=2, ~9h):  converged values gave -75.9 +/- 30 ELO @ 93g
+//                                   vs default — clear regression, aborted.
+//   Fast (nodes=50000 fixed, conc=6, ~2h40m): converged to a different optimum
+//                                   that gave -8.7 +/- ~36 ELO @ 200g vs default
+//                                   — within noise but trending negative.
+// Both campaigns moved most parameters by 5-25% from defaults. SPSA gradient
+// signal at 4g/iter is too noisy for Hypersion's flat objective surface near
+// the current local optimum — defaults were already hand-tuned via single-
+// parameter sweeps at 200g (see comments above), and SPSA's stochastic
+// perturbations don't dominate the 30-50 ELO measurement noise enough to
+// produce a stable gradient. To make SPSA work future contributors should:
+//   1. Use 16-32 games/iter (4x slower per iter, but cleaner gradient).
+//   2. Couple with a coordinated NNUE re-train so eval magnitudes shift
+//      with the search constants.
+//   3. Restrict perturbation to 3-4 parameters at a time, not all 12.
+// Infrastructure (tunables namespace, set_tunable, UCI Tune_* handler) is
+// kept SHIPPED so retries are zero-effort. Defaults remain frozen at the
+// hand-tuned values above.
+
 }  // namespace tunables
 namespace {  // re-open anonymous namespace
 using tunables::RFP_MARGIN_PER_DEPTH;
