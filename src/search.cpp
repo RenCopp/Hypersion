@@ -72,6 +72,11 @@ extern int RFP_MARGIN_PER_DEPTH, RAZOR_MARGIN_BASE, RAZOR_MARGIN_PER_DEPTH,
 // so behavior is bit-identical at launch and SPSA can move outward.
 extern int HIST_BONUS_DEPTH2, HIST_BONUS_DEPTH1, HIST_BONUS_CAP,
            BFLY_WEIGHT, CONT1_WEIGHT, CONT2_WEIGHT;
+// Time-mgmt scales (A4 SPSA campaign 2026-05-08+). Stored as percent
+// multipliers (×/100); defaults preserve the previously hardcoded
+// 1.6/1.4/1.2/0.4/0.6/0.85 floats bit-identically.
+extern int TM_ENDGAME_BONUS_8, TM_ENDGAME_BONUS_12, TM_ENDGAME_BONUS_16,
+           TM_EASY_GAP150, TM_EASY_GAP80, TM_EASY_GAP40;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -95,6 +100,13 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "BFLY_WEIGHT")             BFLY_WEIGHT             = value;
     else if (name == "CONT1_WEIGHT")            CONT1_WEIGHT            = value;
     else if (name == "CONT2_WEIGHT")            CONT2_WEIGHT            = value;
+    // A4 time-mgmt tunables.
+    else if (name == "TM_ENDGAME_BONUS_8")      TM_ENDGAME_BONUS_8      = value;
+    else if (name == "TM_ENDGAME_BONUS_12")     TM_ENDGAME_BONUS_12     = value;
+    else if (name == "TM_ENDGAME_BONUS_16")     TM_ENDGAME_BONUS_16     = value;
+    else if (name == "TM_EASY_GAP150")          TM_EASY_GAP150          = value;
+    else if (name == "TM_EASY_GAP80")           TM_EASY_GAP80           = value;
+    else if (name == "TM_EASY_GAP40")           TM_EASY_GAP40           = value;
     else return false;
     return true;
 }
@@ -244,6 +256,47 @@ int BFLY_WEIGHT       = 101;    // SPSA v2: was 100
 int CONT1_WEIGHT      =  99;    // SPSA v2: was 100
 int CONT2_WEIGHT      =  47;    // SPSA v2: was 50
 
+// ---- A4 time-management tunables (2026-05-08+) ----
+// Stored as percent multipliers (value / 100). Defaults preserve the
+// previously-hardcoded floats bit-identically.
+//
+// TM_ENDGAME_BONUS_8/12/16: extra time spent at low piece counts.
+//   Apply: scale *= (TM_ENDGAME_BONUS_X / 100.0) when totalPieces <= X.
+// TM_EASY_GAP150/80/40: easy-move time savers when root[0] beats
+//   root[1] by at least 150/80/40 cp AND stableIters >= 3.
+//   Apply: scale = min(scale, TM_EASY_GAP_X / 100.0).
+//
+// A4 SPSA campaign (2026-05-08, 200 iters x 64 games/iter) tombstone:
+//   Even smaller shifts than A3 — only 3 of 6 params moved at all,
+//   max delta +3.3 % (TM_ENDGAME_BONUS_16: 120 -> 124).
+//   Converged values: 160/140/124/40/61/84.
+//   200g SPRT vs default-Tune_* BASE @ 5+0.05, conc=6:
+//     run 1: -3.5 +/- 36.1 ELO  (W=55 L=57 D=88, score 0.495)
+//   Result is at the noise floor with CI including 0. Did not pursue
+//   runs 2-3: tiny shifts + negative point estimate predict tombstone.
+//
+//   Diagnosis: time-management scales were already well-tuned via the
+//   previous manual rebalance experiment (1.6/1.4/1.2 -> 1.4/1.25/1.1)
+//   which itself tombstoned at -18 ELO @ 500g. SPSA at the v2/A3
+//   methodology can find small joint optima where manual sweeps cannot,
+//   but only when the parameter region has actual gradient. For
+//   time-mgmt scales the gradient signal is below the 1/64 noise floor
+//   even at 64 games/iter — possibly because clock time is a discrete
+//   resource and small scale shifts integrate to almost-identical
+//   per-move budgets.
+//
+//   Infrastructure (Tune_* + plumbing) stays SHIPPED. Defaults frozen
+//   at pre-A4 values. Future contributor wanting to retry should pair
+//   with TC variation (test at multiple TCs in one campaign) or move
+//   to integer-resource-aware SPSA where a 1-unit scale change has
+//   a deterministic move-budget consequence.
+int TM_ENDGAME_BONUS_8  = 160;   // pre-A4: 1.6, A4 unchanged
+int TM_ENDGAME_BONUS_12 = 140;   // pre-A4: 1.4, A4 unchanged
+int TM_ENDGAME_BONUS_16 = 120;   // pre-A4: 1.2, A4 unchanged (defaults preserved)
+int TM_EASY_GAP150      =  40;   // pre-A4: 0.4, A4 unchanged
+int TM_EASY_GAP80       =  60;   // pre-A4: 0.6, A4 unchanged
+int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
+
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
 // A1 campaign (2026-05-07/08) — REJECTED:
@@ -291,6 +344,13 @@ using tunables::PROBCUT_MARGIN;
 using tunables::ASPIRATION_DELTA0;
 using tunables::STABILITY_SWING_TH;
 using tunables::QSEARCH_CAP_GAIN;
+// A4 time-mgmt tunables.
+using tunables::TM_ENDGAME_BONUS_8;
+using tunables::TM_ENDGAME_BONUS_12;
+using tunables::TM_ENDGAME_BONUS_16;
+using tunables::TM_EASY_GAP150;
+using tunables::TM_EASY_GAP80;
+using tunables::TM_EASY_GAP40;
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -912,9 +972,9 @@ void Worker::iterative_deepen(Position& pos) {
             // wanting to retry should run 500g+ in one shot, or pair the
             // rebalance with a measured-from-game-data piece-count profile
             // showing where Hypersion actually loses the most time.
-            if (totalPieces <= 8)        scale *= 1.6;   // K+R+P-ish endgames
-            else if (totalPieces <= 12)  scale *= 1.4;   // light endgame
-            else if (totalPieces <= 16)  scale *= 1.2;   // late middlegame transition
+            if (totalPieces <= 8)        scale *= TM_ENDGAME_BONUS_8  / 100.0;   // K+R+P-ish endgames
+            else if (totalPieces <= 12)  scale *= TM_ENDGAME_BONUS_12 / 100.0;   // light endgame
+            else if (totalPieces <= 16)  scale *= TM_ENDGAME_BONUS_16 / 100.0;   // late middlegame transition
 
             // Phase 5: easy-move detection. When the best root move is
             // clearly better than the 2nd-best AND has been stable, we don't
@@ -932,9 +992,9 @@ void Worker::iterative_deepen(Position& pos) {
                     else if (gap >= 40)   scale = std::min(scale, 0.50);
                     else if (gap >= 20)   scale = std::min(scale, 0.75);
                 } else {
-                    if (gap >= 150)       scale = std::min(scale, 0.4);
-                    else if (gap >= 80)   scale = std::min(scale, 0.6);
-                    else if (gap >= 40)   scale = std::min(scale, 0.85);
+                    if (gap >= 150)       scale = std::min(scale, TM_EASY_GAP150 / 100.0);
+                    else if (gap >= 80)   scale = std::min(scale, TM_EASY_GAP80  / 100.0);
+                    else if (gap >= 40)   scale = std::min(scale, TM_EASY_GAP40  / 100.0);
                 }
             }
 
