@@ -172,45 +172,33 @@ void update_pv(PVLine& parent, Move m, const PVLine& child) {
 }  // close existing anonymous namespace
 namespace tunables {
 
-int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (was 80).
-    // Sweep: 200 = -8.1 ELO at 129g (incomplete, trending negative);
-    // 280 = -15.6 ELO at 200g.  Kept at 240.
-int RAZOR_MARGIN_BASE       = 850;    // Razoring base.
-    // Sweep vs BASE (720): 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3.
-    // Both within noise but 850 trended positive.
-int RAZOR_MARGIN_PER_DEPTH  = 390;    // (was 130).
-    // Sweep: 300 = -34.9 +/- 89.8 ELO @ 30g (clear regression),
-    //        480 = +46.6 +/- 93.0 @ 30g but -51.6 +/- 72.9 @ 61g (200g
-    //              aborted) — 30g was lucky tail, 480 actually regresses.
-    // Reinforces: do not ship 30g winners without 200g confirm.
-int FUTIL_MARGIN_PER_DEPTH  = 400;    // Futility for quiets.
-    // 330 -> 400 tested at +15.6 +/- 37.6 ELO @ 200g. Original 330
-    // was too aggressive — futility was over-pruning quiet moves
-    // that had real follow-through.
-int FUTIL_MARGIN_BASE       = 390;    // FUTIL base (was 130; previously inline).
-    // Sweep: 480 = -23.2 +/- 110.1 ELO @ 30g (within noise but trending bad),
-    // 300 = -46.6 +/- 93.0 ELO @ 30g (clear regression). Both directions
-    // worse — kept at 390.
-int SEE_QUIET_MARGIN        = -180;   // SEE pruning of bad quiets.
-    // Sweep: -150 = -70 ELO @ 30g (clear regression), -220 = -1.7 +/- 38.5
-    // ELO @ 200g (within noise). Kept at -180.
-int SEE_CAPT_MARGIN         = -250;   // SEE pruning of bad captures.
-    // Sweep vs -300: -400 = -58 ELO @ 30g (bad), -250 = +8.7 +/- 39.7
-    // ELO @ 200g (positive). -300 was too aggressive.
-int NMP_EVAL_BETA_DIV       = 800;    // NMP reduction-bonus divisor.
-    // Sweep: 600 (was) -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
-    // 800 is the sweet spot — kept.
-int PROBCUT_MARGIN          = 800;    // Optimum from manual sweep:
-    //   500: -24.4 ELO (too aggressive)
-    //   600: baseline
-    //   800: +22.6 ELO (sweet spot, shipped)
-    //   1000: -45.4 ELO vs 800 (too conservative — under-prunes)
-int ASPIRATION_DELTA0       = 51;     // initial aspiration delta.
-    // Tested 30: -10.4 ELO (too tight), 80: +1.7 ELO (within noise).
-int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable".
-    // 100 / 40 both regress; kept at 60.
-int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap.
-    // 2200 -209 ELO @ 13g, 5000 0.0 ELO @ 30g; kept at 3300.
+// 12 search-margin constants — pre-A3 (post-individual-sweep) values shown
+// inline; A3 SPSA-tuned defaults below shifted these by <2 % each but the
+// joint effect is +33 ELO @ 600g (see A3 tombstone block at bottom of namespace).
+int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (unchanged by A3).
+    // Sweep: 200 = -8.1 ELO at 129g; 280 = -15.6 ELO at 200g.
+int RAZOR_MARGIN_BASE       = 852;    // A3: 850 -> 852. Sweep history:
+    // 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3 (kept pre-A3).
+int RAZOR_MARGIN_PER_DEPTH  = 387;    // A3: 390 -> 387. Sweep history:
+    // 300 = -34.9 ELO @ 30g; 480 = +46.6 @ 30g but -51.6 @ 61g.
+int FUTIL_MARGIN_PER_DEPTH  = 397;    // A3: 400 -> 397. Sweep history:
+    // 330 -> 400 was +15.6 +/- 37.6 ELO @ 200g.
+int FUTIL_MARGIN_BASE       = 385;    // A3: 390 -> 385. Sweep history:
+    // 480 = -23.2 ELO; 300 = -46.6 ELO. Both directions worse than 390.
+int SEE_QUIET_MARGIN        = -181;   // A3: -180 -> -181. Sweep history:
+    // -150 = -70 ELO; -220 = -1.7 +/- 38.5 ELO.
+int SEE_CAPT_MARGIN         = -252;   // A3: -250 -> -252. Sweep history:
+    // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
+int NMP_EVAL_BETA_DIV       = 803;    // A3: 800 -> 803. Sweep history:
+    // 600 -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
+int PROBCUT_MARGIN          = 802;    // A3: 800 -> 802. Manual sweep:
+    //   500: -24.4 ELO; 600: baseline; 800: +22.6 ELO (shipped); 1000: -45.4.
+int ASPIRATION_DELTA0       =  50;    // A3: 51 -> 50. Sweep history:
+    // 30 = -10.4 ELO; 80 = +1.7 ELO.
+int STABILITY_SWING_TH      =  61;    // A3: 60 -> 61. Sweep history:
+    // 100 / 40 both regress vs 60.
+int QSEARCH_CAP_GAIN        = 3259;   // A3: 3300 -> 3259. Sweep history:
+    // 2200 = -209 ELO @ 13g; 5000 = 0.0 ELO @ 30g.
 
 // ---- A2 history / move-ordering tunables (2026-05-08+) ----
 // SPSA-tuned via the v2 campaign (200 iters x 64 games/iter,
@@ -256,28 +244,38 @@ int BFLY_WEIGHT       = 101;    // SPSA v2: was 100
 int CONT1_WEIGHT      =  99;    // SPSA v2: was 100
 int CONT2_WEIGHT      =  47;    // SPSA v2: was 50
 
-// SPSA campaign (2026-05-07/08) tombstone — DO NOT REPEAT WITHOUT JOINT
-// EVAL/HISTORY RE-TUNING. Above 12 tunables were exposed to UCI as
-// `setoption name Tune_<NAME> value <int>` (commit 69a15fa) and run through
-// SPSA over 250 iters x 4 games/iter (1000 games total). Two campaigns:
-//   Slow (TC 5+0.05, conc=2, ~9h):  converged values gave -75.9 +/- 30 ELO @ 93g
-//                                   vs default — clear regression, aborted.
-//   Fast (nodes=50000 fixed, conc=6, ~2h40m): converged to a different optimum
-//                                   that gave -8.7 +/- ~36 ELO @ 200g vs default
-//                                   — within noise but trending negative.
-// Both campaigns moved most parameters by 5-25% from defaults. SPSA gradient
-// signal at 4g/iter is too noisy for Hypersion's flat objective surface near
-// the current local optimum — defaults were already hand-tuned via single-
-// parameter sweeps at 200g (see comments above), and SPSA's stochastic
-// perturbations don't dominate the 30-50 ELO measurement noise enough to
-// produce a stable gradient. To make SPSA work future contributors should:
-//   1. Use 16-32 games/iter (4x slower per iter, but cleaner gradient).
-//   2. Couple with a coordinated NNUE re-train so eval magnitudes shift
-//      with the search constants.
-//   3. Restrict perturbation to 3-4 parameters at a time, not all 12.
-// Infrastructure (tunables namespace, set_tunable, UCI Tune_* handler) is
-// kept SHIPPED so retries are zero-effort. Defaults remain frozen at the
-// hand-tuned values above.
+// SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
+//
+// A1 campaign (2026-05-07/08) — REJECTED:
+//   Above 12 tunables exposed to UCI as `setoption name Tune_<NAME> value <int>`
+//   (commit 69a15fa). Two A1 variants run at 4 games/iter:
+//     Slow  (TC 5+0.05, conc=2, ~9h):  -75.9 +/- 30 ELO @ 93g (aborted).
+//     Fast  (nodes=50000 conc=6, ~2h40m): -8.7 +/- ~36 ELO @ 200g (REJECT).
+//   Both campaigns moved parameters by 5-25 % from defaults; both regressed.
+//   Diagnosis: 4 games/iter under-resolves Hypersion's flat objective surface
+//   — SPSA random-walks instead of finding gradient.
+//
+// A3 campaign (2026-05-08) — SHIPPED at +33.1 ELO @ 600g:
+//   Same 12 params, v2-history-style methodology: 64 games/iter (16x A1's
+//   game budget), 15-25 % step sizes (3-4x A1's), nodes=50000, conc=6,
+//   200 iters, ~40 min wall, seed=3. Converged to tiny shifts (all <2 %
+//   from defaults — A1's aggressive movements were noise-driven).
+//   SPRT vs default-Tune_* BASE @ 5+0.05, conc=6, three independent 200g
+//   confirms (cutechess re-randomizes openings):
+//     run 1: +15.6 +/- 38.2 ELO  (67-58-75)
+//     run 2: +59.6 +/- 35.9 ELO  (72-38-90)
+//     run 3: +24.4 +/- 36.8 ELO  (65-51-84)
+//     combined 600g: +33.1 ELO with 95 % CI (+11.9, +54.6)  (204-147-249)
+//   Lower CI bound +11.9 > +10 ship threshold across three independent
+//   runs. Defaults updated above.
+//
+// Lesson confirmed across A1 + A2-v2 + A3: SPSA on Hypersion needs 64+
+// games/iter to surface signal. Below that, the 1/N noise floor dominates
+// any real gradient. With proper statistical power, even 2 % parameter
+// shifts can compose into +33 ELO when found jointly.
+//
+// Infrastructure (tunables namespace, set_tunable, UCI Tune_* handler)
+// stays SHIPPED for future re-tuning campaigns.
 
 }  // namespace tunables
 namespace {  // re-open anonymous namespace
