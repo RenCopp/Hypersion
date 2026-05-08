@@ -79,6 +79,18 @@ RELEASE  = -O3 -DNDEBUG -flto -fno-exceptions
 # regressed -22.6 ELO. Likely cause: aggressive unrolling expands the
 # instruction footprint, hurting i-cache hit rate when 8 cutechess
 # games run concurrently. Bench (single-thread) is misleading here.
+#
+# NOTE: Game-workload PGO (-fprofile-generate / -fprofile-use cycle, see
+# testing/pgo_build.py) is in the same family of "expanded code footprint"
+# pessimization. Tested 2026-05-07 at conc=2 (per memory-aggressive
+# protocol): -40.1 +/- 38.0 ELO @ 200g. Re-tested 2026-05-09 post-A2-v2
+# + A3 ship (different hot path, fresh profile from 30 selfplay games):
+# -6.9 +/- 37.1 ELO @ 200g (W=57 L=61 D=82). Confirmed tombstone.
+# Game-PGO consistently hurts or no-ops on Hypersion. Future contributor
+# wanting to retry should pair with i-cache-aware build flags
+# (-falign-functions, -falign-loops alignment to L1I line size, or
+# explicit `__attribute__((cold))` annotations on rare error paths)
+# to compensate for the footprint expansion.
 DEBUG    = -O0 -g3 -fsanitize=address,undefined -fno-omit-frame-pointer
 
 CXXFLAGS ?= $(COMMON) $(RELEASE)
