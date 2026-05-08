@@ -145,8 +145,6 @@ private:
     CorrectionHistory materialCorrHist;   // SF18-style: a second correction
                                           // source keyed by material distribution
                                           // rather than pawn structure.
-    LowPlyHistory    lowPlyHist;          // SF18 ply-< 5 move-ordering bias.
-                                          // Initialized to 97 (SF default).
     // Continuation-history tables, one per lookback distance.
     // contHist[i] tracks (prev-(i+1)-ply move) -> current-move bonus.
     // contHist[0] = 1-ply lookback (counter-move history).
