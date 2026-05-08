@@ -9,6 +9,17 @@
 
 namespace hypersion {
 
+// Forward decls into Search::tunables for A2 SPSA campaign.
+// Definitions live in src/search.cpp::tunables; see there for rationale.
+// Defaults (100, 100, 50) reproduce pre-A2 weights of 1.0x, 1.0x, 0.5x.
+// A2 campaign 2026-05-08 tombstoned at -34.9 ELO @ 200g; infra stays
+// for future retries with 32+ games/iter or wider step sizes.
+namespace Search::tunables {
+extern int BFLY_WEIGHT;
+extern int CONT1_WEIGHT;
+extern int CONT2_WEIGHT;
+}
+
 namespace {
 inline Value piece_value_simple(PieceType pt) {
     constexpr Value v[PIECE_TYPE_NB] = { 0, 100, 320, 330, 500, 900, 0, 0 };
@@ -126,18 +137,25 @@ void MovePicker::score_quiets() {
                  && prevPc2 != NO_PIECE
                  && prevMv2 != Move::none()
                  && prevMv2 != Move::null();
+    // A2 SPSA campaign tunables (defaults 100, 100, 50 reproduce 1.0x,
+    // 1.0x, 0.5x). Hoist out of the loop body so the divide-by-100 isn't
+    // re-emitted per move.
+    const int bflyW  = Search::tunables::BFLY_WEIGHT;
+    const int cont1W = Search::tunables::CONT1_WEIGHT;
+    const int cont2W = Search::tunables::CONT2_WEIGHT;
+
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
-        int v = bhist ? bhist->get(us, m) : 0;
+        int v = bhist ? (bhist->get(us, m) * bflyW / 100) : 0;
         Piece moving = pos.piece_on(m.from_sq());
         PieceType pt = type_of(moving);
-        if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq());
-        // Read 2-ply continuation history at half weight.
-        // Half-weight tested at +34.9 ELO @ 200g vs no-read.
+        if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq()) * cont1W / 100;
+        // Read 2-ply continuation history with SPSA-tuned weight (default 50%).
+        // Pre-A2 fixed half-weight tested at +34.9 ELO @ 200g vs no-read.
         // Full weight tested at 0.0 +/- 38 ELO vs half weight (equivalent
-        // by measurement); kept half weight as the conventional choice
-        // (less aggressive, robust to overfitting).
-        if (useCont2) v += contHist2->get(prevPc2, prevMv2.to_sq(), moving, m.to_sq()) / 2;
+        // by measurement); kept half weight as the conventional default,
+        // now SPSA-tunable.
+        if (useCont2) v += contHist2->get(prevPc2, prevMv2.to_sq(), moving, m.to_sq()) * cont2W / 100;
 
         // Threat-by-lesser bonus / penalty (SF18).
         // NOTE: tested SF18 check-bonus +16384 (after SEE >= -75 filter)

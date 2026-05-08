@@ -21,7 +21,24 @@ namespace hypersion {
 
 constexpr int HISTORY_MAX = 7183;   // Stockfish-tuned cap
 
-inline int history_bonus(int depth) { return std::min(2000, 16 * depth * depth + 32 * depth + 16); }
+// Forward decls into Search::tunables — lets history_bonus() be SPSA-tunable
+// at runtime without a header-coupling explosion. Definitions live in
+// src/search.cpp::tunables. The A2 SPSA campaign (2026-05-08) tested
+// these and tombstoned them at -34.9 ELO @ 200g; see src/search.cpp
+// tunables namespace for full diagnosis. Infrastructure stays for
+// future retries with 32+ games/iter or wider perturbation steps.
+namespace Search::tunables {
+extern int HIST_BONUS_DEPTH2;
+extern int HIST_BONUS_DEPTH1;
+extern int HIST_BONUS_CAP;
+}
+
+inline int history_bonus(int depth) {
+    return std::min(Search::tunables::HIST_BONUS_CAP,
+                    Search::tunables::HIST_BONUS_DEPTH2 * depth * depth
+                    + Search::tunables::HIST_BONUS_DEPTH1 * depth
+                    + 16);
+}
 
 inline void update_history(int& entry, int bonus) {
     bonus = std::clamp(bonus, -HISTORY_MAX, HISTORY_MAX);

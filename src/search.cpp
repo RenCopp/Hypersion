@@ -67,6 +67,11 @@ extern int RFP_MARGIN_PER_DEPTH, RAZOR_MARGIN_BASE, RAZOR_MARGIN_PER_DEPTH,
            SEE_QUIET_MARGIN, SEE_CAPT_MARGIN,
            NMP_EVAL_BETA_DIV, PROBCUT_MARGIN,
            ASPIRATION_DELTA0, STABILITY_SWING_TH, QSEARCH_CAP_GAIN;
+// History / move-ordering params (A2 SPSA campaign 2026-05-08+).
+// Defaults match pre-A2 hardcoded values (16, 32, 2000, 100, 100, 50)
+// so behavior is bit-identical at launch and SPSA can move outward.
+extern int HIST_BONUS_DEPTH2, HIST_BONUS_DEPTH1, HIST_BONUS_CAP,
+           BFLY_WEIGHT, CONT1_WEIGHT, CONT2_WEIGHT;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -83,6 +88,13 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "ASPIRATION_DELTA0")       ASPIRATION_DELTA0       = value;
     else if (name == "STABILITY_SWING_TH")      STABILITY_SWING_TH      = value;
     else if (name == "QSEARCH_CAP_GAIN")        QSEARCH_CAP_GAIN        = value;
+    // A2 history tunables.
+    else if (name == "HIST_BONUS_DEPTH2")       HIST_BONUS_DEPTH2       = value;
+    else if (name == "HIST_BONUS_DEPTH1")       HIST_BONUS_DEPTH1       = value;
+    else if (name == "HIST_BONUS_CAP")          HIST_BONUS_CAP          = value;
+    else if (name == "BFLY_WEIGHT")             BFLY_WEIGHT             = value;
+    else if (name == "CONT1_WEIGHT")            CONT1_WEIGHT            = value;
+    else if (name == "CONT2_WEIGHT")            CONT2_WEIGHT            = value;
     else return false;
     return true;
 }
@@ -199,6 +211,50 @@ int STABILITY_SWING_TH      = 60;     // bestScore swing for "stable".
     // 100 / 40 both regress; kept at 60.
 int QSEARCH_CAP_GAIN        = 3300;   // qsearch capture-futility cap.
     // 2200 -209 ELO @ 13g, 5000 0.0 ELO @ 30g; kept at 3300.
+
+// ---- A2 history / move-ordering tunables (2026-05-08+) ----
+// These were hardcoded constants until the A2 SPSA campaign exposed
+// them. Defaults preserve pre-A2 behavior bit-identically.
+//
+// HIST_BONUS_DEPTH2 / DEPTH1 / CAP are the coefficients in
+//   history_bonus(depth) = min(CAP, DEPTH2*d^2 + DEPTH1*d + 16)
+// (history.h). Used everywhere we apply a history update.
+//
+// BFLY_WEIGHT / CONT1_WEIGHT / CONT2_WEIGHT are percent multipliers
+// (×/100) applied to butterfly, 1-ply contHist, and 2-ply contHist
+// reads in MovePicker::score_quiets (movepick.cpp). Defaults 100, 100,
+// 50 reproduce previous fixed weights of 1.0×, 1.0×, 0.5×.
+//
+// A2 SPSA campaign (2026-05-08) tombstone:
+//   200 iters x 16 games/iter, nodes=50000, conc=6 (~25 min wall).
+//   Per-iter |y| signal stayed at 0.062 (1 game out of 16), the
+//   noise floor — gradient ineffective for this codebase's flat
+//   objective surface near the local optimum.
+//   Final converged values, all within +/-6 % of defaults:
+//     BFLY_WEIGHT 100->106, CONT1 100->102, CONT2 50->48,
+//     HIST_BONUS_DEPTH2 16->17, DEPTH1 32->32, CAP 2000->1935.
+//   Tested vs default-Tune_* BASE @ 5+0.05, conc=6:
+//     30g:  +58.5 +/- 114.0 ELO  (PROMISING-band, fakeout-prone)
+//     200g: -34.9 +/-  35.1 ELO  (REJECT, classic 30g->200g fakeout)
+//   Same pattern as the rejected 12-param search-margin campaigns:
+//   16 games/iter still under-resolves the tiny ELO differences
+//   between perturbed configurations, SPSA random-walks instead
+//   of finding gradient. Infrastructure (Tune_* options + plumbing
+//   into history_bonus/score_quiets) STAYS SHIPPED for future
+//   campaigns. Defaults frozen at pre-A2 values.
+//   Future contributor wanting to retry should:
+//     (a) Use 32-64 games/iter (4-8x slower per-iter but cleaner
+//         gradient — addresses noise floor).
+//     (b) Widen step size to 15-25 % of range (current ~5 %)
+//         so perturbations dominate per-game noise.
+//     (c) Pair with a fresh NNUE retrain so the eval calibration
+//         can shift with the history weights — see plan A1.
+int HIST_BONUS_DEPTH2 = 16;
+int HIST_BONUS_DEPTH1 = 32;
+int HIST_BONUS_CAP    = 2000;
+int BFLY_WEIGHT       = 100;
+int CONT1_WEIGHT      = 100;
+int CONT2_WEIGHT      = 50;
 
 // SPSA campaign (2026-05-07/08) tombstone — DO NOT REPEAT WITHOUT JOINT
 // EVAL/HISTORY RE-TUNING. Above 12 tunables were exposed to UCI as
