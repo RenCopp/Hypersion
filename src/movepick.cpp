@@ -14,10 +14,15 @@ namespace hypersion {
 // values 101/99/47 (vs pre-A2 fixed weights 100/100/50) worth
 // +27.9 ELO @ 400g (combined of two independent 200g confirms).
 // Runtime-tunable via `setoption name Tune_<NAME> value <int>`.
+//
+// A5 (2026-05-09) adds the previously-hardcoded threat-by-lesser
+// bonuses to the same SPSA infrastructure.
 namespace Search::tunables {
 extern int BFLY_WEIGHT;
 extern int CONT1_WEIGHT;
 extern int CONT2_WEIGHT;
+extern int THREAT_BY_LESSER_PENALTY;
+extern int THREAT_BY_LESSER_BONUS;
 }
 
 namespace {
@@ -168,8 +173,9 @@ void MovePicker::score_quiets() {
             Bitboard tBL  = threatByLesser[pt];
             Bitboard toBB = Bitboard(1) << int(m.to_sq());
             Bitboard frBB = Bitboard(1) << int(m.from_sq());
-            int signedV   = (tBL & toBB) ? -19
-                          : (tBL & frBB) ?  20
+            // A5 SPSA-tunable: defaults -19 / +20 reproduce pre-A5.
+            int signedV   = (tBL & toBB) ? Search::tunables::THREAT_BY_LESSER_PENALTY
+                          : (tBL & frBB) ? Search::tunables::THREAT_BY_LESSER_BONUS
                                          :   0;
             v += int(Eval::PieceValueMG[pt]) * signedV;
         }

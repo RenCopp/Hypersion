@@ -77,6 +77,11 @@ extern int HIST_BONUS_DEPTH2, HIST_BONUS_DEPTH1, HIST_BONUS_CAP,
 // 1.6/1.4/1.2/0.4/0.6/0.85 floats bit-identically.
 extern int TM_ENDGAME_BONUS_8, TM_ENDGAME_BONUS_12, TM_ENDGAME_BONUS_16,
            TM_EASY_GAP150, TM_EASY_GAP80, TM_EASY_GAP40;
+// A5: previously-hardcoded threat-by-lesser bonuses (movepick.cpp) +
+// LMR statScore divisor (search.cpp). Defaults preserve pre-A5
+// behavior. Read directly from the namespace at hot-path call sites.
+extern int THREAT_BY_LESSER_PENALTY, THREAT_BY_LESSER_BONUS,
+           LMR_STATSCORE_DIV;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -107,6 +112,10 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "TM_EASY_GAP150")          TM_EASY_GAP150          = value;
     else if (name == "TM_EASY_GAP80")           TM_EASY_GAP80           = value;
     else if (name == "TM_EASY_GAP40")           TM_EASY_GAP40           = value;
+    // A5 threat / LMR-statScore tunables.
+    else if (name == "THREAT_BY_LESSER_PENALTY") THREAT_BY_LESSER_PENALTY = value;
+    else if (name == "THREAT_BY_LESSER_BONUS")  THREAT_BY_LESSER_BONUS  = value;
+    else if (name == "LMR_STATSCORE_DIV")       LMR_STATSCORE_DIV       = value;
     else return false;
     return true;
 }
@@ -297,6 +306,38 @@ int TM_EASY_GAP150      =  40;   // pre-A4: 0.4, A4 unchanged
 int TM_EASY_GAP80       =  60;   // pre-A4: 0.6, A4 unchanged
 int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 
+// ---- A5 threat-by-lesser + LMR statScore (2026-05-09) ----
+// Three previously-hardcoded constants exposed as Tune_*. Defaults
+// preserve pre-A5 behavior bit-identically.
+//
+// THREAT_BY_LESSER_PENALTY: bonus applied when moving a piece TO a
+//   square attacked by a strictly-lesser-valued enemy piece. Negative
+//   value (penalty). Multiplied by PieceValueMG[pt] in score_quiets.
+// THREAT_BY_LESSER_BONUS: bonus applied when moving a piece AWAY from
+//   such a threat. Positive value. Multiplied by PieceValueMG[pt].
+// LMR_STATSCORE_DIV: divisor for the LMR statScore correction in
+//   search.cpp. Higher values reduce the magnitude of history-driven
+//   reduction adjustments; lower values amplify them.
+//
+// A5 SPSA campaign (2026-05-09, 200 iters x 64 games/iter, ~30 min):
+// Convergence was extremely tight — only LMR_STATSCORE_DIV moved at
+// all (8192 -> 8063, -1.6 %); both threat-by-lesser bonuses
+// unchanged. Final: -19 / +20 / 8063.
+//
+// Single 200g SPRT vs default-Tune_* BASE @ 5+0.05, conc=6:
+//   +17.4 +/- 38.0 ELO  (W=67 L=57 D=76, score 0.525)
+//
+// Above the +10 ship threshold but with a single run only — CI ±38
+// includes 0, so this could be either a real ~+10-15 ELO improvement
+// (consistent with A3's 1-2 % shifts producing +33 ELO at 600g) or
+// pure variance. Conservative call: SHIP the infrastructure, KEEP
+// pre-A5 defaults. Future contributor with 30-60 min of SPRT budget
+// can run two more 200g confirms — if combined 600g shows >+10 ELO
+// with lower-CI > 0, update the three defaults to -19 / +20 / 8063.
+int THREAT_BY_LESSER_PENALTY = -19;   // movepick.cpp pre-A5: -19
+int THREAT_BY_LESSER_BONUS   =  20;   // movepick.cpp pre-A5: +20
+int LMR_STATSCORE_DIV        = 8192;  // search.cpp   pre-A5: 8192
+
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
 // A1 campaign (2026-05-07/08) — REJECTED:
@@ -351,6 +392,8 @@ using tunables::TM_ENDGAME_BONUS_16;
 using tunables::TM_EASY_GAP150;
 using tunables::TM_EASY_GAP80;
 using tunables::TM_EASY_GAP40;
+// A5 LMR statScore divisor (threat-by-lesser tunables read inside movepick.cpp).
+using tunables::LMR_STATSCORE_DIV;
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -1666,7 +1709,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     statScore += contHist[0]->get(prevPiece1, prevMove1.to_sq(), moving, m.to_sq());
                 if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
                     statScore += contHist[1]->get(prevPiece2, prevMove2.to_sq(), moving, m.to_sq());
-                r -= statScore / 8192;
+                r -= statScore / LMR_STATSCORE_DIV;   // A5: pre-tunable was hardcoded 8192
             }
             r = std::clamp(r, 0, newDepth - 1);
         }
