@@ -32,6 +32,7 @@ hypersion.txt
 
 # Lichess bot — kept locally, not part of the public repo.
 lichess_bot/
+lichess-bot-master/
 docs/LICHESS-BOT.md
 
 # Release-build staging area + the binary release zips themselves.
