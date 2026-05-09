@@ -87,6 +87,11 @@ extern int THREAT_BY_LESSER_PENALTY, THREAT_BY_LESSER_BONUS,
 // the +16 constant offset in history_bonus(d). Defaults preserve
 // pre-A6 behavior bit-identically.
 extern int HIST_MAX, HIST_BONUS_CONST;
+// A7: aspiration window growth + full-window-fallback threshold.
+// ASP_GROWTH_ADD is the additive constant in `delta += delta/4 + N`
+// when an aspiration search fails. ASP_FULL_WINDOW_TH is the delta
+// value at which we abandon aspiration and search with a full window.
+extern int ASP_GROWTH_ADD, ASP_FULL_WINDOW_TH;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -124,6 +129,9 @@ bool set_tunable(const std::string& name, int value) {
     // A6 history-gravity constants.
     else if (name == "HIST_MAX")                HIST_MAX                = value;
     else if (name == "HIST_BONUS_CONST")        HIST_BONUS_CONST        = value;
+    // A7 aspiration window tunables.
+    else if (name == "ASP_GROWTH_ADD")          ASP_GROWTH_ADD          = value;
+    else if (name == "ASP_FULL_WINDOW_TH")      ASP_FULL_WINDOW_TH      = value;
     else return false;
     return true;
 }
@@ -368,6 +376,30 @@ int LMR_STATSCORE_DIV        = 8063;   // SPSA A5: 8192 -> 8063
 int HIST_MAX         = 7183;   // SF-tuned, A6 confirmed local optimum
 int HIST_BONUS_CONST =   16;   // SF-tuned, A6 confirmed local optimum
 
+// ---- A7 aspiration-window growth (2026-05-09) ----
+// ASP_GROWTH_ADD: additive constant in the aspiration delta growth
+//   formula `delta += delta/4 + ASP_GROWTH_ADD` after a fail. SF
+//   default 5; ranges that make sense are 0-15.
+// ASP_FULL_WINDOW_TH: when aspiration delta exceeds this, abandon
+//   aspiration and search with full -INF/+INF window. SF default
+//   1000; ranges 500-2000.
+//
+// A7 SPSA campaign (2026-05-09, 200 iters x 64 games/iter, ~30 min):
+// Tiny convergence — only ASP_FULL_WINDOW_TH moved (1000 -> 992,
+// -0.8 %); ASP_GROWTH_ADD unchanged. Single 200g SPRT vs default-
+// Tune_* BASE @ 5+0.05 conc=6:
+//   -15.6 +/- 35.6 ELO  (W=50 L=59 D=91, score 0.477)
+// Below +5 tombstone threshold. The fall-back-to-full-window
+// threshold rarely fires in normal play (aspiration delta rarely
+// exceeds 200-300 cp before finding the right window), so the
+// movement is functionally near-noop and the SPRT result is
+// dominated by random variance.
+//
+// Tombstoned. Defaults frozen at SF-tuned values. Same pattern as
+// A6: SPSA finds nothing on already-well-tuned regions.
+int ASP_GROWTH_ADD     =    5;   // SF-tuned, A7 confirmed local optimum
+int ASP_FULL_WINDOW_TH = 1000;   // SF-tuned, A7 confirmed local optimum
+
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
 // A1 campaign (2026-05-07/08) — REJECTED:
@@ -424,6 +456,9 @@ using tunables::TM_EASY_GAP80;
 using tunables::TM_EASY_GAP40;
 // A5 LMR statScore divisor (threat-by-lesser tunables read inside movepick.cpp).
 using tunables::LMR_STATSCORE_DIV;
+// A7 aspiration window tunables.
+using tunables::ASP_GROWTH_ADD;
+using tunables::ASP_FULL_WINDOW_TH;
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -913,7 +948,7 @@ void Worker::iterative_deepen(Position& pos) {
                                    tm.elapsed(), iterPV, 0, multiPv, /*flag=*/1);
                     windowBeta  = (windowAlpha + windowBeta) / 2;
                     windowAlpha = std::max<int>(bestThisIter - delta, -VALUE_INFINITE);
-                    delta += delta / 4 + 5;
+                    delta += delta / 4 + ASP_GROWTH_ADD;   // A7: pre-tunable was hardcoded 5
                 } else if (bestThisIter >= windowBeta && windowBeta != VALUE_INFINITE) {
                     // Fail-high: report partial info with `lowerbound`.
                     if (isMain && pvIdx == 0)
@@ -921,12 +956,12 @@ void Worker::iterative_deepen(Position& pos) {
                                    pool ? pool->total_nodes() : nodes.load(),
                                    tm.elapsed(), iterPV, 0, multiPv, /*flag=*/2);
                     windowBeta = std::min<int>(bestThisIter + delta, VALUE_INFINITE);
-                    delta += delta / 4 + 5;
+                    delta += delta / 4 + ASP_GROWTH_ADD;   // A7: pre-tunable was hardcoded 5
                 } else {
                     if (pvIdx == 0) { bestScore = bestThisIter; bestPV = iterPV; }
                     break;
                 }
-                if (delta >= 1000) { windowAlpha = -VALUE_INFINITE; windowBeta = VALUE_INFINITE; }
+                if (delta >= ASP_FULL_WINDOW_TH) { windowAlpha = -VALUE_INFINITE; windowBeta = VALUE_INFINITE; }
             }
 
             // Bring the best of the searched range to position pvIdx.
