@@ -224,8 +224,8 @@ int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (unchanged by A3).
     // Sweep: 200 = -8.1 ELO at 129g; 280 = -15.6 ELO at 200g.
 int RAZOR_MARGIN_BASE       = 852;    // A3: 850 -> 852. Sweep history:
     // 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3 (kept pre-A3).
-int RAZOR_MARGIN_PER_DEPTH  = 387;    // A3: 390 -> 387. Sweep history:
-    // 300 = -34.9 ELO @ 30g; 480 = +46.6 @ 30g but -51.6 @ 61g.
+int RAZOR_MARGIN_PER_DEPTH  = 383;    // A9 joint: 387 -> 383. A3 was: 390 -> 387.
+    // Sweep history: 300 = -34.9 ELO @ 30g; 480 = +46.6 @ 30g but -51.6 @ 61g.
 int FUTIL_MARGIN_PER_DEPTH  = 397;    // A3: 400 -> 397. Sweep history:
     // 330 -> 400 was +15.6 +/- 37.6 ELO @ 200g.
 int FUTIL_MARGIN_BASE       = 385;    // A3: 390 -> 385. Sweep history:
@@ -242,8 +242,8 @@ int ASPIRATION_DELTA0       =  50;    // A3: 51 -> 50. Sweep history:
     // 30 = -10.4 ELO; 80 = +1.7 ELO.
 int STABILITY_SWING_TH      =  61;    // A3: 60 -> 61. Sweep history:
     // 100 / 40 both regress vs 60.
-int QSEARCH_CAP_GAIN        = 3259;   // A3: 3300 -> 3259. Sweep history:
-    // 2200 = -209 ELO @ 13g; 5000 = 0.0 ELO @ 30g.
+int QSEARCH_CAP_GAIN        = 3221;   // A9 joint: 3259 -> 3221. A3 was: 3300 -> 3259.
+    // Sweep history: 2200 = -209 ELO @ 13g; 5000 = 0.0 ELO @ 30g.
 
 // ---- A2 history / move-ordering tunables (2026-05-08+) ----
 // SPSA-tuned via the v2 campaign (200 iters x 64 games/iter,
@@ -282,12 +282,12 @@ int QSEARCH_CAP_GAIN        = 3259;   // A3: 3300 -> 3259. Sweep history:
 // walked because its noise floor masked the gradient. With proper
 // statistical power, the v2 campaign found a small but real
 // improvement region (~1-6 % shifts) worth +28 ELO.
-int HIST_BONUS_DEPTH2 = 16;     // unchanged from default
-int HIST_BONUS_DEPTH1 = 30;     // SPSA v2: was 32
-int HIST_BONUS_CAP    = 2059;   // SPSA v2: was 2000
-int BFLY_WEIGHT       = 101;    // SPSA v2: was 100
-int CONT1_WEIGHT      =  99;    // SPSA v2: was 100
-int CONT2_WEIGHT      =  47;    // SPSA v2: was 50
+int HIST_BONUS_DEPTH2 = 16;     // unchanged
+int HIST_BONUS_DEPTH1 = 30;     // A2-v2: was 32 (A9 confirmed)
+int HIST_BONUS_CAP    = 2065;   // A9 joint: 2059 -> 2065. A2-v2 was: 2000 -> 2059.
+int BFLY_WEIGHT       = 101;    // A2-v2: was 100 (A9 confirmed)
+int CONT1_WEIGHT      =  99;    // A2-v2: was 100 (A9 confirmed)
+int CONT2_WEIGHT      =  48;    // A9 joint: 47 -> 48. A2-v2 was: 50 -> 47.
 
 // ---- A4 time-management tunables (2026-05-08+) ----
 // Stored as percent multipliers (value / 100). Defaults preserve the
@@ -358,7 +358,7 @@ int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 // continuous parameter region.
 int THREAT_BY_LESSER_PENALTY = -19;    // unchanged from pre-A5
 int THREAT_BY_LESSER_BONUS   =  20;    // unchanged from pre-A5
-int LMR_STATSCORE_DIV        = 8063;   // SPSA A5: 8192 -> 8063
+int LMR_STATSCORE_DIV        = 7938;   // A9 joint: 8063 -> 7938. A5 was: 8192 -> 8063.
 
 // ---- A6 history.h gravity constants (2026-05-09) ----
 // HIST_MAX: saturation cap on history values. Used as both a clamp
