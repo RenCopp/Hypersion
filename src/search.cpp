@@ -102,6 +102,9 @@ extern int PSQT_WEIGHT, POSITIONAL_WEIGHT, MATERIAL_SCALE_BASE;
 // scaling fires. EFFORT_SCALE is the multiplier (÷100) applied when
 // effort is concentrated on the best move.
 extern int FALLING_EVAL_DIV, EFFORT_TH, EFFORT_SCALE;
+// A11: stable-iter time scales (÷100 for fractional). 50 = 0.5x when
+// stableIters >= 4; 75 = 0.75x when stableIters >= 2.
+extern int STABLE_HIGH_SCALE, STABLE_LOW_SCALE;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -150,6 +153,9 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "FALLING_EVAL_DIV")        FALLING_EVAL_DIV        = value;
     else if (name == "EFFORT_TH")               EFFORT_TH               = value;
     else if (name == "EFFORT_SCALE")            EFFORT_SCALE            = value;
+    // A11 stable-iter time-scales.
+    else if (name == "STABLE_HIGH_SCALE")       STABLE_HIGH_SCALE       = value;
+    else if (name == "STABLE_LOW_SCALE")        STABLE_LOW_SCALE        = value;
     else return false;
     return true;
 }
@@ -476,6 +482,21 @@ int FALLING_EVAL_DIV =  1058;   // A10: 1000 -> 1058
 int EFFORT_TH        = 93340;   // SF-tuned, A10 confirmed
 int EFFORT_SCALE     =    76;   // SF-tuned, A10 confirmed
 
+// ---- A11 stable-iter time scales (2026-05-09) ----
+// STABLE_HIGH_SCALE: applied when stableIters >= 4 (very stable best
+//   move across many iterations — short-circuit time use).
+// STABLE_LOW_SCALE: applied when stableIters >= 2 (moderately stable).
+// Stored as percent (÷100). Defaults preserve pre-A11 0.5 / 0.75.
+//
+// A11 SPSA campaign (2026-05-09): zero-movement convergence — both
+// params returned EXACTLY to defaults. SPSA had nothing to find.
+// Skipped the 200g SPRT (zero shift = zero ELO change). Same pattern
+// as A6/A7/A8 already-tuned regions. SF's 0.5/0.75 stable-iter
+// scales are at Hypersion's local optimum too. Infrastructure stays
+// SHIPPED for future re-tuning campaigns.
+int STABLE_HIGH_SCALE =  50;   // SF-tuned, A11 confirmed local optimum
+int STABLE_LOW_SCALE  =  75;   // SF-tuned, A11 confirmed local optimum
+
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
 // A1 campaign (2026-05-07/08) — REJECTED:
@@ -539,6 +560,9 @@ using tunables::ASP_FULL_WINDOW_TH;
 using tunables::FALLING_EVAL_DIV;
 using tunables::EFFORT_TH;
 using tunables::EFFORT_SCALE;
+// A11 stable-iter scales.
+using tunables::STABLE_HIGH_SCALE;
+using tunables::STABLE_LOW_SCALE;
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -1089,8 +1113,9 @@ void Worker::iterative_deepen(Position& pos) {
         // → take only ~50 % of optimum; volatile (recent move changes) → 1.4 ×.
         if (isMain && !limits.infinite && limits.depth == 0) {
             double scale = 1.0;
-            if (stableIters >= 4) scale = 0.5;
-            else if (stableIters >= 2) scale = 0.75;
+            // A11: pre-tunable were hardcoded 0.5 / 0.75
+            if (stableIters >= 4) scale = STABLE_HIGH_SCALE / 100.0;
+            else if (stableIters >= 2) scale = STABLE_LOW_SCALE / 100.0;
 
             // Compute *current* remaining clock (limits.time[us] is at
             // search-start; tm.elapsed() is what we've already burned this

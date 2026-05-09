@@ -76,20 +76,35 @@ struct {
     // regardless of opponent rating — rated games count for ELO and
     // shouldn't be deliberately weakened.
     bool gameRated     = false;
+    // Per-game tournament flag, set by lichess-bot before each tournament
+    // game. When true, opponent-ELO matching is applied EVEN if the game
+    // is rated — tournament play prioritizes balanced match-ups for the
+    // user's tournament-organizing intent over preserving global ELO.
+    // Empty / false (default) = previous behavior.
+    bool gameTournament = false;
 } Options;
 
 // Opponent matching offset. The bot plays consistently BELOW the
-// opponent across all rating bands, narrowing toward exact match at
-// master level. Goal: opponent should win a meaningful share of games.
+// opponent across all rating bands, narrowing toward a small (-50)
+// underbid at master level. Goal: opponent should win a meaningful
+// share of games.
+//
+// 2026-05-09: shifted entire curve -50 ELO ("just a little weaker"
+// per user feedback). Previous curve was -125/-100/-125/-100/-75/
+// -50/-25/0 across the bands; this curve is uniformly 50 lower.
+// Effect: against a 1600 opponent the bot now targets 1450 (was
+// 1500); against a 2200 opp targets 2100 (was 2150); against 2700+
+// targets 2650 (was 2700). 50 ELO is ~1 game in 4 worth of win-rate
+// concession — noticeable but not crushing.
 inline int opponent_match_offset(int rating) {
-    if (rating <  800) return -125;
-    if (rating < 1000) return -100;
-    if (rating < 1200) return -125;
-    if (rating < 1600) return -100;
-    if (rating < 2000) return  -75;
-    if (rating < 2400) return  -50;
-    if (rating < 2600) return  -25;
-    return                       0;   // master+: exact match
+    if (rating <  800) return -175;
+    if (rating < 1000) return -150;
+    if (rating < 1200) return -175;
+    if (rating < 1600) return -150;
+    if (rating < 2000) return -125;
+    if (rating < 2400) return -100;
+    if (rating < 2600) return  -75;
+    return                      -50;   // master+: small underbid
 }
 
 void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
@@ -166,6 +181,11 @@ void cmd_uci() {
               // games matter for ELO. When false (casual), opponent matching
               // applies normally.
               << "option name UCI_GameRated type check default false\n"
+              // Per-game tournament flag (set by lichess-bot before each
+              // tournament game). When true, opponent-ELO matching applies
+              // even if UCI_GameRated=true. Lets the user run rated
+              // tournaments with rating-balanced play.
+              << "option name UCI_GameTournament type check default false\n"
               << "uciok" << std::endl;
 }
 
@@ -368,8 +388,9 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_ShowWDL"))     parse_bool(Options.showWDL);
     else if (eq("Contempt"))       { parse_int(Options.contempt);
                                      Options.contempt = std::clamp(Options.contempt, -200, 200); }
-    else if (eq("UCI_MatchOpponent")) parse_bool(Options.matchOpponent);
-    else if (eq("UCI_GameRated"))     parse_bool(Options.gameRated);
+    else if (eq("UCI_MatchOpponent"))   parse_bool(Options.matchOpponent);
+    else if (eq("UCI_GameRated"))       parse_bool(Options.gameRated);
+    else if (eq("UCI_GameTournament"))  parse_bool(Options.gameTournament);
     else if (eq("UCI_Opponent"))   {
         // python-chess sends: "<title> <rating> <player_type> <name>"
         // (e.g. "none 600 human RisotPlayer" or "GM 2700 computer Stockfish").
@@ -410,8 +431,12 @@ void cmd_setopt(std::istringstream& is) {
             // Casual games trigger ELO matching for ANY opponent (human OR
             // bot) when a rating is provided. This keeps casual games
             // educational/balanced even against weaker bots.
+            // Tournament override: when UCI_GameTournament=true, ELO
+            // matching applies even in rated games — user explicitly opted
+            // into tournament-style balanced play.
             const char* oppType = typeSeen ? (isHuman ? "human" : "bot") : "unknown";
-            if (Options.gameRated) {
+            const bool ratedOverride = Options.gameRated && !Options.gameTournament;
+            if (ratedOverride) {
                 std::cerr << "info string UCI_MatchOpponent: rated game"
                           << (rating > 0 ? (" (opp=" + std::to_string(rating) + ")") : "")
                           << " -> full strength\n";
@@ -420,7 +445,10 @@ void cmd_setopt(std::istringstream& is) {
                 int target = std::clamp(rating + offset, Options.matchFloor, Options.matchCeiling);
                 Options.limitStrength = true;
                 Options.uciElo = target;
-                std::cerr << "info string UCI_MatchOpponent: casual " << oppType
+                const char* gameType = Options.gameTournament
+                    ? (Options.gameRated ? "rated tournament" : "casual tournament")
+                    : "casual";
+                std::cerr << "info string UCI_MatchOpponent: " << gameType << ' ' << oppType
                           << " opp=" << rating
                           << " offset=+" << offset
                           << " -> UCI_Elo=" << target << '\n';
