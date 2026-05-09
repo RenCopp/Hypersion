@@ -148,15 +148,38 @@ Position& Position::set(const std::string& fenStr, StateInfo* si) {
     sideToMove = (token == 'w') ? WHITE : BLACK;
     ss >> token;   // skip space
 
-    // 3) Castling rights
+    // 3) Castling rights — supports both standard FEN and Shredder/X-FEN
+    // notation. Standard letters K/Q/k/q find the rook on FILE_H/A. X-FEN
+    // letters A-H/a-h indicate the rook's starting file directly (used for
+    // Chess960). Letters that don't correspond to a rook of the right color
+    // on the king's rank are ignored.
     while ((ss >> token) && !std::isspace(static_cast<unsigned char>(token))) {
         if (token == '-') continue;
         Color c = std::isupper(static_cast<unsigned char>(token)) ? WHITE : BLACK;
         char ch = char(std::toupper(static_cast<unsigned char>(token)));
         Square ksq = square<KING>(c);
-        Square rsq = (ch == 'K') ? home_rank_square(c, FILE_H)
-                   : (ch == 'Q') ? home_rank_square(c, FILE_A)
-                   : SQ_NONE;
+        Square rsq = SQ_NONE;
+        if (ch == 'K') {
+            // Outermost rook on the king's rank, kingside. In standard chess
+            // that's FILE_H; in Chess960 it's the rightmost rook of color c.
+            for (int f = FILE_H; f >= FILE_A; --f) {
+                Square s = home_rank_square(c, File(f));
+                if (piece_on(s) == make_piece(c, ROOK) && file_of(s) > file_of(ksq)) {
+                    rsq = s; break;
+                }
+            }
+        } else if (ch == 'Q') {
+            // Outermost rook, queenside.
+            for (int f = FILE_A; f <= FILE_H; ++f) {
+                Square s = home_rank_square(c, File(f));
+                if (piece_on(s) == make_piece(c, ROOK) && file_of(s) < file_of(ksq)) {
+                    rsq = s; break;
+                }
+            }
+        } else if (ch >= 'A' && ch <= 'H') {
+            // X-FEN: rook is on the named file, on the king's rank.
+            rsq = home_rank_square(c, File(ch - 'A'));
+        }
         if (rsq != SQ_NONE && piece_on(rsq) == make_piece(c, ROOK)
             && rank_of(ksq) == rank_of(rsq))
             set_castling_right(c, rsq);
@@ -314,10 +337,17 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     ++st->pliesFromNull;
 
     if (m.type_of() == MT_CASTLING) {
-        // King + rook both move. Sides chosen by king's destination file.
-        Square rfrom = (to > from) ? home_rank_square(us, FILE_H) : home_rank_square(us, FILE_A);
-        Square kto   = (to > from) ? home_rank_square(us, FILE_G) : home_rank_square(us, FILE_C);
-        Square rto   = (to > from) ? home_rank_square(us, FILE_F) : home_rank_square(us, FILE_D);
+        // King + rook both move. The MT_CASTLING move stores from = king's
+        // start square, to = king's destination (FILE_G or FILE_C on the home
+        // rank — same in standard chess and Chess960). Determine side from
+        // the destination file (works regardless of king's starting file in
+        // Chess960 — king start can be anywhere between B and G).
+        bool kingSide = file_of(to) == FILE_G;
+        CastlingRights cr = (us == WHITE) ? (kingSide ? WHITE_OO : WHITE_OOO)
+                                          : (kingSide ? BLACK_OO : BLACK_OOO);
+        Square rfrom = castlingRookSquare[cr];   // Chess960-aware
+        Square kto   = home_rank_square(us, kingSide ? FILE_G : FILE_C);
+        Square rto   = home_rank_square(us, kingSide ? FILE_F : FILE_D);
 
         remove_piece(from);  remove_piece(rfrom);
         put_piece(make_piece(us, KING), kto);
@@ -467,9 +497,13 @@ void Position::undo_move(Move m) {
         pc = make_piece(us, PAWN);
         put_piece(pc, from);
     } else if (m.type_of() == MT_CASTLING) {
-        Square rfrom = (to > from) ? home_rank_square(us, FILE_H) : home_rank_square(us, FILE_A);
-        Square kto   = (to > from) ? home_rank_square(us, FILE_G) : home_rank_square(us, FILE_C);
-        Square rto   = (to > from) ? home_rank_square(us, FILE_F) : home_rank_square(us, FILE_D);
+        // Same Chess960-aware decoding as in do_move (above).
+        bool kingSide = file_of(to) == FILE_G;
+        CastlingRights cr = (us == WHITE) ? (kingSide ? WHITE_OO : WHITE_OOO)
+                                          : (kingSide ? BLACK_OO : BLACK_OOO);
+        Square rfrom = castlingRookSquare[cr];
+        Square kto   = home_rank_square(us, kingSide ? FILE_G : FILE_C);
+        Square rto   = home_rank_square(us, kingSide ? FILE_F : FILE_D);
         remove_piece(kto);  remove_piece(rto);
         put_piece(make_piece(us, KING), from);
         put_piece(make_piece(us, ROOK), rfrom);

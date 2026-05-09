@@ -125,6 +125,25 @@ Move parse_uci_move(const std::string& str, const Position& p) {
             s += promoChar[m.promotion_type()];
         }
         if (s == str) return m;
+
+        // Chess960 castling: GUIs (and python-chess with chess960=True) often
+        // send castling moves in king-takes-rook notation, e.g. "e1h1" when
+        // the king is on E1 and the kingside rook on H1. Hypersion stores
+        // the move with king-to-G1/C1 (standard king destination), so we
+        // also match against the king-takes-rook representation.
+        if (m.type_of() == MT_CASTLING) {
+            bool kingSide = file_of(to) == FILE_G;
+            CastlingRights cr = (p.side_to_move() == WHITE)
+                ? (kingSide ? WHITE_OO : WHITE_OOO)
+                : (kingSide ? BLACK_OO : BLACK_OOO);
+            Square rfrom = p.castling_rook_square(cr);
+            std::string ktr;
+            ktr += char('a' + file_of(from));
+            ktr += char('1' + rank_of(from));
+            ktr += char('a' + file_of(rfrom));
+            ktr += char('1' + rank_of(rfrom));
+            if (ktr == str) return m;
+        }
     }
     return Move::none();
 }

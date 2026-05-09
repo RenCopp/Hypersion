@@ -34,6 +34,11 @@ hypersion.txt
 lichess_bot/
 lichess-bot-master/
 docs/LICHESS-BOT.md
+# Local launcher script for the bot (paths point at the user's install).
+start-hypersion-lichess.bat
+# Auxiliary engines bundled locally (e.g. Fairy-Stockfish for variants
+# experimentation) — not part of the engine itself.
+engines/
 
 # Release-build staging area + the binary release zips themselves.
 release_staging/

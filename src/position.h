@@ -132,6 +132,10 @@ public:
     int      rule50_count()                 const { return st->rule50; }
     int      castling_rights(Color c)       const { return st->castlingRights & (c == WHITE ? WHITE_CASTLING : BLACK_CASTLING); }
     bool     can_castle(CastlingRights cr)  const { return st->castlingRights & cr; }
+    // The actual square of the rook that participates in castling for `cr`.
+    // In standard chess this is FILE_H (for OO) or FILE_A (for OOO) on the
+    // home rank; in Chess960 it can be any file on the home rank.
+    Square   castling_rook_square(CastlingRights cr) const { return castlingRookSquare[cr]; }
     StateInfo* state()                      const { return st; }   // for NNUE incremental updates
     Bitboard checkers()                     const { return st->checkersBB; }
     Bitboard blockers_for_king(Color c)     const { return st->blockersForKing[c]; }

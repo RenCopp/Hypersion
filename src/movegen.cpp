@@ -5,6 +5,8 @@
 
 #include "movegen.h"
 
+#include <algorithm>     // std::min/max with initializer_list for chess960 castling
+
 #include "bitboard.h"
 
 namespace hypersion {
@@ -120,23 +122,36 @@ ExtMove* generate_king_moves(const Position& pos, ExtMove* moveList) {
                                    (Us == WHITE ? WHITE_OOO : BLACK_OOO) }) {
             if (!pos.can_castle(cr)) continue;
 
-            // Determine king destination and the squares between king & dest.
+            // Determine king destination and the actual rook square.
+            // For Chess960 the rook may live on any file (not just H/A);
+            // king destination is always G (kingside) or C (queenside) on
+            // the home rank — same as standard chess.
             bool kingSide = (cr == WHITE_OO  || cr == BLACK_OO);
             Square kto    = make_square(kingSide ? FILE_G : FILE_C, Us == WHITE ? RANK_1 : RANK_8);
-            Square rfrom  = make_square(kingSide ? FILE_H : FILE_A, Us == WHITE ? RANK_1 : RANK_8);
+            Square rfrom  = pos.castling_rook_square(cr);
+            Square rto    = make_square(kingSide ? FILE_F : FILE_D, Us == WHITE ? RANK_1 : RANK_8);
 
-            // Path between king and rook must be empty (excluding king square itself).
-            Bitboard between = BetweenBB[ksq][rfrom] & ~square_bb(rfrom);
-            if (between & pos.pieces()) continue;
-
-            // Squares king passes through must not be attacked.
-            Bitboard kingPath = BetweenBB[ksq][kto];
-            bool blocked = false;
-            for (Bitboard kp = kingPath; kp; ) {
-                Square s = pop_lsb(kp);
-                if (pos.attackers_to(s) & pos.pieces(~Us)) { blocked = true; break; }
+            // Squares between king's start/end AND rook's start/end must be
+            // empty, ignoring the king and the castling-rook themselves
+            // (in Chess960 the king may pass through the rook's square or
+            // vice versa during castling; that's fine).
+            Square lo = std::min({ksq, kto, rfrom, rto});
+            Square hi = std::max({ksq, kto, rfrom, rto});
+            bool blockedByPiece = false;
+            for (Square s = lo; s <= hi; ++s) {
+                if (s == ksq || s == rfrom) continue;
+                if (pos.piece_on(s) != NO_PIECE) { blockedByPiece = true; break; }
             }
-            if (blocked) continue;
+            if (blockedByPiece) continue;
+
+            // Squares king passes through (inclusive of start and end) must
+            // not be attacked by the opponent.
+            bool kpAttacked = false;
+            Square kLo = std::min(ksq, kto), kHi = std::max(ksq, kto);
+            for (Square s = kLo; s <= kHi; ++s) {
+                if (pos.attackers_to(s) & pos.pieces(~Us)) { kpAttacked = true; break; }
+            }
+            if (kpAttacked) continue;
 
             *moveList++ = Move::make(ksq, kto, MT_CASTLING);
         }
