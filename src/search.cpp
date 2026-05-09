@@ -82,6 +82,11 @@ extern int TM_ENDGAME_BONUS_8, TM_ENDGAME_BONUS_12, TM_ENDGAME_BONUS_16,
 // behavior. Read directly from the namespace at hot-path call sites.
 extern int THREAT_BY_LESSER_PENALTY, THREAT_BY_LESSER_BONUS,
            LMR_STATSCORE_DIV;
+// A6: history.h gravity-formula constants. HIST_MAX is the saturation
+// cap used in update_history's gravity update; HIST_BONUS_CONST is
+// the +16 constant offset in history_bonus(d). Defaults preserve
+// pre-A6 behavior bit-identically.
+extern int HIST_MAX, HIST_BONUS_CONST;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -116,6 +121,9 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "THREAT_BY_LESSER_PENALTY") THREAT_BY_LESSER_PENALTY = value;
     else if (name == "THREAT_BY_LESSER_BONUS")  THREAT_BY_LESSER_BONUS  = value;
     else if (name == "LMR_STATSCORE_DIV")       LMR_STATSCORE_DIV       = value;
+    // A6 history-gravity constants.
+    else if (name == "HIST_MAX")                HIST_MAX                = value;
+    else if (name == "HIST_BONUS_CONST")        HIST_BONUS_CONST        = value;
     else return false;
     return true;
 }
@@ -335,6 +343,30 @@ int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 int THREAT_BY_LESSER_PENALTY = -19;    // unchanged from pre-A5
 int THREAT_BY_LESSER_BONUS   =  20;    // unchanged from pre-A5
 int LMR_STATSCORE_DIV        = 8063;   // SPSA A5: 8192 -> 8063
+
+// ---- A6 history.h gravity constants (2026-05-09) ----
+// HIST_MAX: saturation cap on history values. Used as both a clamp
+//   on incoming bonus AND the divisor in the gravity update formula
+//   `entry += bonus - entry * |bonus| / HIST_MAX`. SF tuned 7183.
+// HIST_BONUS_CONST: the +16 constant offset in history_bonus(d).
+//   Acts as a floor on small-depth bonuses.
+//
+// A6 SPSA campaign (2026-05-09, 200 iters x 64 games/iter, ~30 min):
+// Convergence was the cleanest "no gradient detectable" signal yet
+// — both params returned EXACTLY to defaults:
+//     HIST_MAX:         7183 -> 7183  (no movement)
+//     HIST_BONUS_CONST:   16 -> 16    (no movement)
+// SPSA's random walk had nothing to find. Skipped the 200g SPRT
+// (zero parameter shift means zero ELO change vs default-Tune_* BASE).
+//
+// SF's 7183 cap and the 16 constant offset are at the local optimum
+// for Hypersion as well — no surprise given they're inherited from
+// Stockfish's heavy SPSA tuning. Infrastructure stays SHIPPED for
+// possible future re-attempts (e.g., paired with a stronger NNUE
+// where the eval magnitude shift could reopen the history-update
+// dynamics).
+int HIST_MAX         = 7183;   // SF-tuned, A6 confirmed local optimum
+int HIST_BONUS_CONST =   16;   // SF-tuned, A6 confirmed local optimum
 
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //

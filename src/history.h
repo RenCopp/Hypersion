@@ -19,29 +19,32 @@
 
 namespace hypersion {
 
-constexpr int HISTORY_MAX = 7183;   // Stockfish-tuned cap
-
-// Forward decls into Search::tunables — lets history_bonus() be SPSA-tunable
-// at runtime without a header-coupling explosion. Definitions live in
-// src/search.cpp::tunables. A2 SPSA-v2 campaign (2026-05-08) shipped
-// values BONUS_D2=16, BONUS_D1=30, CAP=2059 worth +27.9 ELO @ 400g.
-// Re-tunable at runtime via `setoption name Tune_<NAME> value <int>`.
+// Forward decls into Search::tunables — lets history_bonus() and
+// update_history() be SPSA-tunable at runtime without a header-coupling
+// explosion. Definitions live in src/search.cpp::tunables. A2-v2
+// shipped BONUS_D2=16, BONUS_D1=30, CAP=2059 (+27.9 ELO @ 400g);
+// A6 tested HIST_MAX and HIST_BONUS_CONST and found defaults at local
+// optimum (SPSA converged with zero movement). Re-tunable at runtime
+// via `setoption name Tune_<NAME> value <int>`.
 namespace Search::tunables {
 extern int HIST_BONUS_DEPTH2;
 extern int HIST_BONUS_DEPTH1;
 extern int HIST_BONUS_CAP;
+extern int HIST_MAX;
+extern int HIST_BONUS_CONST;
 }
 
 inline int history_bonus(int depth) {
     return std::min(Search::tunables::HIST_BONUS_CAP,
                     Search::tunables::HIST_BONUS_DEPTH2 * depth * depth
                     + Search::tunables::HIST_BONUS_DEPTH1 * depth
-                    + 16);
+                    + Search::tunables::HIST_BONUS_CONST);
 }
 
 inline void update_history(int& entry, int bonus) {
-    bonus = std::clamp(bonus, -HISTORY_MAX, HISTORY_MAX);
-    entry += bonus - entry * std::abs(bonus) / HISTORY_MAX;
+    const int hmax = Search::tunables::HIST_MAX;
+    bonus = std::clamp(bonus, -hmax, hmax);
+    entry += bonus - entry * std::abs(bonus) / hmax;
 }
 
 // `decay_buffer`: halve every int in a flat history table. Cheap and keeps
