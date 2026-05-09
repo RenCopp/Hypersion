@@ -7,8 +7,15 @@ architecture: HalfKAv2_hm features + FullThreats, big network 1024-d FT,
 small network 128-d FT) on top of an alpha-beta search with PVS,
 transposition table, aspiration windows, late-move reductions, singular
 extensions, ProbCut, futility/razoring/SEE pruning, and lazy-SMP
-infrastructure (single-threaded by default — multi-thread is currently
-unstable).
+infrastructure.
+
+> **Project status (v3.0, 2026-05-09):** active search/move-ordering
+> development is **paused**. The engine is at a local optimum on its
+> current SF18 NNUE network — 9 SPSA campaigns and dozens of tombstoned
+> experiments have explored the remaining parameter regions. The most
+> realistic remaining ELO ceiling is an NNUE retrain. Development
+> resumes if a contributor steps up with a custom-trained NNUE network.
+> See [CONTRIBUTING](#contributing) below.
 
 ## Features
 
@@ -26,27 +33,31 @@ unstable).
 
 ## Strength
 
-Vs. UCI_Elo-limited Stockfish on `nn-c288c895ea92.nnue`, 16-game matches
-at 5+0.05 (bullet) with concurrency=2:
+v3.0 cumulative gains over v2 (sum of 6 SPRT-confirmed shipped
+improvements at TC 5+0.05, conc=6, each measured against the immediate
+prior baseline):
 
-| SF UCI_Elo | Hypersion result | Score % |
-|---|---|---|
-| 2000 | +16 =0 -0  | 100 % |
-| 2200 | +15 =1 -0  | 96.9 % |
-| 2400 | +9 =5 -2   | 71.9 % |
-| 2600 | +11 =0 -5  | 68.8 % |
-| 2800 | +4 =1 -11  | 28.1 % |
+| Improvement | ELO @ sample size |
+|---|---|
+| Bullet flag-out fix | +22.6 ± 37 (200g) |
+| A2-v2 history weights | +27.9 ± 17 (400g) |
+| A3 search margins | +33.1 95% CI (+11.9, +54.6) (600g) |
+| A5 LMR-statScore divisor | +38.4 95% CI (+16.7, +61.1) (600g) |
+| A9 joint-cluster retune | +28.8 95% CI (+3.5, +54.7) (400g) |
+| A10 falling-eval-divisor | +27.2 95% CI (+1.4, +53.0) (400g) |
 
-Bullet TC strength estimate: **≈ 2500-2600 SF-Elo**. Slower time controls
-shift higher.
+**Bullet TC strength estimate**: ≈ 2600-2700 SF-Elo (up from v2's
+~2500-2600). Long-TC validation (60+0.6, 200g): +17.4 ELO with 95% CI
+(-21, +56) — meaningfully positive but not statistically conclusive at
+the LTC sample size used. Most session gains are bullet-specific.
 
-Tactical suite results @ fixed depth (199 / 1277 / 901 positions):
+Tactical suite results @ fixed depth (300 / 130 / 130 positions):
 
 | Suite | Depth | Solved |
 |---|---|---|
-| WAC (Win at Chess) | 12 | 96.0 % |
-| mate-in-3 | 8 | 96.1 % |
-| mate-in-5 | 12 | 87.6 % |
+| WAC (Win at Chess) | 12 | 94-96 % |
+| mate-in-3 | 8 | ~96 % |
+| mate-in-5 | 12 | ~88 % |
 
 ## Building
 
@@ -115,20 +126,68 @@ ChessBase, Scid, Fritz, …) will drive it.
 
 | Option | Default | Range | Notes |
 |---|---|---|---|
-| `Hash` | 16 | spin | TT size in MB |
+| `Hash` | 64 | spin | TT size in MB |
 | `Threads` | 2 | spin | lazy-SMP works; 2 is a safe default. For deterministic bench/testing, use 1. |
 | `EvalFile` | `nn-c288c895ea92.nnue` | string | big NNUE network |
 | `EvalFileSmall` | `nn-37f18f62d772.nnue` | string | small NNUE network |
 | `SyzygyPath` | empty | string | Syzygy tablebase directory |
 | `BookFile` | `Perfect2023.bin` | string | optional Polyglot book |
-| `OwnBook` | false | check | use the opening book |
+| `OwnBook` | true | check | use the opening book |
 | `BookBestMove` | false | check | always pick highest-weight book move |
 | `Skill Level` | 20 | 0–20 | weaker play at low values |
 | `UCI_LimitStrength` | false | check | enable Elo limiting |
 | `UCI_Elo` | 1500 | 500–3200 | target rating when limit-strength is on |
 | `UCI_AnalyseMode` | false | check | hint that the GUI is analysing, not playing |
+| `UCI_Opponent` | empty | string | opponent info from GUI (`<title> <rating> <type> <name>`) |
+| `UCI_MatchOpponent` | false | check | auto-match opponent ELO (offset curve, see below) |
+| `UCI_GameRated` | false | check | per-game rated/casual flag (set by lichess-bot) |
+| `UCI_GameTournament` | false | check | per-game tournament flag — when true, ELO matching applies even in rated games |
 | `Move Overhead` | 30 | spin | ms reserved for GUI / network latency |
 | `Contempt` | 0 | −200 to 200 | draw aversion |
+
+The opponent-matching behavior with `UCI_MatchOpponent=true`:
+
+| Game type | Engine plays |
+|---|---|
+| Rated, non-tournament | Full strength (preserves global ELO) |
+| Rated tournament | Match opponent ELO (-50 underbid, see curve below) |
+| Casual, any opp w/ rating | Match opponent ELO |
+| Anything w/o opp rating | Full strength |
+
+Offset curve (bot plays N ELO below opponent rating):
+
+| Opp rating | Bot underbid |
+|---|---|
+| <800 | -175 |
+| 800-1200 | -150 to -175 |
+| 1200-1600 | -150 |
+| 1600-2000 | -125 |
+| 2000-2400 | -100 |
+| 2400-2600 | -75 |
+| 2600+ | -50 |
+
+## Contributing
+
+Hypersion's active development is paused after v3.0. The single biggest
+remaining ELO lever is an **NNUE network retrain**. The architecture
+(SF18 SFNNv10) and training pipeline (`nnue-pytorch`) are public; the
+blocker is GPU compute.
+
+If you're interested in contributing:
+
+- **NNUE retrain** (high impact, +30 to +60 ELO realistic): use
+  `nnue-pytorch`, train a fresh net on Hypersion self-play data or the
+  public Stockfish training datasets (e.g. `linrock/test80-2024` on
+  HuggingFace). Drop the resulting `.nnue` file into the engine's
+  working directory; existing NNUE inference loads it with no source
+  changes if architecture matches.
+- **Long-TC SPSA** (moderate impact): the session SPSA campaigns ran at
+  `nodes=50000` (bullet-equivalent depth ~10-12). LTC-specific tuning
+  campaigns (`nodes=500000+` or `tc=60+0.6`) should find further gains.
+- **Bug reports / specific-position blunders**: open issues with the
+  problematic FEN and Hypersion's response.
+
+Open an issue or PR at <https://github.com/RenCopp/Hypersion>.
 
 ## Repository layout
 

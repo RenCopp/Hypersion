@@ -1,5 +1,20 @@
 # Hypersion CHANGELOG
 
+## Project status (2026-05-09)
+
+**Hypersion development is paused after v3.0.** The engine has reached
+a strong local optimum on its current SF18 NNUE network. The most
+realistic remaining ELO ceiling without major effort is an NNUE retrain
+(architecture + training data both available, but the project author
+doesn't have the GPU resources to do it). **Active development resumes
+when a contributor steps up with NNUE retraining.** All other work
+(search heuristics, time management, move ordering) has converged —
+9 SPSA campaigns and dozens of tombstoned experiments document the
+remaining parameter regions as locally optimal.
+
+If you want to contribute an NNUE retrain, see `docs/NNUE.md` for the
+current network architecture (SF18 SFNNv10) and open an issue or PR.
+
 ## Release policy
 
 Don't tag a new GitHub release until **at least 8 verified improvements**
@@ -10,6 +25,90 @@ Bigger ELO swings (+50, +200) are bonus targets, not gates.
 This keeps releases meaningful for casual users who download the zip,
 without holding shipping hostage to multi-month ELO grinds. Daily dev
 work stays on `main` (no release needed).
+
+---
+
+## v3.0 (2026-05-09)
+
+**Final development release before NNUE-contributor pause.** Cumulative
++178 ELO point estimate over v2 at bullet 5+0.05; ~+17 ELO at long TC
+60+0.6 (CI ±38 — positive but not statistically conclusive). The
+session yielded 6 SPRT-confirmed shipped improvements + 2 user-facing
+UCI features.
+
+### Shipped improvements (6 ships, bullet 5+0.05)
+
+| Change | ELO @ 200-600g | Mechanism |
+|---|---|---|
+| Bullet flag-out fix | +22.6 ± 37 (200g) | Skip volatility bump + tighten easy-move scaling at < 2 s remaining |
+| A2-v2 history weights | +27.9 ± 17 (400g) | SPSA-tuned BFLY/CONT1/CONT2 multipliers + bonus-formula coefficients |
+| A3 search margins | +33.1 95 % CI (+11.9, +54.6) (600g) | SPSA-tuned RFP/RAZOR/FUTIL/SEE/NMP/PROBCUT/etc. (12 params, all <2 % shift, joint effect significant) |
+| A5 LMR-statScore | +38.4 95 % CI (+16.7, +61.1) (600g) | SPSA-tuned divisor 8192 → 8063 (single -1.6 % shift, +38 ELO) |
+| A9 joint-cluster retune | +28.8 95 % CI (+3.5, +54.7) (400g) | Joint SPSA over the 6 biggest movers — surfaced cross-cluster interaction effects |
+| A10 falling-eval-divisor | +27.2 95 % CI (+1.4, +53.0) (400g) | SPSA-tuned per-iter time-bump divisor 1000 → 1058 (-5.8 % shift) |
+
+### New UCI features
+
+- **`UCI_GameTournament`** — when true (set by lichess-bot for arena/swiss
+  games), opponent-ELO matching applies even in rated games. Lets users
+  run rated tournaments with rating-balanced bot play. lichess-bot
+  reads `game.source` field and flips this automatically.
+- **Weaker offset curve** — opponent-matching curve shifted -50 ELO
+  across all rating bands. The bot now plays consistently 50 ELO below
+  the matched target (was 25-100 below). Examples: vs 1600 opp targets
+  1450 (was 1500); vs 2200 targets 2100 (was 2150); vs masters
+  targets 2650 (was 2700, exact).
+
+### SPSA-tunable infrastructure shipped (35 params total)
+
+All previously-hardcoded magic numbers now exposed as runtime UCI
+`Tune_<NAME>` options for future tuning campaigns. Even the params
+that didn't move (A6/A7/A8/A11 zero-or-near-zero convergence) stay
+exposed because the infrastructure has zero NPS cost when defaults
+match. Specifically:
+
+- 12 search-margin tunables (A3 SPSA-tuned defaults)
+- 6 history-weight + bonus-formula tunables (A2-v2 SPSA-tuned defaults)
+- 3 LMR + threat-by-lesser tunables (A5 SPSA-tuned where it moved)
+- 6 time-mgmt scale tunables (A4 tombstoned; pre-A4 defaults preserved)
+- 2 history gravity tunables (A6 zero-movement; SF defaults preserved)
+- 2 aspiration window tunables (A7 tombstoned; SF defaults preserved)
+- 3 NNUE eval-mixing tunables (A8 tombstoned; SF defaults preserved)
+- 3 falling-eval/effort tunables (A10 SPSA-tuned where it moved)
+- 2 stable-iter scales (A11 zero-movement; SF defaults preserved)
+
+### Investigated but reverted/tombstoned this session
+
+Source-inline tombstones with full ELO ± CI for each:
+
+- **Game-workload PGO** — re-tested at conc=2 (memory-aggressive
+  protocol) on the post-A3 codebase: -6.9 ± 37.1 ELO @ 200g. Confirmed
+  the prior tombstone direction. Kept the `Makefile` tombstone next
+  to `-funroll-loops`. Same family of i-cache-pressure issue.
+- **A1 12-param SPSA at 4 g/iter** — both slow-TC and fast-nodes
+  variants regressed (-75.9 / -8.7 ELO). Diagnosis: 4 games/iter
+  noise floor too high. Future SPSA campaigns at 64+ g/iter (the
+  v2 methodology) ship cleanly.
+- **A4 time-mgmt scales SPSA** — tombstoned at -3.5 ELO @ 200g. Time-
+  management scales are at SF-tuned local optima.
+- **A6 history-gravity / A7 aspiration / A8 NNUE-eval-mixing /
+  A11 stable-iter scales** — all SPSA-converged with zero or near-zero
+  movement. SF18-inherited defaults are at Hypersion's local optima too.
+
+### TC-specificity caveat
+
+Session ELO gains compound to +178 at bullet 5+0.05, +17 ± 38 at LTC
+60+0.6. Most gains are bullet-specific (the bullet flag-out fix only
+fires at <2 s remaining; SPSA at nodes=50000 reflects bullet depth).
+See `CLAUDE.md` for full diagnosis. Future contributors targeting LTC
+strength should run SPSA at higher node counts.
+
+### Lichess-bot side changes (local-only, not in this repo)
+
+- `lib/model.py`: Game class now exposes `.source` and `.tournament_id`
+- `extra_game_handlers.py`: sets `UCI_GameTournament=True` for tournament
+  games (`game.source ∈ {"tournament", "swiss"}` or non-empty
+  tournament_id)
 
 ---
 

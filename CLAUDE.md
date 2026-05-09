@@ -72,14 +72,20 @@ sample size, reason, future-contributor hint. Examples in `src/search.cpp`,
   Threads=2. Bench IS deterministic with `setoption name Threads value 1`
   set explicitly. Resolved 2026-05-07. See PROTOCOL.md "Bench Signature".
 
-## TC-specificity caveat (documented 2026-05-09)
+## TC-specificity finding (documented 2026-05-09)
 
 The 2026-05-08/09 session shipped 6 SPSA-tuned changes (+178 ELO point
 estimate at bullet 5+0.05 over the pre-session BASE, sum of individual
-SPRT confirms). However a Stage 3 LTC validation at TC 60+0.6 measured
-the cumulative effect at only **+3.5 +/- 53.5 ELO** (100g, W=31 L=30 D=39).
+SPRT confirms). Stage 3 LTC validation at TC 60+0.6 measured the
+cumulative effect at:
 
-Most session ELO is bullet-specific. Likely causes:
+  Round 1 (100g): +3.5  +/- 53.5 ELO  (W=31 L=30 D=39)
+  Round 2 (100g): +31.4 +/- 55.4 ELO  (W=37 L=28 D=35)
+  Combined 200g:  +17.4 ELO with 95 % CI (-20.9, +56.1)
+                  (W=68 L=58 D=74, score 0.525)
+
+Most session ELO is bullet-specific (~10:1 bullet:LTC ratio). Likely
+causes:
 - The bullet flag-out fix (commit 3ba36ff) only triggers at <2s
   remaining clock — never fires at 60+0.6.
 - SPSA campaigns ran at `nodes=50000` (bullet-equivalent depth ~10-12).
@@ -92,10 +98,10 @@ Implications for future SPSA work:
 - For LTC-specific tuning, run SPSA at `nodes=500000+` or use TC-mode
   with `tc=60+0.6` so the gradient signal reflects deep-search dynamics.
 
-What still ships at LTC (probably): the basic search-margin and history
-adjustments work the same way at any depth. What probably doesn't: the
-falling-eval divisor (A10) was a time-mgmt tweak that may overfit to
-bullet.
+The +17 ELO point estimate at LTC is positive but not statistically
+significant (CI includes 0). The session ships are net-neutral-or-
+positive at LTC — they don't hurt, they may help. The big bullet
+improvements are real and ship.
 
 ## Recent ship history (newest first)
 

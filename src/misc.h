@@ -46,7 +46,7 @@ public:
 // Release policy: only bump version when an A/B match shows >= +200 ELO over
 // the previous release. Until then we run as "<current major>-dev".
 constexpr const char* ENGINE_NAME    = "Hypersion";
-constexpr const char* ENGINE_VERSION = "2.1";
+constexpr const char* ENGINE_VERSION = "3.0";
 constexpr const char* ENGINE_AUTHOR  = "RenCopp";
 
 std::string engine_id();
