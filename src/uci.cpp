@@ -67,10 +67,10 @@ struct {
     //     2400-2599   -25
     //     >=2600        0  (master+: exact match)
     //
-    // Final target clamped to [matchFloor=500, matchCeiling=3200].
+    // Final target clamped to [matchFloor=500, matchCeiling=3300].
     bool matchOpponent = false;
     int  matchFloor    = 500;
-    int  matchCeiling  = 3200;
+    int  matchCeiling  = 3300;
     // Per-game rated flag, set by lichess-bot before each game. When the
     // game is rated, we override matchOpponent and play at full strength
     // regardless of opponent rating — rated games count for ELO and
@@ -165,7 +165,7 @@ void cmd_uci() {
               << "option name UCI_Chess960 type check default false\n"
               << "option name Skill Level type spin default 20 min 0 max 20\n"
               << "option name UCI_LimitStrength type check default false\n"
-              << "option name UCI_Elo type spin default 1500 min 500 max 3200\n"
+              << "option name UCI_Elo type spin default 1500 min 500 max 3300\n"
               << "option name UCI_AnalyseMode type check default false\n"
               << "option name UCI_ShowWDL type check default false\n"
               << "option name Contempt type spin default 0 min -200 max 200\n"

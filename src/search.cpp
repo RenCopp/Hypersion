@@ -823,18 +823,25 @@ void Worker::iterative_deepen(Position& pos) {
     //   3. moveNoise: probability of picking a non-best move from top-K.
     //
     // The mapping below is calibrated against the test_elo_scaling.py harness.
-    // Bucket 0..20 corresponds to UCI_Elo 500..2500 in 100-ELO steps:
-    //   bucket = (uciElo - 500) / 100,  clamped [0, 20].
-    // (Old mapping: (e-500)*20/2700 covered 500-3200 in 135-ELO buckets.
-    //  The new 100-ELO spacing matches the casual-play strength table
-    //  below, post-v3 user feedback that bot was too strong even at
-    //  low UCI_Elo settings.)
+    // Bucket 0..28 corresponds to UCI_Elo 500..3300 in 100-ELO steps:
+    //   bucket = (uciElo - 500) / 100,  clamped [0, 28].
+    // (29-entry table covers the full lichess/chess.com bot range, then
+    //  caps at 10 000 nodes / depth 10 / 5 % blunder for ELO >= 2500.
+    //  No level plays at 0 % blunder — there's always some chance of a
+    //  human-style mistake, matching what chess.com / Maia / Lichess bots
+    //  do for natural feel.)
     int effSkill = limits.skillLevel;
     if (limits.limitStrength) {
-        int e = std::clamp(limits.uciElo, 500, 2500);
+        int e = std::clamp(limits.uciElo, 500, 3300);
         effSkill = (e - 500) / 100;
     }
-    effSkill = std::clamp(effSkill, 0, 20);
+    // skillLevel knob covers 0..20 (legacy SF range). Map skillLevel 20
+    // to the highest table bucket (28, ELO 3300-equivalent) so the
+    // limiter still applies when the user dials in a non-default skill.
+    if (!limits.limitStrength && limits.skillLevel < 20) {
+        effSkill = limits.skillLevel * 28 / 20;   // 0..20 -> 0..28
+    }
+    effSkill = std::clamp(effSkill, 0, 28);
     // Strength weakening via combined node cap + blunder rate.
     // CALIBRATED against Maia chess bots (lichess-trained at human Elos):
     //   - Hypersion full-strength bench plays ~2660 Elo
@@ -867,54 +874,68 @@ void Worker::iterative_deepen(Position& pos) {
     // blunder rates by 30% to compensate.
     //
     //   skill | UCI_Elo | blunder% | nodes
-    // v3.0+ casual-play strength table (post-v3 user feedback: previous
-    // table was too strong even at low UCI_Elo for actual casual lichess
-    // play). Direct ELO -> {nodes, max_depth, blunder_%} lookup, indexed
-    // by 100-ELO bucket from UCI_Elo 500 (bucket 0) to 2500 (bucket 20).
-    // Above UCI_Elo 2500, clamps to bucket 20 (still capped, so even
-    // master-rated tournament matches feel like 2500 not full strength).
+    // v3.0+ casual-play strength table (29 entries, ELO 500..3300 in
+    // 100-ELO buckets). Direct ELO -> {nodes, max_depth, blunder_%}
+    // lookup. Hard caps: nodes <= 10 000, depth <= 10, blunder >= 5 %.
+    // For ELO 2200 and under, depth <= 6 (per user spec — casual /
+    // intermediate players shouldn't face deep tactical search).
     //
-    //   ELO  | Nodes | Depth | Blunder %  (rationale)
-    //   500  |   100 |   2   |   15%   (near-random)
-    //   600  |   150 |   2   |   12%
-    //   700  |   200 |   2   |   10%
-    //   800  |   225 |   2   |    8%
-    //   900  |   250 |   2   |    7%
-    //  1000  |   300 |   3   |    6%   (mid-club)
-    //  1100  |   350 |   3   |    5%
-    //  1200  |   400 |   4   |    4%
-    //  1300  |   500 |   4   |    3%
-    //  1400  |   650 |   5   |    2%
-    //  1500  |   800 |   5   |    2%   (1500 is the standard tournament rating)
-    //  1600  |  1000 |   6   |    1%
-    //  1700  |  1300 |   6   |    1%
-    //  1800  |  1600 |   7   |    1%
-    //  1900  |  2000 |   7   |    0%   (no random noise above this)
-    //  2000  |  2500 |   8   |    0%
-    //  2100  |  3000 |   8   |    0%
-    //  2200  |  3500 |   9   |    0%
-    //  2300  |  4500 |   9   |    0%
-    //  2400  |  6000 |  10   |    0%
-    //  2500  |  8000 |  10   |    0%
+    // No level plays at 0 % blunder — even 3300-rated bots play one
+    // human-style mistake every ~20 moves, matching chess.com / lichess
+    // bot expectations. From 2500 up the table flatlines on nodes
+    // (~10k) and depth (10); strength differentiation in that range is
+    // pure blunder-frequency.
     //
-    // Far weaker than the prior "Maia-calibrated" table — user reported
-    // engine was crushing casual players at all UCI_Elo settings. The
-    // node counts here are deliberately low so even ELO 2500 plays at
-    // depth 10 / 8000 nodes (no full-strength path through this table).
-    // Full strength (no caps) only when skillLevel=20 AND limitStrength=false.
-    static constexpr int       ELO_BLUNDER_PCT[21] = {
-        15, 12, 10,  8,  7,  6,  5,  4,  3,  2,
-         2,  1,  1,  1,  0,  0,  0,  0,  0,  0,  0
+    //   ELO  | Nodes | Depth | Blunder %
+    //   500  |   100 |   2   |   25
+    //   600  |   150 |   2   |   22
+    //   700  |   200 |   2   |   20
+    //   800  |   225 |   2   |   18
+    //   900  |   250 |   2   |   16
+    //  1000  |   300 |   3   |   15
+    //  1100  |   350 |   3   |   14
+    //  1200  |   400 |   4   |   13
+    //  1300  |   500 |   4   |   12
+    //  1400  |   650 |   5   |   11
+    //  1500  |   800 |   5   |   10
+    //  1600  |  1000 |   6   |    9
+    //  1700  |  1300 |   6   |    9
+    //  1800  |  1600 |   6   |    8   (depth-6 cap from 1800 up)
+    //  1900  |  2000 |   6   |    8
+    //  2000  |  2500 |   6   |    7
+    //  2100  |  3000 |   6   |    7
+    //  2200  |  3500 |   6   |    6   (last bucket at depth 6 max)
+    //  2300  |  4500 |   7   |    6
+    //  2400  |  6000 |   8   |    6
+    //  2500  |  8000 |   9   |    5
+    //  2600  |  8500 |  10   |    5
+    //  2700  |  9000 |  10   |    5
+    //  2800  |  9500 |  10   |    5
+    //  2900  | 10000 |  10   |    5   (nodes flatline at 10k)
+    //  3000  | 10000 |  10   |    5
+    //  3100  | 10000 |  10   |    5
+    //  3200  | 10000 |  10   |    5
+    //  3300  | 10000 |  10   |    5   (ceiling — even 3300-rated stays here)
+    //
+    // Full strength (no caps) only when skillLevel=20 AND
+    // limitStrength=false. Any other configuration applies the table.
+    static constexpr int ELO_BLUNDER_PCT[29] = {
+        25, 22, 20, 18, 16, 15, 14, 13, 12, 11,   // 500..1400
+        10,  9,  9,  8,  8,  7,  7,  6,  6,  6,   // 1500..2400
+         5,  5,  5,  5,  5,  5,  5,  5,  5         // 2500..3300
     };
-    static constexpr std::uint64_t ELO_NODES[21] = {
-          100ULL,   150ULL,   200ULL,   225ULL,   250ULL,
-          300ULL,   350ULL,   400ULL,   500ULL,   650ULL,
-          800ULL,  1000ULL,  1300ULL,  1600ULL,  2000ULL,
-         2500ULL,  3000ULL,  3500ULL,  4500ULL,  6000ULL,  8000ULL
+    static constexpr std::uint64_t ELO_NODES[29] = {
+          100ULL,   150ULL,   200ULL,   225ULL,   250ULL,   // 500..900
+          300ULL,   350ULL,   400ULL,   500ULL,   650ULL,   // 1000..1400
+          800ULL,  1000ULL,  1300ULL,  1600ULL,  2000ULL,   // 1500..1900
+         2500ULL,  3000ULL,  3500ULL,  4500ULL,  6000ULL,   // 2000..2400
+         8000ULL,  8500ULL,  9000ULL,  9500ULL, 10000ULL,   // 2500..2900
+        10000ULL, 10000ULL, 10000ULL, 10000ULL              // 3000..3300
     };
-    static constexpr int ELO_DEPTH_CAP[21] = {
-         2,  2,  2,  2,  2,  3,  3,  4,  4,  5,
-         5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10
+    static constexpr int ELO_DEPTH_CAP[29] = {
+         2,  2,  2,  2,  2,  3,  3,  4,  4,  5,   // 500..1400
+         5,  6,  6,  6,  6,  6,  6,  6,  7,  8,   // 1500..2400 (depth-6 ceiling for <=2200)
+         9, 10, 10, 10, 10, 10, 10, 10, 10        // 2500..3300
     };
     // Apply the ELO_TABLE caps in two cases:
     //   (a) UCI_LimitStrength=true  -> effSkill came from uciElo, always cap
