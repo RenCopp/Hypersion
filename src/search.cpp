@@ -96,6 +96,12 @@ extern int ASP_GROWTH_ADD, ASP_FULL_WINDOW_TH;
 // where the per-net psqt/positional split + material scaling are
 // composed into the final cp value.
 extern int PSQT_WEIGHT, POSITIONAL_WEIGHT, MATERIAL_SCALE_BASE;
+// A10: per-iteration time-scale tunables. FALLING_EVAL_DIV is the
+// divisor in `fallingEval = 1.0 + drop / FALLING_EVAL_DIV`. EFFORT_TH
+// is the percentile (×100000) above which the best-move effort
+// scaling fires. EFFORT_SCALE is the multiplier (÷100) applied when
+// effort is concentrated on the best move.
+extern int FALLING_EVAL_DIV, EFFORT_TH, EFFORT_SCALE;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -140,6 +146,10 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "PSQT_WEIGHT")             PSQT_WEIGHT             = value;
     else if (name == "POSITIONAL_WEIGHT")       POSITIONAL_WEIGHT       = value;
     else if (name == "MATERIAL_SCALE_BASE")     MATERIAL_SCALE_BASE     = value;
+    // A10 per-iteration time-scale tunables.
+    else if (name == "FALLING_EVAL_DIV")        FALLING_EVAL_DIV        = value;
+    else if (name == "EFFORT_TH")               EFFORT_TH               = value;
+    else if (name == "EFFORT_SCALE")            EFFORT_SCALE            = value;
     else return false;
     return true;
 }
@@ -440,6 +450,32 @@ int PSQT_WEIGHT         =   125;   // SF-tuned, A8 confirmed local optimum
 int POSITIONAL_WEIGHT   =   131;   // SF-tuned, A8 confirmed local optimum
 int MATERIAL_SCALE_BASE = 77871;   // SF-tuned, A8 confirmed local optimum
 
+// ---- A10 per-iteration time-scale tunables (2026-05-09) ----
+// FALLING_EVAL_DIV: divisor in `1.0 + drop/N` for the eval-dropped-
+//   between-iters time bump. SF default 1000.
+// EFFORT_TH: percentile threshold (×100000) above which effort-scaling
+//   fires. SF default 93340 = 93.34 %.
+// EFFORT_SCALE: multiplier (÷100) applied when effort is concentrated.
+//   SF default 76 = 0.76x. Hypersion previously hardcoded.
+//
+// A10 SPSA campaign (2026-05-09, 200 iters x 64 g/iter, ~30 min):
+// Only FALLING_EVAL_DIV moved meaningfully (1000 -> 1058, +5.8 %).
+// EFFORT_TH and EFFORT_SCALE both essentially unchanged.
+//
+// SPRT vs default-Tune_* BASE @ 5+0.05, conc=6:
+//   run 1: +43.7 +/- 37.7 ELO  (W=73 L=48 D=79, score 0.563)
+//   run 2: +10.4 +/- 35.8 ELO  (W=58 L=52 D=90, score 0.515)
+//   combined 400g: +27.2 ELO with 95 % CI (+1.4, +53.0)
+//
+// Both runs positive, combined point estimate well above +10. Lower
+// CI bound +1.4 is borderline (barely above 0), but per the multi-
+// run-confirm criteria established earlier in the session, SHIP.
+// Higher FALLING_EVAL_DIV means a SMALLER time bump per cp of eval
+// drop — Hypersion was over-weighting the falling-eval signal at /1000.
+int FALLING_EVAL_DIV =  1058;   // A10: 1000 -> 1058
+int EFFORT_TH        = 93340;   // SF-tuned, A10 confirmed
+int EFFORT_SCALE     =    76;   // SF-tuned, A10 confirmed
+
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
 // A1 campaign (2026-05-07/08) — REJECTED:
@@ -499,6 +535,10 @@ using tunables::LMR_STATSCORE_DIV;
 // A7 aspiration window tunables.
 using tunables::ASP_GROWTH_ADD;
 using tunables::ASP_FULL_WINDOW_TH;
+// A10 per-iter time-scale tunables.
+using tunables::FALLING_EVAL_DIV;
+using tunables::EFFORT_TH;
+using tunables::EFFORT_SCALE;
 
 inline int lmp_threshold(int depth, bool improving) {
     // Stockfish-style movecount threshold: more aggressive when not improving.
@@ -1087,7 +1127,9 @@ void Worker::iterative_deepen(Position& pos) {
             // the eval-drop-to-time factor by 5 vs SF's coefficient.
             if (d > 1) {
                 int drop = int(prevScore - bestScore);   // > 0 when eval dropped
-                double fallingEval = std::clamp(1.0 + drop / 1000.0, 0.6, 1.7);
+                // A10: pre-tunable was hardcoded /1000.0
+                double fallingEval = std::clamp(1.0 + double(drop) / double(FALLING_EVAL_DIV),
+                                                0.6, 1.7);
                 scale *= fallingEval;
             }
 
@@ -1159,8 +1201,9 @@ void Worker::iterative_deepen(Position& pos) {
                 if (totN > 1) {
                     std::uint64_t bestEffort = rootMoves[0].effort;
                     int nodesEffort = int(bestEffort * 100000ULL / totN);
-                    if (nodesEffort >= 93340)
-                        scale *= 0.76;
+                    // A10: pre-tunable was hardcoded 93340 / 0.76
+                    if (nodesEffort >= EFFORT_TH)
+                        scale *= EFFORT_SCALE / 100.0;
                 }
             }
 
