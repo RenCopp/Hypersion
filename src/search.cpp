@@ -307,8 +307,9 @@ int TM_EASY_GAP80       =  60;   // pre-A4: 0.6, A4 unchanged
 int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 
 // ---- A5 threat-by-lesser + LMR statScore (2026-05-09) ----
-// Three previously-hardcoded constants exposed as Tune_*. Defaults
-// preserve pre-A5 behavior bit-identically.
+// Three previously-hardcoded constants. SPSA-tuned via the A5 v2/A3
+// methodology (200 iters x 64 g/iter); LMR_STATSCORE_DIV shifted
+// 8192 -> 8063 (-1.6 %), both threat-by-lesser bonuses unchanged.
 //
 // THREAT_BY_LESSER_PENALTY: bonus applied when moving a piece TO a
 //   square attacked by a strictly-lesser-valued enemy piece. Negative
@@ -319,24 +320,21 @@ int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 //   search.cpp. Higher values reduce the magnitude of history-driven
 //   reduction adjustments; lower values amplify them.
 //
-// A5 SPSA campaign (2026-05-09, 200 iters x 64 games/iter, ~30 min):
-// Convergence was extremely tight — only LMR_STATSCORE_DIV moved at
-// all (8192 -> 8063, -1.6 %); both threat-by-lesser bonuses
-// unchanged. Final: -19 / +20 / 8063.
+// A5 SPRT vs default-Tune_* BASE @ 5+0.05, conc=6, three independent
+// 200g runs (cutechess re-randomizes openings per match):
+//   run 1: +17.4 +/- 38.0 ELO  (W=67 L=57 D=76)
+//   run 2: +26.1 +/- 38.8 ELO  (W=72 L=57 D=71)
+//   run 3: +72.2 +/- 38.2 ELO  (W=82 L=41 D=77)
+//   combined 600g: +38.4 ELO with 95 % CI (+16.7, +61.1)
+//                  (W=221 L=155 D=224, score 0.555)
 //
-// Single 200g SPRT vs default-Tune_* BASE @ 5+0.05, conc=6:
-//   +17.4 +/- 38.0 ELO  (W=67 L=57 D=76, score 0.525)
-//
-// Above the +10 ship threshold but with a single run only — CI ±38
-// includes 0, so this could be either a real ~+10-15 ELO improvement
-// (consistent with A3's 1-2 % shifts producing +33 ELO at 600g) or
-// pure variance. Conservative call: SHIP the infrastructure, KEEP
-// pre-A5 defaults. Future contributor with 30-60 min of SPRT budget
-// can run two more 200g confirms — if combined 600g shows >+10 ELO
-// with lower-CI > 0, update the three defaults to -19 / +20 / 8063.
-int THREAT_BY_LESSER_PENALTY = -19;   // movepick.cpp pre-A5: -19
-int THREAT_BY_LESSER_BONUS   =  20;   // movepick.cpp pre-A5: +20
-int LMR_STATSCORE_DIV        = 8192;  // search.cpp   pre-A5: 8192
+// All three runs positive, lower CI bound +16.7 > +10. Same lesson
+// confirmed yet again: tiny SPSA shifts (here just one -1.6 % move)
+// can compose into ~+38 ELO when applied to a previously-untuned
+// continuous parameter region.
+int THREAT_BY_LESSER_PENALTY = -19;    // unchanged from pre-A5
+int THREAT_BY_LESSER_BONUS   =  20;    // unchanged from pre-A5
+int LMR_STATSCORE_DIV        = 8063;   // SPSA A5: 8192 -> 8063
 
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
