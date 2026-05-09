@@ -24,6 +24,13 @@
 #include "position.h"
 #include "types.h"
 
+// A8 SPSA tunables — read at hot-path eval composition.
+namespace hypersion::Search::tunables {
+extern int PSQT_WEIGHT;
+extern int POSITIONAL_WEIGHT;
+extern int MATERIAL_SCALE_BASE;
+}
+
 #if defined(__AVX2__)
     #include <immintrin.h>
     #define HC_SIMD_AVX2 1
@@ -857,7 +864,9 @@ struct Network {
         std::int32_t positional = raw + skip;
         int pv = int(psqt_raw / OUTPUT_SCALE);
         int pp = int(positional / OUTPUT_SCALE);
-        int nnue = (125 * pv + 131 * pp) / 128;
+        // A8: pre-tunable was hardcoded (125, 131) / 128.
+        int nnue = (Search::tunables::PSQT_WEIGHT * pv
+                  + Search::tunables::POSITIONAL_WEIGHT * pp) / 128;
         // Phase 5.3 SF18 NNUE-complexity damping. When PSQT eval and
         // positional eval disagree (large |pv - pp|), the position is
         // "complex" — SF damps the final eval magnitude to reduce
@@ -882,7 +891,9 @@ struct Network {
         for (int pt = KNIGHT; pt <= QUEEN; ++pt)
             mat += mv[pt] * (popcount(pos.pieces(WHITE, PieceType(pt)))
                            + popcount(pos.pieces(BLACK, PieceType(pt))));
-        int v = (nnue * (77871 + mat)) / 77871;
+        // A8: pre-tunable was hardcoded 77871.
+        const int matBase = Search::tunables::MATERIAL_SCALE_BASE;
+        int v = (nnue * (matBase + mat)) / matBase;
         // NOTE: tried SF18 rule-50 eval damping (`v -= v * rule50_count /
         // 199`) here. Result: -13.9 +/- 39.2 ELO at 200g 5+0.05.
         // CI crosses zero but point estimate mildly negative; combined

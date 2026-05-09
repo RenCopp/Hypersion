@@ -92,6 +92,10 @@ extern int HIST_MAX, HIST_BONUS_CONST;
 // when an aspiration search fails. ASP_FULL_WINDOW_TH is the delta
 // value at which we abandon aspiration and search with a full window.
 extern int ASP_GROWTH_ADD, ASP_FULL_WINDOW_TH;
+// A8: NNUE eval-mixing constants. Read from nnue.cpp's forward()
+// where the per-net psqt/positional split + material scaling are
+// composed into the final cp value.
+extern int PSQT_WEIGHT, POSITIONAL_WEIGHT, MATERIAL_SCALE_BASE;
 }
 
 bool set_tunable(const std::string& name, int value) {
@@ -132,6 +136,10 @@ bool set_tunable(const std::string& name, int value) {
     // A7 aspiration window tunables.
     else if (name == "ASP_GROWTH_ADD")          ASP_GROWTH_ADD          = value;
     else if (name == "ASP_FULL_WINDOW_TH")      ASP_FULL_WINDOW_TH      = value;
+    // A8 NNUE eval-mixing tunables.
+    else if (name == "PSQT_WEIGHT")             PSQT_WEIGHT             = value;
+    else if (name == "POSITIONAL_WEIGHT")       POSITIONAL_WEIGHT       = value;
+    else if (name == "MATERIAL_SCALE_BASE")     MATERIAL_SCALE_BASE     = value;
     else return false;
     return true;
 }
@@ -399,6 +407,38 @@ int HIST_BONUS_CONST =   16;   // SF-tuned, A6 confirmed local optimum
 // A6: SPSA finds nothing on already-well-tuned regions.
 int ASP_GROWTH_ADD     =    5;   // SF-tuned, A7 confirmed local optimum
 int ASP_FULL_WINDOW_TH = 1000;   // SF-tuned, A7 confirmed local optimum
+
+// ---- A8 NNUE eval-mixing constants (2026-05-09) ----
+// PSQT_WEIGHT / POSITIONAL_WEIGHT: the 125/131 mixing constants in
+//   `nnue = (PSQT_WEIGHT * pv + POSITIONAL_WEIGHT * pp) / 128`
+//   that combine PSQT and positional eval components from NNUE.
+// MATERIAL_SCALE_BASE: the 77871 base in
+//   `v = (nnue * (MATERIAL_SCALE_BASE + mat)) / MATERIAL_SCALE_BASE`
+//   that scales eval magnitude by total material on the board.
+// All three from SF18 evaluate.cpp; preserved through Hypersion's
+// NNUE port and never re-tuned for Hypersion's specific search.
+//
+// A8 SPSA campaign (2026-05-09, 200 iters x 64 g/iter, ~30 min):
+// Tiny convergence (all 3 params shifted <1 % from defaults):
+//   PSQT_WEIGHT         125 -> 126
+//   POSITIONAL_WEIGHT   131 -> 130
+//   MATERIAL_SCALE_BASE 77871 -> 77308
+// SPRT vs default-Tune_* BASE @ 5+0.05, conc=2 (memory-aggressive):
+//   run 1: +12.2 +/- 34.6 ELO  (W=55 L=48 D=97, score 0.517)
+//   run 2: -33.1 +/- 37.0 ELO  (W=49 L=68 D=83, score 0.453)
+//   combined 400g: -10.4 ELO with 95 % CI (-35.5, +14.6)
+//
+// 45-ELO swing between runs, combined point estimate slightly
+// negative. Run 1's +12.2 was a noise fakeout. CI includes zero.
+//
+// Tombstoned. Defaults frozen at SF-inherited values. NNUE eval
+// composition is at SF's heavily-tuned local optimum — same pattern
+// as A6/A7. Future contributor wanting to retry should pair with
+// either an NNUE retrain (the eval-magnitude calibration could
+// shift) or with bigger movements coupled to other tunables.
+int PSQT_WEIGHT         =   125;   // SF-tuned, A8 confirmed local optimum
+int POSITIONAL_WEIGHT   =   131;   // SF-tuned, A8 confirmed local optimum
+int MATERIAL_SCALE_BASE = 77871;   // SF-tuned, A8 confirmed local optimum
 
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
