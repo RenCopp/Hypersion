@@ -50,4 +50,12 @@ void new_game();
 // (caller should check is_loaded() first or use evaluate.cpp's dispatch).
 Value evaluate(const Position& pos);
 
+// Force use of the small (128-d FT) net for ALL positions, bypassing
+// the material-based use_small() switch. Phase 2.5 experiment: small
+// net runs 3-5x faster (cache-friendlier), may compensate for the
+// +5-ply depth gap vs SF18 measured in Phase 2.6 runtime observation.
+// Default false (preserves dual-net behavior).
+void set_small_only(bool v);
+bool get_small_only();
+
 }  // namespace hypersion::NNUE

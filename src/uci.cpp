@@ -174,6 +174,10 @@ void cmd_uci() {
               << "option name BookBestMove type check default false\n"
               << "option name EvalFile type string default nn-c288c895ea92.nnue\n"
               << "option name EvalFileSmall type string default nn-37f18f62d772.nnue\n"
+              // Phase 2.5 experiment toggle: force small-net for all positions.
+              // Trades eval accuracy in normal positions for ~3-5x NPS (cache
+              // friendly). Test SPRT vs default before flipping permanently.
+              << "option name EvalUseSmallOnly type check default false\n"
               << "option name SyzygyPath type string default <empty>\n"
               << "option name SyzygyProbeDepth type spin default 1 min 1 max 100\n"
               << "option name Syzygy50MoveRule type check default true\n"
@@ -377,6 +381,10 @@ void cmd_setopt(std::istringstream& is) {
         } else {
             NNUE::load_small(value);
         }
+    }
+    else if (eq("EvalUseSmallOnly")) {
+        bool v = (value == "true" || value == "1" || value == "on");
+        NNUE::set_small_only(v);
     }
     else if (eq("SyzygyPath"))     {
         Options.syzygyPath = value;

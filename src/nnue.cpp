@@ -41,6 +41,25 @@ extern int MATERIAL_SCALE_BASE;
 
 namespace hypersion::NNUE {
 
+// Phase 2.5: force small-only mode (skip the material-based use_small()
+// switch). Default false. Toggled via UCI option `EvalUseSmallOnly`.
+// File-scope (anonymous namespace would hide it from setter below).
+//
+// Phase 2.5 SPRT result (2026-05-10, 96/100 games early-terminated):
+//   SmallOnly vs DualNet @ TC 60+0.6 conc=2: 19-32-45 = score 0.432
+//   ELO -47 +/- ~40 (tombstoned). Many "engine disconnect" events
+//   suggesting small-only path has stability issues vs the calibrated
+//   dual-net switching. The Phase 2.6 hypothesis that small-only's
+//   3-5x NPS gain could compensate for the +5 ply depth gap vs SF18
+//   does not hold — small net's per-position eval accuracy is too low
+//   for the ELO budget to recover.
+//   Infrastructure (UCI option, set/get accessors) kept SHIPPED for
+//   future re-experimentation if NNUE retrain produces a better
+//   small net.
+namespace { bool g_small_only_flag = false; }
+void set_small_only(bool v) { g_small_only_flag = v; }
+bool get_small_only()        { return g_small_only_flag; }
+
 namespace {
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1244,7 +1263,10 @@ Value evaluate(const Position& pos) {
     constexpr int SMALL_FALLBACK_TH = 277 / NNUE_DIVISOR;
     static_assert(SMALL_FALLBACK_TH >= 90, "small-net fallback threshold sanity");
 
-    bool useSmall = use_small(pos);
+    // Phase 2.5 experiment: when set_small_only(true) is active, force the
+    // small net regardless of material balance. Falls through to big net only
+    // if small isn't loaded.
+    bool useSmall = g_small_only_flag ? g_small.loaded : use_small(pos);
     if (useSmall && g_small.loaded) {
         make_valid(pos, WHITE, false);
         make_valid(pos, BLACK, false);
