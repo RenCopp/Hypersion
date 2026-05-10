@@ -339,6 +339,24 @@ int CONT2_WEIGHT      =  48;    // A9 joint: 47 -> 48. A2-v2 was: 50 -> 47.
 //   with TC variation (test at multiple TCs in one campaign) or move
 //   to integer-resource-aware SPSA where a 1-unit scale change has
 //   a deterministic move-budget consequence.
+//
+// A4 LTC retry (2026-05-11, 100 iters x 4 games/iter, nodes=500000):
+//   Same 6 time-mgmt + 2 history params (the latter from A6) at LTC
+//   node budget. Convergence shifts of 6-27% from defaults:
+//     TM_ENDGAME_BONUS_8:  160 -> 179 (+11.9%)
+//     TM_ENDGAME_BONUS_12: 140 -> 128 (-8.6%)
+//     TM_ENDGAME_BONUS_16: 120 -> 110 (-8.3%)
+//     TM_EASY_GAP150:       40 -> 34  (-15.0%)
+//     TM_EASY_GAP80:        60 -> 76  (+26.7%)
+//     TM_EASY_GAP40:        85 -> 76  (-10.6%)
+//     HIST_MAX:           7183 -> 6433 (-10.4%)
+//     HIST_BONUS_CONST:     16 -> 15   (-6.2%)
+//   100g LTC SPRT vs default-Tune_* BASE @ 60+0.6, conc=6:
+//     +0.0 +/- 53.1 ELO  (W=30 L=30 D=40, score 0.500)
+//   Perfectly neutral — TOMBSTONE. Even with larger parameter shifts
+//   than A4 bullet, the LTC time-management gradient is below the
+//   ~30 ELO noise floor at this sample size. Confirms the bullet
+//   finding: these knobs are at a local optimum at all TCs.
 int TM_ENDGAME_BONUS_8  = 160;   // pre-A4: 1.6, A4 unchanged
 int TM_ENDGAME_BONUS_12 = 140;   // pre-A4: 1.4, A4 unchanged
 int TM_ENDGAME_BONUS_16 = 120;   // pre-A4: 1.2, A4 unchanged (defaults preserved)
@@ -397,8 +415,13 @@ int LMR_STATSCORE_DIV        = 7938;   // A9 joint: 8063 -> 7938. A5 was: 8192 -
 // possible future re-attempts (e.g., paired with a stronger NNUE
 // where the eval magnitude shift could reopen the history-update
 // dynamics).
-int HIST_MAX         = 7183;   // SF-tuned, A6 confirmed local optimum
-int HIST_BONUS_CONST =   16;   // SF-tuned, A6 confirmed local optimum
+//
+// A6 LTC retry (2026-05-11, 100 iters x 4 games/iter, nodes=500000):
+// Joint LTC SPSA with the A4 tunables; HIST_MAX moved 7183 -> 6433
+// (-10.4%), HIST_BONUS_CONST 16 -> 15 (-6.2%). 100g LTC SPRT vs
+// defaults: +0.0 +/- 53.1 ELO. TOMBSTONE retained.
+int HIST_MAX         = 7183;   // SF-tuned, A6 + A6-LTC confirm local optimum
+int HIST_BONUS_CONST =   16;   // SF-tuned, A6 + A6-LTC confirm local optimum
 
 // ---- A7 aspiration-window growth (2026-05-09) ----
 // ASP_GROWTH_ADD: additive constant in the aspiration delta growth
