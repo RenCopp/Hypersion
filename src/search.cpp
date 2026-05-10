@@ -569,6 +569,32 @@ inline int lmp_threshold(int depth, bool improving) {
     return improving ? (3 + depth * depth) : (3 + depth * depth) / 2;
 }
 
+// Detect "shuffling" — engine moving the same piece back and forth
+// across recent plies, indicating no progress. Ported from SF master
+// (post-SF18). Used to disable singular extension on shuffling moves
+// so search budget goes to alternative plans instead of confirming a
+// shuffle line. Addresses the lichess H05vgtVr endgame conversion
+// failure where Hypersion drew K+R+K by 50-move rule after shuffling
+// 40+ moves.
+//
+// Trigger conditions:
+//   - move is not a capture
+//   - rule50 counter has accumulated (>= 10)
+//   - we're past the opening (ply >= 20, no recent null move)
+//   - the move's from-square matches the to-square of (ss-2)'s move
+//     AND (ss-2)'s from-square matches (ss-4)'s to-square (the same
+//     piece moved back-and-forth across the last 4 of its plies)
+inline bool is_shuffling(Move m, const Stack* ss, const Position& pos) {
+    if (pos.capture(m) || pos.rule50_count() < 10) return false;
+    if (pos.state()->pliesFromNull <= 6 || ss->ply < 20) return false;
+    Move prev1 = (ss - 2)->currentMove;
+    Move prev2 = (ss - 4)->currentMove;
+    if (prev1 == Move::none() || prev1 == Move::null()) return false;
+    if (prev2 == Move::none() || prev2 == Move::null()) return false;
+    return m.from_sq() == prev1.to_sq()
+        && prev1.from_sq() == prev2.to_sq();
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -945,6 +971,58 @@ void Worker::iterative_deepen(Position& pos) {
     int           skillBlunderPct = applyEloCaps ? ELO_BLUNDER_PCT[effSkill] : 0;
     int           skillDepthCap   = applyEloCaps ? ELO_DEPTH_CAP  [effSkill] : MAX_PLY;
     std::uint64_t skillNodeCap    = applyEloCaps ? ELO_NODES      [effSkill] : 0ULL;
+
+    // Endgame conversion override (added 2026-05-10 after observing
+    // lichess game H05vgtVr where Hypersion @ ELO ~1500 / 800-node-cap
+    // failed to convert K+R vs K and drew by 50-move rule).
+    //
+    // When the position is a clear winning endgame (few pieces left AND
+    // we have a meaningful material advantage), the strength cap is too
+    // tight to find mate-in-N (N≥10 plies for K+R+K). Lift the node cap
+    // and depth cap so the engine can actually convert. This preserves
+    // strength-cap accuracy across the bulk of the game (where opponent
+    // is still defending normally) but lets the engine close out won
+    // endgames competently.
+    //
+    // Trigger conditions (all must hold):
+    //   - applyEloCaps is true (we'd otherwise be limiting)
+    //   - total piece count <= 10 (endgame; covers K+R+K through K+Q+P+K
+    //     and similar)
+    //   - non-pawn material balance >= ~ROOK value on our side (i.e.,
+    //     we're up at least a rook in non-pawn material)
+    if (applyEloCaps) {
+        int totalPieces = popcount(rootPos.pieces());
+        Color me = rootPos.side_to_move();
+        Value myNPM = rootPos.non_pawn_material(me);
+        Value oppNPM = rootPos.non_pawn_material(~me);
+        bool clearlyWinningEndgame = (totalPieces <= 10) &&
+                                     (int(myNPM) - int(oppNPM) >= int(Eval::PieceValueMG[ROOK]));
+        if (clearlyWinningEndgame) {
+            // FULLY DISABLE strength limiting in clearly-winning endgames.
+            //
+            // Rationale: Stockfish at UCI_Elo=1500 converts 8/12 K+R+K /
+            // K+Q+K positions (test mate_sf_baseline.py, 2026-05-11). It
+            // does this because SF's strength model only modifies move
+            // SELECTION at one specific depth (skill.pick_best at
+            // depth=1+level via MultiPV) — never caps nodes/depth. The
+            // engine still SEES the full search tree.
+            //
+            // Hypersion's strength model caps nodes hard (~800 nodes at
+            // UCI_Elo=1500). At that budget the engine can't find a
+            // 16-ply K+R+K mating plan. Even 16x node boost (12.8k) and
+            // blunder=0 gave a 50-move-rule shuffle.
+            //
+            // The realistic behavior for a 1500-rated human who's up
+            // a rook is: they convert reliably. Basic mate-in-N drills
+            // are explicit chess-school knowledge. So in
+            // clearlyWinningEndgame, we treat the engine as full
+            // strength.
+            skillNodeCap   = 0;          // 0 = no cap
+            skillDepthCap  = MAX_PLY;    // effectively no cap
+            skillBlunderPct = 0;
+        }
+    }
+
     if (limits.nodes > 0)
         skillNodeCap = (skillNodeCap == 0) ? std::uint64_t(limits.nodes)
                                            : std::min<std::uint64_t>(skillNodeCap, limits.nodes);
@@ -1774,7 +1852,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             && std::abs(ttValue) < VALUE_MATE_IN_MAX_PLY
             && (tte->bound() & BOUND_LOWER)
             && tte->depth() >= depth - 3
-            && ply > 0) {
+            && ply > 0
+            && !is_shuffling(m, ss, pos)) {  // post-SF18: skip SE on shuffle
             // singularBeta = ttValue - depth * 2.  Tested depth*3:
             //   -6.9 +/- 38 ELO at 200g 5+0.05 (within noise, mildly
             // negative).  Kept at 2.
