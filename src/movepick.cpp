@@ -163,12 +163,17 @@ void MovePicker::score_quiets() {
         if (useCont2) v += contHist2->get(prevPc2, prevMv2.to_sq(), moving, m.to_sq()) * cont2W / 100;
 
         // Threat-by-lesser bonus / penalty (SF18).
-        // NOTE: tested SF18 check-bonus +16384 (after SEE >= -75 filter)
-        // here. Result: -11.6 +/- 95.8 ELO @ 30g. Within noise but mildly
-        // negative — Hypersion's threat-by-lesser already pulls forcing
-        // moves earlier; the additional check bonus gave no clean win.
-        // Keep it filed under "may need a smaller magnitude or wider
-        // sample size" for later.
+        // NOTE: SF18 check-bonus +16384 re-tested 2026-05-11 with scale-
+        // corrected SEE threshold (-100 in Hypersion's scale ≈ SF's -75
+        // — correcting the prior 30g test's effectively-tighter filter).
+        // Result: -20.9 +/- 49.4 ELO @ 100g 5+0.05 conc=6 vs the prior
+        // binary; CI includes 0 but the point estimate is consistently
+        // negative (-11 @ 30g, -20.9 @ 100g). Mate-in-3 suite in analyse
+        // mode produced identical 97.5% with and without the bonus.
+        // TOMBSTONED — Hypersion's threat-by-lesser already pulls forcing
+        // moves early enough that the additional check bonus is a wash.
+        // Future contributors should not re-add without joint tuning of
+        // the threat-by-lesser magnitudes.
         if (pt >= KNIGHT && pt <= QUEEN) {
             Bitboard tBL  = threatByLesser[pt];
             Bitboard toBB = Bitboard(1) << int(m.to_sq());
