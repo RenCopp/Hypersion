@@ -1,6 +1,6 @@
 # Hypersion CHANGELOG
 
-## Project status (2026-05-09)
+## Project status (2026-05-11)
 
 **Hypersion development is paused after v3.0.** The engine has reached
 a strong local optimum on its current SF18 NNUE network. The most
@@ -11,6 +11,69 @@ when a contributor steps up with NNUE retraining.** All other work
 (search heuristics, time management, move ordering) has converged —
 9 SPSA campaigns and dozens of tombstoned experiments document the
 remaining parameter regions as locally optimal.
+
+## Post-v3.0 session (2026-05-10/11)
+
+Targeted session on a user-reported endgame bug, plus follow-up
+investigations into NNUE performance and LTC tuning.
+
+### Shipped
+
+- **Endgame mate-conversion fix** (commit eb35855) — user-reported
+  bug at lichess H05vgtVr: Hypersion @ UCI_Elo ~1500 drew K+R vs K
+  by 50-move rule. Root cause: strength limiter caps nodes hard
+  (800 nodes/move @ UCI_Elo=1500), too tight for a 16-ply K+R+K
+  mating plan. Stockfish handles the same case via MultiPV+pick_best
+  (only modifies move SELECTION at one specific depth, never caps
+  nodes). Fix: in `clearlyWinningEndgame` (popcount<=10 AND material
+  lead >= rook), fully disable strength limiting. Plus `is_shuffling()`
+  helper ported from SF master post-SF18.
+  Validation: 245/252 = **97% conversion** across 21 cells
+  (7 UCI_Elo levels x 3 movetimes x 12 positions). Stockfish full-
+  strength sanity 12/12; Stockfish at UCI_Elo=1500 handicap 8/12.
+  No regression at full strength (override gated on applyEloCaps).
+
+### Investigated but tombstoned
+
+- **NNUE small-only mode** (commit 635e2ce, infrastructure kept) —
+  -47 +/- ~40 ELO @ 96/100g LTC. Multiple engine disconnects suggest
+  stability issues with the small-only path under match conditions.
+  Small net's per-position eval accuracy too low for the ELO budget
+  to recover from the +3-5x NPS gain. UCI option `EvalUseSmallOnly`
+  default false; flippable for future re-experimentation.
+- **A4/A6 LTC SPSA retry** (commit d192f25) — joint LTC SPSA on the
+  same 8 time-mgmt + history-gravity tunables that bullet SPSA had
+  already tombstoned. Larger parameter shifts than bullet (6-27%
+  vs bullet's <4%), but 100g LTC SPRT confirmed **0.0 +/- 53 ELO**
+  — perfectly neutral. These knobs are at local optima at all TCs.
+- **NNUE threats network ablation** (source-only, reverted) —
+  refresh_threats path is 70% of NNUE inference time
+  (350k -> 1.17M NPS without it = 3.35x speedup). SPRT NoThreats vs
+  WithThreats:
+  - Bullet 5+0.05 100g: **+3.5 +/- 54 ELO** (neutral)
+  - LTC 60+0.6 50g:     **-28 +/- 81 ELO** (marginally negative)
+
+  Speedup and eval-quality loss nearly cancel at bullet; threats win
+  marginally at LTC. Not enough leverage to justify shipping the
+  simpler NoThreats version. Threats stay.
+
+### NNUE TC-dependence finding (measurement, no code change)
+
+Phase 5 measurement of NNUE-on vs NNUE-off:
+
+| TC | NoNNUE vs WithNNUE | Notes |
+|---|---|---|
+| 5+0.05 bullet | +45 +/- 55 ELO | NNUE costs ~45 ELO at bullet |
+| 60+0.6 LTC   | -58 +/- 102 ELO | NNUE adds ~58 ELO at LTC |
+
+NNUE inference is **8x slower than classical** in this engine
+(2.8M NPS classical vs 350k NPS NNUE @ depth 13). At bullet the
+depth advantage of classical eval nearly compensates for the
+eval-quality loss. NNUE stays on by default (Hypersion's target
+deployment is LTC/lichess-bot). Phase 6 retrain/arch optimization
+remains the leverage point if pursued.
+
+---
 
 If you want to contribute an NNUE retrain, see `docs/NNUE.md` for the
 current network architecture (SF18 SFNNv10) and open an issue or PR.
