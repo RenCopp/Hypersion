@@ -15,7 +15,8 @@ remaining parameter regions as locally optimal.
 ## Post-v3.0 session (2026-05-10/11)
 
 Targeted session on a user-reported endgame bug, plus follow-up
-investigations into NNUE performance and LTC tuning.
+investigations into NNUE performance, LTC tuning, and tactical
+analysis-mode pruning.
 
 ### Shipped
 
@@ -32,6 +33,25 @@ investigations into NNUE performance and LTC tuning.
   (7 UCI_Elo levels x 3 movetimes x 12 positions). Stockfish full-
   strength sanity 12/12; Stockfish at UCI_Elo=1500 handicap 8/12.
   No regression at full strength (override gated on applyEloCaps).
+
+- **Real UCI_AnalyseMode pruning relaxation** (commit 26fa62d) —
+  previously the flag only disabled the opening book. Now it also:
+  disables NMP (zugzwang false-positives can hide mate threats),
+  skips Late-Move-Pruning, skips shallow-depth pruning (futility +
+  SEE-quiet/capture margins), and halves LMR aggression. Tactical
+  suite uplift at standard wac_runner conditions (which sets
+  UCI_AnalyseMode=true):
+
+  | Suite      | Before | After  | Delta  |
+  |---|---|---|---|
+  | WAC        | 93.9%  | 96.5%  | +2.6%  |
+  | mate-in-3  | 94.5%  | 97.5%  | +3.0%  |
+  | mate-in-5  | 85.4%  | 88.9%  | +3.5%  |
+  | mate-in-8  | 65.0%  | 66.0%  | +1.0%  |
+
+  Default play (UCI_AnalyseMode=false) is bit-for-bit unchanged —
+  verified by `bench 13 @ Threads=1` producing exactly 1,107,765
+  nodes on both old and new binary.
 
 ### Investigated but tombstoned
 
