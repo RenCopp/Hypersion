@@ -291,6 +291,7 @@ void cmd_go(std::istringstream& is) {
     lim.moveOverhead  = Options.moveOverhead;
     lim.contempt      = Options.contempt;
     lim.showWDL       = Options.showWDL;
+    lim.analyseMode   = Options.analyseMode;
     lim.ponderEnabled = Options.ponder;
 
     // Try the opening book first — but never when in analyse mode (the GUI

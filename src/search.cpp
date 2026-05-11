@@ -1715,7 +1715,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // work at high-depth NMP cutoffs without measurable accuracy gain in
     // Hypersion — its existing material+depth guards already catch the
     // dangerous false-cutoff cases. Reverted.
+    // UCI_AnalyseMode skips NMP: forcing-line analysis can miss zugzwang
+    // mate-threats when NMP cuts the entire ZW branch. At analysis time
+    // the cost of being thorough is acceptable.
     if (!isPv && !inCheck && depth >= 3
+        && !limits.analyseMode
         && (ss - 1)->currentMove != Move::null()
         && ss->excludedMove == Move::none()
         && staticEval >= beta
@@ -1831,13 +1835,18 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         bool givesCheck = pos.gives_check(m);
 
         // ---- Move-count pruning at low depth (LMP) ----
+        // Skip LMP entirely in analyse mode — late quiet moves can still
+        // be the mate-leading move in deep tactical lines.
         if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY && depth <= 8
+            && !limits.analyseMode
             && moveCount > lmp_threshold(depth, improving)) {
             skipQuiets = true;
         }
 
         // ---- Pruning at low depth ----
-        if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY) {
+        // Skip all shallow-depth pruning in analyse mode for thoroughness.
+        if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY
+            && !limits.analyseMode) {
             if (!isCapture && !givesCheck) {
                 // Futility pruning for quiets.
                 if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * depth + FUTIL_MARGIN_BASE <= alpha)
@@ -2009,6 +2018,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 r -= statScore / LMR_STATSCORE_DIV;   // A5: pre-tunable was hardcoded 8192
             }
             r = std::clamp(r, 0, newDepth - 1);
+            // Analyse mode: halve the LMR aggression to find forcing lines
+            // that LMR would otherwise hide. Captures, checks, and TT moves
+            // already get reduced bonuses above; this halves the residual.
+            if (limits.analyseMode && r > 0) r /= 2;
         }
         // Record how much we reduced for SF18-style hindsight depth adjustment
         // at the child's entry. r=0 for first move (no LMR) and full-window

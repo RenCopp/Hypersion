@@ -43,6 +43,7 @@ struct SearchLimits {
     int     moveOverhead  = 30;       // ms reserved for GUI / network jitter
     int     contempt      = 0;        // cp added to draw eval (positive = avoid draw)
     bool    showWDL       = false;    // emit `wdl W D L` per-iteration
+    bool    analyseMode   = false;    // UCI_AnalyseMode: reduce pruning for thoroughness
 };
 
 class TimeManager {
