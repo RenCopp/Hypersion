@@ -34,10 +34,14 @@ jobs:
         with:
           languages: c-cpp
           build-mode: manual
-          # Standard query suite is fine for a chess engine — extended
-          # queries add noise without finding more real issues in CPU-
-          # bound numerical code.
           queries: security-extended
+          # Skip the vendored Fathom Syzygy probe library (BSD-licensed,
+          # upstream at basil00/Fathom). We don't maintain that code and
+          # diverging from upstream to silence CodeQL warnings would make
+          # future upstream pulls painful.
+          config: |
+            paths-ignore:
+              - 'src/fathom/**'
 
       - name: Build for CodeQL
         run: make build ARCH=x86-64-avx2

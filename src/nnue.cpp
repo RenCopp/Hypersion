@@ -862,7 +862,7 @@ struct Network {
         int fc0_out = l2 + 1;
         alignas(64) std::int32_t o0[64];
         for (int o = 0; o < fc0_out; ++o)
-            o0[o] = L[0].bias[o] + simd_dot_i8_u8(&L[0].weight[o * L[0].pi], transformed, l1);
+            o0[o] = L[0].bias[o] + simd_dot_i8_u8(&L[0].weight[std::size_t(o) * L[0].pi], transformed, l1);
         std::int32_t skip = o0[l2] * (600 * OUTPUT_SCALE) / (127 * (1 << WSCALE));
 
         int fc1_in = 2 * l2;
@@ -875,7 +875,7 @@ struct Network {
         }
         alignas(64) std::int32_t o1[64];
         for (int o = 0; o < l3; ++o)
-            o1[o] = L[1].bias[o] + simd_dot_i8_u8(&L[1].weight[o * L[1].pi], f1in, fc1_in);
+            o1[o] = L[1].bias[o] + simd_dot_i8_u8(&L[1].weight[std::size_t(o) * L[1].pi], f1in, fc1_in);
 
         alignas(64) std::uint8_t f2in[64];
         std::memset(f2in, 0, sizeof(f2in));
@@ -1029,14 +1029,14 @@ struct Network {
             if (!f) return false;
             fc[bk][0].out = fc0o; fc[bk][0].pi = fc0pi;
             fc[bk][0].bias.resize(fc0o);
-            f.read(reinterpret_cast<char*>(fc[bk][0].bias.data()), fc0o * 4);
-            fc[bk][0].weight.resize(fc0o * fc0pi);
-            f.read(reinterpret_cast<char*>(fc[bk][0].weight.data()), fc0o * fc0pi);
+            f.read(reinterpret_cast<char*>(fc[bk][0].bias.data()), std::streamsize(fc0o) * 4);
+            fc[bk][0].weight.resize(std::size_t(fc0o) * fc0pi);
+            f.read(reinterpret_cast<char*>(fc[bk][0].weight.data()), std::streamsize(fc0o) * fc0pi);
             fc[bk][1].out = l3; fc[bk][1].pi = fc1pi;
             fc[bk][1].bias.resize(l3);
-            f.read(reinterpret_cast<char*>(fc[bk][1].bias.data()), l3 * 4);
-            fc[bk][1].weight.resize(l3 * fc1pi);
-            f.read(reinterpret_cast<char*>(fc[bk][1].weight.data()), l3 * fc1pi);
+            f.read(reinterpret_cast<char*>(fc[bk][1].bias.data()), std::streamsize(l3) * 4);
+            fc[bk][1].weight.resize(std::size_t(l3) * fc1pi);
+            f.read(reinterpret_cast<char*>(fc[bk][1].weight.data()), std::streamsize(l3) * fc1pi);
             fc[bk][2].out = 1; fc[bk][2].pi = fc2pi;
             fc[bk][2].bias.resize(1);
             f.read(reinterpret_cast<char*>(fc[bk][2].bias.data()), 4);
