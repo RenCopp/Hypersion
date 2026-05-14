@@ -106,6 +106,29 @@ The K+R+P case (most common winning bullet position) now uses 85%
 LESS time. Should significantly reduce bullet flag-outs in lichess
 games where the bot has a winning conversion.
 
+### Cross-session opening variety (commit f31f6a5)
+
+Ported from Kirin V8's `OpeningBook` recent-moves filter. The bot now
+tracks its last 16 first-moves played at the starting position across
+sessions in `hypersion_recent_openings.txt`. When probing the book at
+startpos, recently-played first moves are excluded from candidates,
+with progressive window shrink (8→7→...→1) if all candidates would be
+excluded. The chosen move is appended to the state file.
+
+**Effect**: bot rotates through e4/d4/c4/Nf3 etc. instead of always
+playing the highest-weighted move. Test (5 consecutive `position
+startpos; go depth 1` runs from a fresh state file): chose g1f3,
+c2c4, d2d4, e2e4, g1f3 — all distinct in the first 4 runs.
+
+State file is created next to the executable. Lichess-bot can delete
+it to reset variety.
+
+Originally credit: Kirin V8 (C:\Engine\Kirin V8\kirin_engine.py
+OpeningBook._load_recent / _remember_first_move). Most of Kirin's
+features were already in Hypersion (per Kirin's own
+IMPROVEMENT_PLAN.md which ports FROM Hypersion); this was the one
+genuinely-Hypersion-doesn't-have feature.
+
 ### KQK Syzygy hang FIXED (commit b6e44df)
 
 Position `8/8/8/4k3/8/8/8/Q3K3 w - - 0 1` (K-Q on e1/a1 vs K on e5)
