@@ -1,0 +1,48 @@
+name: CodeQL
+
+# CodeQL static analysis for C++ source. Runs on push/PR to main and on
+# a weekly schedule so the alerts stay fresh even when no commits land.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Sunday 06:30 UTC
+    - cron: '30 6 * * 0'
+
+jobs:
+  analyze:
+    name: Analyze C++
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
+          # Standard query suite is fine for a chess engine — extended
+          # queries add noise without finding more real issues in CPU-
+          # bound numerical code.
+          queries: security-extended
+
+      - name: Build for CodeQL
+        run: make build ARCH=x86-64-avx2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:c-cpp"

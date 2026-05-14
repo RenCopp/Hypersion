@@ -2,6 +2,8 @@
 
 A free, open-source UCI chess engine.
 
+🤖 **Play against Hypersion on Lichess**: [lichess.org/@/Hypersion](https://lichess.org/@/Hypersion) — click the "Challenge" button. The bot accepts standard, rated/casual, Chess960, bullet/blitz/rapid/classical, and supports draw offers + up to 3 takebacks per game.
+
 Hypersion uses an NNUE network for evaluation (Stockfish 18 SFNNv10
 architecture: HalfKAv2_hm features + FullThreats, big network 1024-d FT,
 small network 128-d FT) on top of an alpha-beta search with PVS,
