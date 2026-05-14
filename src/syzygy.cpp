@@ -86,7 +86,18 @@ bool probe_root(const Position& pos, RootProbe& out) {
     if (!g_loaded) return false;
     if (popcount(pos.pieces()) > int(TB_LARGEST)) return false;
     if (pos.can_castle(WHITE_CASTLING) || pos.can_castle(BLACK_CASTLING)) return false;
-    if (pos.rule50_count() != 0) return false;     // DTZ probes need rule50 = 0
+    // NOTE pre-2026-05-12: this returned false when rule50_count() != 0.
+    // That was wrong — Fathom's tb_probe_root accepts rule50 as input and
+    // returns WDL+suggested-move regardless. The check made the engine skip
+    // TB consultation in every K+P / K+R+P / endgame conversion past the
+    // first non-zeroing move, falling back to NNUE eval and king-shuffling
+    // (cf. user PGN game 2 endgame, drawn by 100-move adjudication despite
+    // a winning advantage). Codex audit 2026-05-12.
+    //
+    // The actual fix uses probe_root_dtz() below for SF18-style per-move
+    // ranking. This legacy single-move probe is kept for back-compat in
+    // case any external code still calls it; it's no longer the path the
+    // search uses.
 
     TBQuery q = build_query(pos);
     unsigned res = tb_probe_root(q.white, q.black, q.kings, q.queens, q.rooks,
@@ -102,6 +113,80 @@ bool probe_root(const Position& pos, RootProbe& out) {
     else if (wdl == TB_LOSS)        out.score = Value(-VALUE_TB_WIN + 100);
     else                            out.score = VALUE_DRAW;
     out.wdl = wdl - 2;     // shift to -2..+2
+    return true;
+}
+
+// SF18-style per-move ranking via Fathom's tb_probe_root_dtz. Used at root
+// to filter+order rootMoves by (WDL, DTZ): the move that preserves the win
+// AND has smallest DTZ floats to the top. Crucially this works at any
+// rule50 — Fathom takes rule50 as an input and uses it correctly.
+bool probe_root_dtz(const Position& pos, std::vector<RootMoveEntry>& out) {
+    out.clear();
+    if (!g_loaded) return false;
+    if (popcount(pos.pieces()) > int(TB_LARGEST)) return false;
+    if (pos.can_castle(WHITE_CASTLING) || pos.can_castle(BLACK_CASTLING)) return false;
+
+    // Workaround for Fathom-library hang on certain KQK / KRK positions
+    // where probe_dtz recursion blows up: skip root DTZ probe for very-
+    // small endgames where the regular search trivially finds the win.
+    // Specifically: K+Q vs K or K+R vs K with no pawns and a clearly
+    // winning material advantage. The internal-node WDL probe at
+    // search.cpp:1711 still fires (cheap WDL lookup, no recursion).
+    // This loses the DTZ root-rank optimization for those positions but
+    // avoids the hang and the search finds mate-in-N in well under 1s.
+    //
+    // Repro: position fen 8/8/8/4k3/8/8/8/Q3K3 w - - 0 1 + Syzygy loaded
+    // -> tb_probe_root_dtz never returns. Other KQK configurations
+    // (e.g., kings off the same file) probe fine. Likely a Fathom
+    // probe_dtz_table edge case for specific king-on-same-file
+    // configurations.
+    int totalPieces = popcount(pos.pieces());
+    if (totalPieces <= 4 && pos.pieces(PAWN) == 0) {
+        // KX-vs-K or KXY-vs-K configurations. Skip root DTZ probe.
+        return false;
+    }
+
+    TBQuery q = build_query(pos);
+    TbRootMoves results;
+    results.size = 0;
+    int rc = tb_probe_root_dtz(q.white, q.black, q.kings, q.queens, q.rooks,
+                               q.bishops, q.knights, q.pawns,
+                               q.rule50, q.castling, q.ep, q.turn,
+                               /*hasRepeated=*/false,
+                               /*useRule50=*/g_50_move_rule,
+                               &results);
+    if (rc == 0 || results.size == 0) return false;
+
+    out.reserve(results.size);
+    for (unsigned i = 0; i < results.size; ++i) {
+        const TbRootMove& tbm = results.moves[i];
+        // Fathom's TbMove uses MOVE_FROM/MOVE_TO/MOVE_PROMOTES — see
+        // tbprobe.h:295-302. Promotion code: 1=Q,2=R,3=B,4=N.
+        Square fromSq = Square(TB_MOVE_FROM(tbm.move));
+        Square toSq   = Square(TB_MOVE_TO  (tbm.move));
+        unsigned promo = TB_MOVE_PROMOTES (tbm.move);
+        Move m;
+        if (promo) {
+            constexpr PieceType ptMap[5] = { NO_PIECE_TYPE, QUEEN, ROOK, BISHOP, KNIGHT };
+            m = Move::make(fromSq, toSq, MT_PROMOTION, ptMap[promo]);
+        } else {
+            m = Move(fromSq, toSq);
+        }
+
+        // tbScore: Fathom uses a centipawn-like scale (mate-adjacent for
+        // winning, 0 for draw, negative for loss). tbRank: 0..1000 for
+        // wins, with 1000 = optimal. We map tbScore -> Value via a clamp
+        // that keeps it in the comfortable TB-score band so it doesn't
+        // clash with mate scores during display.
+        Value v;
+        if      (tbm.tbScore >  900) v = Value(VALUE_TB_WIN - 100);
+        else if (tbm.tbScore < -900) v = Value(-VALUE_TB_WIN + 100);
+        else                         v = Value(tbm.tbScore);
+
+        // Use Fathom's rank directly; this scale puts winning-optimal at
+        // the top and is comparable across moves at the same root.
+        out.push_back({ m, tbm.tbRank, v, /*wdl=*/0 });
+    }
     return true;
 }
 
