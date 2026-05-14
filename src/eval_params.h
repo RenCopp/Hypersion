@@ -440,10 +440,14 @@ struct Params {
 
     // ── Round 37 (2026-05-14) — Imbalance polynomial scale ───────────────
     // SF-style material imbalance polynomial scoring (QuadraticOurs +
-    // QuadraticTheirs in src/imbalance.h). Computed score is applied to
-    // mg only (SF practice), scaled by ImbalanceScale / 100. Disabled
-    // at 0 by default until tuned.
-    int ImbalanceScale        = 2;   // tiny activation; bench unchanged
+    // QuadraticTheirs in src/imbalance.h). Even tiny activation (scale=2)
+    // regresses WAC marginally (-2 vs 184 baseline). Tactical-aligned
+    // tune (decisive + WAC anchor) attempted 2026-05-14 and regressed to
+    // 174 — the anchor approach overfits the small 141k dataset.
+    // Conclusion: SF polynomial doesn't align with Hypersion's already-
+    // tuned material weights (R13 PieceValue scalars + R10 PSQT scalars).
+    // Disabled.
+    int ImbalanceScale        = 0;
 };
 
 // Single global instance; mutable. Default-constructed with the values
