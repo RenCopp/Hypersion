@@ -31,7 +31,7 @@ void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
     // wtime/2 / MOVE_HORIZON time per move (e.g. wtime=500 -> 6 ms per
     // move at MOVE_HORIZON=40, still tight but the search runs).
     int overhead = std::max(0, limits.moveOverhead);
-    if (us < COLOR_NB && limits.time[us] > 0)
+    if (limits.time[us] > 0)
         overhead = std::min<int>(overhead, int(limits.time[us] / 2));
 
     if (limits.movetime > 0) {
