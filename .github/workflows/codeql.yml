@@ -29,8 +29,11 @@ jobs:
       - name: Install build deps
         run: sudo apt-get update && sudo apt-get install -y g++ make
 
+      # Pinned to v3.30.5 (latest stable on the v3 line). The action's
+      # release notes flagged v3-line deprecation by Dec 2026; revisit
+      # bumping to v4 once it ships.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v3.30.5
         with:
           languages: c-cpp
           build-mode: manual
@@ -47,6 +50,6 @@ jobs:
         run: make build ARCH=x86-64-avx2
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v3.30.5
         with:
           category: "/language:c-cpp"
