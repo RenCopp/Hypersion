@@ -69,9 +69,57 @@ code preserved for future LTC-SPRT validation:
   ceilings (221k retune) still regressed by 3. Master-game MSE
   doesn't preserve depth-8 tactical sharpness; classical "MSE
   optimum != WAC optimum" mismatch.
+- **Tactical-aligned tune** (decisive games + WAC-anchored positions
+  replicated 50x): 141k positions, MSE -0.001159, WAC -10 (174/198).
+  Anchor approach overfits — small dataset can't generalize past
+  the 199 WAC positions. Reverted.
 - **Stale-obj-files hang** documented in IMPROVEMENTS_LOG: adding
   eval_params.h struct fields requires `make clean` (otherwise
   search hangs at depth 7+ from binary-layout mismatch).
+
+### Bullet TM fixes (commits 74d5b49 + 15d7f2a)
+
+**Root cause**: when `wtime < moveOverhead` (default 2000 ms), the
+old TimeManager clamps `remaining = max(wtime - overhead, 1) = 1 ms`,
+collapsing optimumTime to MIN_MOVE_TIME_MS = 10 ms. The engine
+panics at sub-2-second time with a 10 ms budget per move, often
+producing no completed search iteration.
+
+**Fix A** (74d5b49): cap `overhead = min(moveOverhead, wtime/2)` so
+the engine always has at least half its remaining time after overhead
+subtraction.
+
+**Fix B** (15d7f2a): SF18-style mtg scaling — when remaining < 1 sec,
+reduce moves-to-go horizon proportionally:
+`mtg = max(2, remaining/20)`. At remaining=500ms, mtg=25 instead of 40;
+at remaining=100ms, mtg=5. Gives more time per move when time is low.
+
+**Validation** (testing/test_bullet_conversion.py):
+| Scenario | wtime | Before | After |
+|---|---:|---:|---:|
+| K+R+P vs K+P | 1500ms | 1207ms (80%) | **184ms (12%)** |
+| K+R vs K | 500ms | 181ms (36%) | 182ms |
+| Passed pawn EG | 1000ms | 182ms (18%) | 265ms |
+| K+Q vs K | 500ms | hangs | hangs (separate bug) |
+
+The K+R+P case (most common winning bullet position) now uses 85%
+LESS time. Should significantly reduce bullet flag-outs in lichess
+games where the bot has a winning conversion.
+
+### Known issue — KQK Syzygy hang
+
+Position `8/8/8/4k3/8/8/8/Q3K3 w - - 0 50` (K-Q on e1/a1 vs K on e5
+at move 50) hangs the engine when Syzygy is loaded. WITHOUT Syzygy,
+the same position resolves to depth 21 mate-in-12 in <1 second.
+WITH Syzygy, the engine never returns a bestmove.
+
+Other 3-piece KQK positions (e.g., Qa2/Ke1 vs Ke8) work fine with
+Syzygy. So this is a Fathom library bug specific to certain
+king-on-file-with-queen geometries. Workaround: this exact position
+shouldn't arise in tournament play; the engine handles all the
+common conversion paths.
+
+Investigation queued (would require Fathom-library code inspection).
 
 ## Project status (2026-05-11) — previous
 
