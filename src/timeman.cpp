@@ -22,7 +22,17 @@ constexpr int    MIN_MOVE_TIME_MS  = 10;
 void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
     startTime = now();
 
+    // Cap overhead at half of remaining time. Without this, when
+    // wtime drops below moveOverhead (~2000 ms default), `remaining`
+    // clamps to 1 and the entire move budget collapses to MIN_MOVE_TIME_MS
+    // (10 ms). That's the bullet-flag-out bug: at wtime <2 s the engine
+    // panics with a 10 ms budget per move, often producing no completed
+    // search iteration.  Capping overhead at wtime/2 guarantees at least
+    // wtime/2 / MOVE_HORIZON time per move (e.g. wtime=500 -> 6 ms per
+    // move at MOVE_HORIZON=40, still tight but the search runs).
     int overhead = std::max(0, limits.moveOverhead);
+    if (us < COLOR_NB && limits.time[us] > 0)
+        overhead = std::min<int>(overhead, int(limits.time[us] / 2));
 
     if (limits.movetime > 0) {
         // Account for the GUI's own latency on a movetime command too.
