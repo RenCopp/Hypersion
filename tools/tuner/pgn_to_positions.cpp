@@ -195,6 +195,8 @@ int main(int argc, char** argv) {
     int skipOpen    = 6;          // skip first N plies (opening repetition)
     int skipTail    = 4;          // skip last N plies (mate / blunder zone)
     long long maxRecords = -1;
+    bool decisive_only = false;   // skip drawn games (tactical-aligned dataset)
+    int  min_total_plies = 0;     // skip very short games
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -204,12 +206,17 @@ int main(int argc, char** argv) {
         else if (a == "--skip-opening") skipOpen = std::atoi(argv[++i]);
         else if (a == "--skip-tail")    skipTail = std::atoi(argv[++i]);
         else if (a == "--max-records")  maxRecords = std::atoll(argv[++i]);
+        else if (a == "--decisive-only") decisive_only = true;
+        else if (a == "--min-plies")    min_total_plies = std::atoi(argv[++i]);
         else if (a == "-h" || a == "--help") {
             std::fprintf(stderr,
                 "Usage: pgn_to_positions --in <pgn> [--out <txt>] [--every N]\n"
                 "                        [--skip-opening N] [--skip-tail N]\n"
-                "                        [--max-records N]\n"
-                "Each output line: <fen> | <result>  (result = 0|0.5|1).\n");
+                "                        [--max-records N] [--decisive-only]\n"
+                "                        [--min-plies N]\n"
+                "Each output line: <fen> | <result>  (result = 0|0.5|1).\n"
+                "  --decisive-only skips drawn games (tactical-aligned dataset).\n"
+                "  --min-plies skips games shorter than N total plies.\n");
             return 0;
         }
     }
@@ -236,6 +243,7 @@ int main(int argc, char** argv) {
 
     std::string         line;
     std::string         resultStr;
+    std::string         fenStr;
     std::string         moveBuf;
     long long           gamesProcessed = 0;
     long long           gamesGood      = 0;
@@ -244,17 +252,34 @@ int main(int argc, char** argv) {
     auto flush_game = [&]() {
         if (resultStr.empty() || moveBuf.empty()) {
             resultStr.clear();
+            fenStr.clear();
             moveBuf.clear();
             return;
         }
         double res = result_value(resultStr);
-        if (res < 0.0) { resultStr.clear(); moveBuf.clear(); return; }
+        if (res < 0.0) { resultStr.clear(); fenStr.clear(); moveBuf.clear(); return; }
+        // --decisive-only: skip drawn games (result == 0.5). Drawn games
+        // have noisier middlegame eval signal because the engine could
+        // settle for a draw from a position with multiple paths; decisive
+        // games have a clearer "this position led to a win" signal,
+        // better aligned with tactical play.
+        if (decisive_only && res == 0.5) {
+            resultStr.clear(); fenStr.clear(); moveBuf.clear(); return;
+        }
+
+        // Honour the PGN [FEN "..."] tag — cutechess match files start every
+        // game from a randomised opening FEN, so without this the SAN walker
+        // immediately fails on move 1.
+        const char* startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        std::string usedFen = fenStr.empty() ? startFen : fenStr;
 
         Position pos;
-        StateInfo  states[2048];
+        // StateInfo is ~5 KB (NNUE accumulator pair). 2048 × 5 KB = 10 MB on
+        // the stack overflows the default 16 MB ld stack limit when the
+        // second pass adds its own 2048 array below. Allocate on heap.
+        std::vector<StateInfo> states(2048);
         int        ply = 0;
-        pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                &states[ply]);
+        pos.set(usedFen, &states[ply]);
 
         std::string clean = clean_movetext(moveBuf);
         std::vector<std::string> tokens;
@@ -286,7 +311,13 @@ int main(int argc, char** argv) {
         }
         ++gamesProcessed;
         if (sans.size() < std::size_t(skipOpen + skipTail + 1)) {
-            resultStr.clear(); moveBuf.clear(); return;
+            resultStr.clear(); fenStr.clear(); moveBuf.clear(); return;
+        }
+        // --min-plies: skip games shorter than N total plies (drops blitz
+        // crashes and engine-disconnect early-resign games that pollute
+        // the tuning signal).
+        if (min_total_plies > 0 && int(sans.size()) < min_total_plies) {
+            resultStr.clear(); fenStr.clear(); moveBuf.clear(); return;
         }
 
         // Walk the game, applying each SAN move.
@@ -303,15 +334,15 @@ int main(int argc, char** argv) {
                 samplePlies.push_back(p);
             pos.do_move(m, states[++ply]);
         }
-        if (!ok) { resultStr.clear(); moveBuf.clear(); return; }
+        if (!ok) { resultStr.clear(); fenStr.clear(); moveBuf.clear(); return; }
 
         ++gamesGood;
 
         // Replay & emit the sampled positions.
         Position p2;
-        StateInfo s2[2048];
+        std::vector<StateInfo> s2(2048);
         int p2ply = 0;
-        p2.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", &s2[p2ply]);
+        p2.set(usedFen, &s2[p2ply]);
         size_t nextSample = 0;
         for (size_t i = 0; i < sans.size() && nextSample < samplePlies.size(); ++i) {
             if (int(i) == samplePlies[nextSample]) {
@@ -320,7 +351,7 @@ int main(int argc, char** argv) {
                 ++records;
                 ++nextSample;
                 if (maxRecords > 0 && records >= maxRecords) {
-                    resultStr.clear(); moveBuf.clear();
+                    resultStr.clear(); fenStr.clear(); moveBuf.clear();
                     return;
                 }
             }
@@ -330,6 +361,7 @@ int main(int argc, char** argv) {
         }
 
         resultStr.clear();
+        fenStr.clear();
         moveBuf.clear();
     };
 
@@ -354,13 +386,19 @@ int main(int argc, char** argv) {
             // the next game.
             if (!moveBuf.empty()) flush_game();
 
-            // Parse [Result "..."] specifically.
+            // Parse [Result "..."] and [FEN "..."] specifically.
             const char* p = line.c_str();
             if (std::strncmp(p, "[Result ", 8) == 0) {
                 const char* q = std::strchr(p, '"');
                 if (q) {
                     const char* r = std::strchr(q + 1, '"');
                     if (r) resultStr.assign(q + 1, r);
+                }
+            } else if (std::strncmp(p, "[FEN ", 5) == 0) {
+                const char* q = std::strchr(p, '"');
+                if (q) {
+                    const char* r = std::strchr(q + 1, '"');
+                    if (r) fenStr.assign(q + 1, r);
                 }
             }
             continue;
