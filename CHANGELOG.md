@@ -1,16 +1,79 @@
 # Hypersion CHANGELOG
 
-## Project status (2026-05-11)
+## Project status (2026-05-14)
 
-**Hypersion development is paused after v3.0.** The engine has reached
-a strong local optimum on its current SF18 NNUE network. The most
-realistic remaining ELO ceiling without major effort is an NNUE retrain
-(architecture + training data both available, but the project author
-doesn't have the GPU resources to do it). **Active development resumes
-when a contributor steps up with NNUE retraining.** All other work
-(search heuristics, time management, move ordering) has converged —
-9 SPSA campaigns and dozens of tombstoned experiments document the
-remaining parameter regions as locally optimal.
+**Classical eval expansion + tuning session complete.** Engine
+classical-eval has been broadened from 14 to 145 tunable scalars
+across 16 feature rounds (R1-R37). Best WAC depth-8 result of the
+project: 184/198 (92.9%). NNUE-shipped path is unchanged
+(1,273,328 nodes T1 d=13).
+
+Single-feature search-port retries from the `history.h` tombstone
+register continue to regress. Future progress requires:
+- Joint SPSA over coordinated parameter clusters (validated by the
+  R22-R31 `--new-only` joint tune — gave WAC +3 while individual
+  `--init-only` tunes regressed)
+- LTC self-play datasets for Texel (tactically aligned vs master games)
+- WDL-aware Texel loss (research-grade work)
+- NNUE retrain (the original "paused" item, still unaddressed)
+
+## Session 2026-05-14 — Classical eval R20-R37 + 16M Texel re-tune
+
+Commits: `3bbe494`, `a611c61`, `fd7e3c2`.
+
+### New features (active in shipped binary)
+- **R20 Mop-up eval**: drive lone king to corner in KX-K endgames.
+- **R21 OCB scaling**: 0.5x eg in opposite-colour-bishop endings.
+- **R22 Initiative bonus (SF7-style)**: complexity-weighted eg bonus.
+  Tuned via `--new-only` 16M joint tune (Outflanking=16, PawnCount=28,
+  BothFlanks=40, PureEndgame=100, Offset=0, Scale=112). The widened-
+  ceiling re-tune (Outflanking=7, Scale=175) regressed WAC -3 despite
+  -0.000061 MSE improvement — same MSE-vs-WAC mismatch as R32-R37.
+- **R23 KBNK mating drive**: PushToCorners + PushClose by bishop colour.
+- **R25 Drawish endgame scaling**: wrong-bishop+rook-pawn 20%, KNP 50%.
+- **R26 KPK bitbase** (`src/kpk_bitbase.h`, new): 24KB retrograde-built
+  lookup table for all 98,304 K+P-vs-K positions. Built at startup
+  via `Eval::init()`. Probed in classical eval to scale eg for known
+  drawn positions.
+- **R27-R31** (joint-tuned with R22): KnightRimPenalty, PawnIslandPenalty,
+  BishopPairOpenScale, RookOn8thEG, QueenKingTropismMG.
+
+### Features in code but DISABLED in shipping binary
+R32-R37 implemented and tuned, but tuned values regress WAC depth-8
+by 3-8 points (the MSE-vs-WAC mismatch). Disabled at 0 for shipping;
+code preserved for future LTC-SPRT validation:
+- R32 ConnectedPasser (MG/EG), R33 TradeDownBonus,
+- R34 BadBishopBlocked (MG/EG), R35 RookTrappedByKing
+  (with castling-rights-required detection — fixed bug from initial
+  implementation that false-positived normal castled positions),
+- R36 BackwardOnHalfOpen (MG/EG),
+- R37 Imbalance polynomial (`src/imbalance.h`, new) — SF-style 6x6
+  QuadraticOurs+QuadraticTheirs matrices. Enabled at scale=2 (tiny
+  activation) in fd7e3c2 since NNUE-shipped bench is unaffected.
+
+### Infrastructure
+- `src/kpk_bitbase.h`, `src/imbalance.h`, `src/pawn_hash.h` — new headers.
+- `tools/tuner/tuner.cpp`: +500 LOC, 4 new isolation flags
+  (`--init-only`, `--scale-only`, `--new-only`, `--part2-only`).
+
+### Verification
+- WAC depth-8 classical: **184/198 = 92.9%** (project best)
+- NNUE bench T1 d=13: **1,273,328** (unchanged from v3.0 baseline)
+- 3 release variants (avx2/avxvnni/bmi2): all 1,273,328 nodes
+
+### Tombstones from this session
+- **R22 widened-ceiling re-tune**: MSE -0.000061, WAC -3 (181/198).
+  Reverted to Phase-A joint-tune values.
+- **R32-R37 master-game-tuned values**: 16M tune found values
+  regressing WAC by 3-8 points despite MSE improvement. Tighter
+  ceilings (221k retune) still regressed by 3. Master-game MSE
+  doesn't preserve depth-8 tactical sharpness; classical "MSE
+  optimum != WAC optimum" mismatch.
+- **Stale-obj-files hang** documented in IMPROVEMENTS_LOG: adding
+  eval_params.h struct fields requires `make clean` (otherwise
+  search hangs at depth 7+ from binary-layout mismatch).
+
+## Project status (2026-05-11) — previous
 
 ## Post-v3.0 session (2026-05-10/11)
 

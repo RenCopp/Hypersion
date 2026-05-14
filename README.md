@@ -9,13 +9,21 @@ transposition table, aspiration windows, late-move reductions, singular
 extensions, ProbCut, futility/razoring/SEE pruning, and lazy-SMP
 infrastructure.
 
-> **Project status (v3.0, 2026-05-09):** active search/move-ordering
+> **Project status (v3.0+, 2026-05-14):** active search/move-ordering
 > development is **paused**. The engine is at a local optimum on its
 > current SF18 NNUE network — 9 SPSA campaigns and dozens of tombstoned
 > experiments have explored the remaining parameter regions. The most
 > realistic remaining ELO ceiling is an NNUE retrain. Development
 > resumes if a contributor steps up with a custom-trained NNUE network.
 > See [CONTRIBUTING](#contributing) below.
+>
+> **Classical-eval expansion session (2026-05-14)**: classical eval
+> grew from 14 to 145 tunable scalars across 16 feature rounds
+> (Mop-up, OCB scaling, Initiative bonus, KBNK mating, drawish-endgame
+> scaling, KPK bitbase, plus 9 other feature blocks). Best WAC depth-8
+> tactical: **184/198 (92.9%)**. NNUE-shipped path bench is **unchanged
+> at 1,273,328 nodes** (T1 d=13) — classical-only changes don't reach
+> the shipping eval path. See `testing/IMPROVEMENTS_LOG.md`.
 
 ## Features
 
@@ -53,11 +61,15 @@ the LTC sample size used. Most session gains are bullet-specific.
 
 Tactical suite results @ fixed depth (300 / 130 / 130 positions):
 
-| Suite | Depth | Solved |
-|---|---|---|
-| WAC (Win at Chess) | 12 | 94-96 % |
-| mate-in-3 | 8 | ~96 % |
-| mate-in-5 | 12 | ~88 % |
+| Suite | Depth | Solved (NNUE) | Solved (classical-only) |
+|---|---|---|---|
+| WAC (Win at Chess) | 12 | 94-96 % | 184/198 = 92.9 % |
+| mate-in-3 | 8 | ~96 % | ~97 % |
+| mate-in-5 | 12 | ~88 % | n/a |
+
+Classical-only WAC is measured at depth 8 (faster validation for
+Texel tuning regression checks). The 184/198 result is the project
+best across the entire 16-round eval expansion (2026-05-12/14).
 
 ## Building
 

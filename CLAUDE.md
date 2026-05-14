@@ -12,10 +12,16 @@ Stockfish-style architecture but tuned independently. Author: RenCopp.
   `make ARCH=x86-64-avxvnni -j` for **+29.6 ± 35.6 ELO** (200g, 5+0.05,
   conc=2) — uses 256-bit VNNI `dpbusd` for the NNUE FC dot product.
 - **Bench**: `Hypersion bench [depth]` — 8 fixed positions, default depth 13.
-  *Note: bench inherits `Threads` setting (default 2 = lazy SMP non-deterministic).
-  For deterministic bench, prefix with `setoption name Threads value 1`. Earlier
-  "non-deterministic at Threads=1" claim was an artefact of not setting Threads
-  explicitly; resolved 2026-05-07. See testing/PROTOCOL.md.*
+  *Note: bench is FULLY DETERMINISTIC at `Threads=1` (verified 2026-05-13,
+  5/5 identical: 1,273,328 nodes at depth 13 NNUE-on; 6,790,414 nodes
+  classical-only). The 9-13 % spread documented in earlier session notes
+  was from the **default `Threads=2`** — Lazy SMP thread scheduling is
+  inherently non-deterministic. Bench inherits Options.threads (default 2)
+  and doesn't override. The earlier "std::sort + ASLR" and "value_draw
+  jitter" root-cause hypotheses were both wrong; the real cause is just
+  the helper-thread scheduling.
+  To get a deterministic bench: `setoption name Threads value 1` before
+  `bench`. NPS comparisons across builds should always use Threads=1.*
 - **NNUE**: SF18 SFNNv10 architecture (HalfKAv2_hm + FullThreats), big net
   `nn-c288c895ea92.nnue` (102384, 1024, 15, 32, 1), small net
   `nn-37f18f62d772.nnue` (22528, 128, 15, 32, 1). L2=15, L3=32.
@@ -51,6 +57,18 @@ sample size, reason, future-contributor hint. Examples in `src/search.cpp`,
 - `testing/vs_stockfish.py` — match Hypersion vs Stockfish, surface blunders
 - `testing/analyze_with_sf.py` — per-move SF eval comparison from PGN
 - `testing/wac_runner.py` — WAC tactical suite
+- `tools/tuner/pgn_to_positions` + `tools/tuner/tuner` — Texel pipeline.
+  Build with `make pgn_to_positions tuner ARCH=x86-64-avx2`. Tuner is
+  OpenMP-parallel (`-fopenmp`) — ~7× speedup on 6-core hosts. The eval
+  scalars it tunes live in `src/eval_params.h::Params`; current knob
+  set is 27 entries (see `tools/tuner/tuner.cpp::knobs[]`). Re-tune
+  pipeline:
+    `pgn_to_positions --in <pgn> --out positions.txt --every 6 --skip-opening 8 --skip-tail 6 --max-records 20000000`
+    `tuner --in positions.txt --tune`
+  Tunable scalars only — PSQT, mobility, king-safety arrays are still
+  constexpr in `evaluate.cpp`. Caveat: classical eval is dispatched-
+  around when NNUE is loaded; Texel-tuned values only move the needle
+  in classical-only mode (`setoption name EvalFile value <empty>`).
 
 ## Known open issues
 
@@ -66,11 +84,71 @@ sample size, reason, future-contributor hint. Examples in `src/search.cpp`,
    (tunables namespace), src/history.h, src/nnue.cpp document the
    pattern.
 
+## Classical-eval expansion (2026-05-13/14)
+
+The classical eval (`src/evaluate.cpp` + `src/eval_params.h`) was
+expanded from 14 tunable scalars to **145** across 16 feature rounds
+(R1-R37). Best classical-only WAC depth-8: **184/198 (92.9%)**. NNUE-
+shipped bench is **unchanged** because the NNUE path short-circuits
+classical eval.
+
+New infrastructure:
+- `src/kpk_bitbase.h` — 24 KB retrograde-built KP-vs-K bitbase, built
+  once at `Eval::init()`. 98,304 distinct positions stored as 1 bit each.
+- `src/imbalance.h` — SF-style 6×6 QuadraticOurs+QuadraticTheirs
+  polynomial. Scale tunable via `params().ImbalanceScale` (shipping at 2).
+- `src/pawn_hash.h` — thread-local 16384-entry cache infrastructure
+  for pawn-only eval terms. Header drafted; full evaluate.cpp
+  integration deferred (per-color-loop refactor risks correctness).
+- `tools/tuner/tuner.cpp` — 11 isolation flags (`--psqt-only`,
+  `--pval-only`, `--passed-only`, `--mob-only`, `--threats-only`,
+  `--king-only`, `--shelter-only`, `--init-only`, `--scale-only`,
+  `--new-only`, `--part2-only`).
+- `testing/apply_tuned_values.py` — automated value application from
+  tuner output to `eval_params.h`.
+
+## Critical patterns for future Claude sessions
+
+### MSE vs WAC mismatch
+The Texel MSE objective on master-game datasets DOES NOT preserve
+depth-8 tactical sharpness. Empirically (R22 widened tune, R32-R37
+tunes): MSE improvements of 0.0001-0.0007 frequently came with WAC
+regressions of 3-8 points.
+
+**Always validate** any tuned value with `py testing/wac_runner.py
+--depth 8 --no-nnue --quiet` BEFORE shipping. If WAC < 178, revert
+or disable the feature (R32-R37 are shipped this way).
+
+**Joint tunes survive better** than isolated single-feature tunes.
+R22-R31 jointly tuned via `--new-only` gave WAC 184/198 (best), while
+R22 isolated `--init-only` gave 181, and R22 widened-ceiling gave 181.
+
+### Stale-obj-file hang
+Adding new struct fields to `src/eval_params.h` changes the binary
+ABI. Incremental `make` may NOT relink all object files, causing
+**search to hang at depth 7+ with no `bestmove` output**.
+
+**Symptom**: `bench 13` outputs depth 1-6 of position 1, then nothing.
+WAC test hangs after a few positions, `python.exe` alive but no
+`Hypersion.exe` subprocess.
+
+**Fix**: `make clean && make -j` after every eval_params.h struct
+field addition. Always.
+
 ## Resolved (kept for context)
 
-- **Bench non-determinism** at Threads=1 — was lazy SMP at default
-  Threads=2. Bench IS deterministic with `setoption name Threads value 1`
-  set explicitly. Resolved 2026-05-07. See PROTOCOL.md "Bench Signature".
+- **Bench non-determinism** — RESOLVED 2026-05-13. The earlier
+  session-12 hypotheses (std::sort + ASLR; value_draw + nodes jitter)
+  were both wrong. The actual cause: `bench` inherits `Options.threads`
+  which defaults to 2, so it runs under Lazy SMP — and Lazy SMP is
+  inherently non-deterministic due to thread scheduling. At
+  `Threads=1`, bench is 100 % deterministic (verified 5/5 identical
+  runs both NNUE-on at 1,273,328 nodes and classical-only at 6,790,414
+  nodes, depth 13). The previous session's "Threads=1 still
+  non-deterministic" claim was apparently measured without the actual
+  setoption being applied (or against a now-fixed earlier binary).
+  The `std::stable_sort` tombstone (-56.1 ELO) remains a separate
+  search-quality finding, not a determinism finding.
 
 ## TC-specificity finding (documented 2026-05-09)
 
