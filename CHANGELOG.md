@@ -106,20 +106,32 @@ The K+R+P case (most common winning bullet position) now uses 85%
 LESS time. Should significantly reduce bullet flag-outs in lichess
 games where the bot has a winning conversion.
 
-### Known issue — KQK Syzygy hang
+### KQK Syzygy hang FIXED (commit b6e44df)
 
-Position `8/8/8/4k3/8/8/8/Q3K3 w - - 0 50` (K-Q on e1/a1 vs K on e5
-at move 50) hangs the engine when Syzygy is loaded. WITHOUT Syzygy,
-the same position resolves to depth 21 mate-in-12 in <1 second.
-WITH Syzygy, the engine never returns a bestmove.
+Position `8/8/8/4k3/8/8/8/Q3K3 w - - 0 1` (K-Q on e1/a1 vs K on e5)
+hung the engine when Syzygy was loaded. Root cause: Fathom's
+`tb_probe_root_dtz` for KX-vs-K positions where kings are on the
+same file recurses uncontrollably through `probe_dtz` -> table miss
+-> `probe_dtz_table` returns success<0 -> generate all moves and
+recurse on each, which itself returns success<0 etc.
 
-Other 3-piece KQK positions (e.g., Qa2/Ke1 vs Ke8) work fine with
-Syzygy. So this is a Fathom library bug specific to certain
-king-on-file-with-queen geometries. Workaround: this exact position
-shouldn't arise in tournament play; the engine handles all the
-common conversion paths.
+Without Syzygy, search resolves the position to depth 21 mate-in-12
+in <1 second. With Syzygy active, the engine hung indefinitely on
+this specific configuration. Other KQK positions (e.g., Qa2/Ke1 vs
+Kd6 or Ke8) probed fine.
 
-Investigation queued (would require Fathom-library code inspection).
+**Workaround**: skip root DTZ probe for positions with <=4 pieces
+and no pawns (the trivial-conversion zone where the regular search
+finds the win quickly anyway). This loses the DTZ root-rank
+optimization for 3-4 piece positions but preserves the engine's
+search reliability. WDL probes at internal nodes still work
+(search.cpp:1711) — those use a simple table lookup with no
+recursion.
+
+After fix:
+- All 4 test_bullet_conversion scenarios pass (was 3/4)
+- Bench unchanged at 1,273,328
+- WAC unchanged at 184/198
 
 ## Project status (2026-05-11) — previous
 
