@@ -159,6 +159,85 @@ std::mt19937& book_prng() {
 }
 }  // namespace
 
+// ─── Cross-session opening variety (ported from Kirin V8) ──────────────
+// Track the last N first-moves the bot played from the starting position
+// across sessions. When probing from startpos, EXCLUDE recently-played
+// first moves so the bot doesn't repeat e2e4 game after game.
+//
+// State file lives next to the executable. Idea + algorithm credit:
+// Kirin V8 (C:\Engine\Kirin V8\kirin_engine.py OpeningBook).
+namespace {
+
+constexpr int OPENING_HISTORY_MAX = 16;
+const char*   OPENING_HISTORY_FILE = "hypersion_recent_openings.txt";
+
+// Polyglot key of the chess starting position. Cached the first time
+// it's needed (computed from a fresh start-pos Position).
+std::uint64_t g_startpos_polykey = 0;
+bool          g_startpos_polykey_init = false;
+
+std::vector<std::string>& recent_first_moves() {
+    static std::vector<std::string> recent;
+    static bool loaded = false;
+    if (!loaded) {
+        loaded = true;
+        std::ifstream f(OPENING_HISTORY_FILE);
+        std::string line;
+        while (std::getline(f, line)) {
+            // strip whitespace
+            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back())))
+                line.pop_back();
+            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front())))
+                line.erase(line.begin());
+            if (!line.empty() && line.size() <= 5)
+                recent.push_back(line);
+        }
+        if (recent.size() > OPENING_HISTORY_MAX)
+            recent.erase(recent.begin(),
+                         recent.begin() + (recent.size() - OPENING_HISTORY_MAX));
+    }
+    return recent;
+}
+
+void save_recent() {
+    auto& recent = recent_first_moves();
+    std::ofstream f(OPENING_HISTORY_FILE, std::ios::trunc);
+    if (!f) return;
+    for (const auto& m : recent) f << m << '\n';
+}
+
+void remember_first_move(const std::string& mvUci) {
+    auto& recent = recent_first_moves();
+    // Move to-front: remove if already present, then append.
+    auto it = std::find(recent.begin(), recent.end(), mvUci);
+    if (it != recent.end()) recent.erase(it);
+    recent.push_back(mvUci);
+    if (recent.size() > OPENING_HISTORY_MAX)
+        recent.erase(recent.begin(),
+                     recent.begin() + (recent.size() - OPENING_HISTORY_MAX));
+    save_recent();
+}
+
+// Convert our Move to a polyglot-compatible UCI string for the recent-list
+// (so we don't need an external move-formatter dependency).
+std::string move_to_uci(const Move m) {
+    if (m == Move::none()) return "";
+    std::string s;
+    Square from = m.from_sq();
+    Square to   = m.to_sq();
+    s += char('a' + int(file_of(from)));
+    s += char('1' + int(rank_of(from)));
+    s += char('a' + int(file_of(to)));
+    s += char('1' + int(rank_of(to)));
+    if (m.type_of() == MT_PROMOTION) {
+        constexpr char promoChar[] = " pnbrqk";
+        s += promoChar[m.promotion_type()];
+    }
+    return s;
+}
+
+}  // namespace
+
 Move probe(const Position& pos, bool pickBest) {
     if (!g_open || g_entries.empty()) return Move::none();
     std::uint64_t k = polyglot_key(pos);
@@ -200,16 +279,79 @@ Move probe(const Position& pos, bool pickBest) {
     }
     if (cands.empty()) return Move::none();
 
+    // ─── Cross-session opening variety (Kirin V8 port) ───────────────
+    // At startpos, exclude recently-played first moves so the bot doesn't
+    // play the same opening every game. Progressive window-shrink lets
+    // us drop the constraint when the book has too few candidates.
+    if (!g_startpos_polykey_init) {
+        // Lazily compute the startpos polyglot key on first probe.
+        // We compute it indirectly: the actual startpos has a known
+        // polyglot key value, but to avoid hardcoding it we just
+        // accept that the first probe with a "full piece set, no
+        // moves played" key is treated as startpos.
+        // Actually, the simplest reliable way: compare position-piece
+        // counts. If we have exactly 32 pieces with the canonical
+        // starting layout AND it's white-to-move with full castling
+        // rights AND no en-passant AND rule50=0, this is startpos.
+        g_startpos_polykey_init = true;
+        // Set startpos key from this query if it matches the criteria.
+    }
+
+    bool isStartpos = (popcount(pos.pieces()) == 32
+                   && popcount(pos.pieces(WHITE, PAWN))   == 8
+                   && popcount(pos.pieces(BLACK, PAWN))   == 8
+                   && popcount(pos.pieces(WHITE, KNIGHT)) == 2
+                   && popcount(pos.pieces(BLACK, KNIGHT)) == 2
+                   && pos.side_to_move() == WHITE
+                   && pos.rule50_count() == 0
+                   && pos.can_castle(WHITE_CASTLING)
+                   && pos.can_castle(BLACK_CASTLING));
+
+    if (isStartpos) {
+        auto& recent = recent_first_moves();
+        if (!recent.empty()) {
+            // Progressive shrink: try excluding the last 8, then 7, etc.
+            std::vector<Cand> filtered;
+            int window = std::min(8, int(recent.size()));
+            while (window >= 1) {
+                std::vector<std::string> recentSet(recent.end() - window,
+                                                    recent.end());
+                filtered.clear();
+                for (const auto& c : cands) {
+                    std::string u = move_to_uci(c.m);
+                    bool found = false;
+                    for (const auto& r : recentSet)
+                        if (u == r) { found = true; break; }
+                    if (!found) filtered.push_back(c);
+                }
+                if (!filtered.empty()) break;
+                --window;
+            }
+            // Last-resort: at least exclude the SINGLE most-recent move
+            // so we never play it back-to-back.
+            if (filtered.empty() && recent.size() >= 1) {
+                const std::string& last = recent.back();
+                for (const auto& c : cands)
+                    if (move_to_uci(c.m) != last) filtered.push_back(c);
+            }
+            if (!filtered.empty()) cands = filtered;
+        }
+    }
+
     double total = 0;
     for (auto& c : cands) total += c.w;
     std::uniform_real_distribution<double> dist(0.0, total);
     double pick = dist(book_prng());
     double acc = 0;
+    Move chosen = cands.back().m;
     for (auto& c : cands) {
         acc += c.w;
-        if (acc >= pick) return c.m;
+        if (acc >= pick) { chosen = c.m; break; }
     }
-    return cands.back().m;
+
+    // Remember first-move at startpos for the cross-session variety filter.
+    if (isStartpos) remember_first_move(move_to_uci(chosen));
+    return chosen;
 }
 
 }  // namespace hypersion::Book
