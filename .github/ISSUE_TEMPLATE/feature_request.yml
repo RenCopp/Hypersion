@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement (eval feature, search heuristic, build option, etc.)
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before requesting, check `src/history.h:103-160` and CHANGELOG
+        tombstones — many features have been tried and rejected. The
+        engine is at a tight local optimum (see README "Project status").
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: What problem does this solve?
+      description: Concrete chess scenario or measured weakness, ideally with a position.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: How you'd implement it — SF source line reference, paper, or pseudocode.
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: How would you test it?
+      description: SPRT vs current at TC X+Y? Tactical suite? Endgame conversion?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: tombstones
+    attributes:
+      label: Tombstone check
+      options:
+        - label: I checked `src/history.h:103-160` and this is not already a tombstoned experiment.
+          required: true
+        - label: I checked CHANGELOG.md for prior attempts at this idea.
+          required: true

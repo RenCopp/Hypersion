@@ -1,0 +1,77 @@
+name: Bug report
+description: Engine crashes, returns illegal moves, or behaves unexpectedly
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before filing, please confirm the bug
+        reproduces with the latest release on the **Releases** page.
+        For security issues, use Private Vulnerability Reporting via
+        the **Security** tab, not this template.
+
+  - type: input
+    id: version
+    attributes:
+      label: Hypersion version
+      description: Output of the `uci` command (first line) — e.g. "Hypersion 3.1".
+      placeholder: "Hypersion 3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Binary variant
+      options:
+        - avxvnni (recommended, Alder Lake / Zen 4+)
+        - avxvnni-pgo
+        - avx2
+        - avx2-pgo
+        - bmi2
+        - bmi2-pgo
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Windows 11 / Ubuntu 24.04 / etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Minimal UCI command sequence that triggers the bug.
+      placeholder: |
+        position fen 8/8/8/4k3/8/8/8/Q3K3 w - - 0 1
+        go depth 12
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Full engine output if relevant — wrap in a code block.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Logs, stack traces, screenshots, anything that might help.

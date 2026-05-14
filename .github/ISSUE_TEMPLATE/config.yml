@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Play against the bot
+    url: https://lichess.org/@/Hypersion
+    about: Challenge Hypersion on Lichess.
+  - name: Security vulnerability
+    url: https://github.com/RenCopp/Hypersion/security
+    about: Use Private Vulnerability Reporting; do not open a public issue.
