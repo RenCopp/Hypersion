@@ -256,15 +256,14 @@ int main(int argc, char** argv) {
         {"PawnShelter_3Missing",    &p.PawnShelter_3Missing,    0, 150},
     };
     // Isolated R22 Initiative bonus tune (--init-only). 6 knobs.
-    // Active values are SF7's; the coefficients are large because they
-    // operate on a "complexity" sum that can range from ~-200 to +400.
+    // Ceilings WIDENED 2026-05-14: 3 of 6 pinned in prior 16M tune.
     Knob init_knobs[] = {
-        {"InitiativeOutflanking",   &p.InitiativeOutflanking,   0,  30},
-        {"InitiativePawnCount",     &p.InitiativePawnCount,     0,  30},
-        {"InitiativeBothFlanks",    &p.InitiativeBothFlanks,    0,  40},
-        {"InitiativePureEndgame",   &p.InitiativePureEndgame,   0, 100},
+        {"InitiativeOutflanking",   &p.InitiativeOutflanking,   0,  60},
+        {"InitiativePawnCount",     &p.InitiativePawnCount,     0,  60},
+        {"InitiativeBothFlanks",    &p.InitiativeBothFlanks,    0,  80},
+        {"InitiativePureEndgame",   &p.InitiativePureEndgame,   0, 200},
         {"InitiativeOffset",        &p.InitiativeOffset,        0, 250},
-        {"InitiativeScale",         &p.InitiativeScale,         0, 200},
+        {"InitiativeScale",         &p.InitiativeScale,         0, 250},
     };
     // Isolated R25/R26 Endgame scale tune (--scale-only). 4 knobs.
     Knob scale_knobs[] = {

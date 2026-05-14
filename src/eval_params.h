@@ -330,10 +330,15 @@ struct Params {
     // Scale moderate (100 -> 79). This signals the master-game distribution
     // weights initiative more strongly than self-play (more decisive games
     // come from positions with more complexity).
+    // R22 final ship values from Phase-A --new-only tune (16M, MSE-0.000226,
+    // WAC 184/198). Widened-ceiling re-tune (R22-v2, MSE-0.000061 more)
+    // regressed WAC to 181 — the master-game MSE vs WAC tactical mismatch.
+    // Earlier --init-only-only tune (Outflanking=19) also regressed.
+    // These Phase-A joint-tuned values are the WAC-184 best.
     int InitiativeOutflanking = 16;
-    int InitiativePawnCount   = 28;    // pinned at ceiling — widening worth retest
-    int InitiativeBothFlanks  = 40;    // pinned at ceiling
-    int InitiativePureEndgame = 100;   // pinned at ceiling
+    int InitiativePawnCount   = 28;
+    int InitiativeBothFlanks  = 40;
+    int InitiativePureEndgame = 100;
     int InitiativeOffset      = 0;
     int InitiativeScale       = 112;
 
