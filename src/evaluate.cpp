@@ -5,6 +5,8 @@
 
 #include "bitboard.h"
 #include "eval_params.h"
+#include "imbalance.h"
+#include "kpk_bitbase.h"
 #include "nnue.h"
 
 namespace hypersion::Eval {
@@ -289,7 +291,12 @@ inline Bitboard mobility_area(const Position& pos, Color c) {
 
 }  // namespace
 
-void init() { /* nothing dynamic for now */ }
+void init() {
+    // KPK bitbase: ~24 KB lookup table built once at startup via retrograde
+    // analysis. Probed at eval to scale KP-vs-K endings correctly (no
+    // chance KP-vs-K eval thinks a known-draw is winning).
+    KPK::init();
+}
 
 Value evaluate(const Position& pos) {
     // Stockfish 18 NNUE first if a network is loaded (via UCI EvalFile /
@@ -341,11 +348,58 @@ Value evaluate(const Position& pos) {
         for (PieceType pt = PAWN; pt <= KING; ++pt) {
             Bitboard b = pos.pieces(c, pt);
             if (pt != KING) phase += popcount(b) * PhaseValues[pt];
+            // Round 10: per-piece-type PSQT scalar multiplier.
+            int psqtMG = (pt == PAWN)   ? params().PawnPSQTScaleMG
+                       : (pt == KNIGHT) ? params().KnightPSQTScaleMG
+                       : (pt == BISHOP) ? params().BishopPSQTScaleMG
+                       : (pt == ROOK)   ? params().RookPSQTScaleMG
+                       : (pt == QUEEN)  ? params().QueenPSQTScaleMG
+                                        : params().KingPSQTScaleMG;
+            int psqtEG = (pt == PAWN)   ? params().PawnPSQTScaleEG
+                       : (pt == KNIGHT) ? params().KnightPSQTScaleEG
+                       : (pt == BISHOP) ? params().BishopPSQTScaleEG
+                       : (pt == ROOK)   ? params().RookPSQTScaleEG
+                       : (pt == QUEEN)  ? params().QueenPSQTScaleEG
+                                        : params().KingPSQTScaleEG;
+            // Round 13: per-piece material-value scalar (KING fixed at 100).
+            int valMG = (pt == PAWN)   ? params().PawnValueScaleMG
+                      : (pt == KNIGHT) ? params().KnightValueScaleMG
+                      : (pt == BISHOP) ? params().BishopValueScaleMG
+                      : (pt == ROOK)   ? params().RookValueScaleMG
+                      : (pt == QUEEN)  ? params().QueenValueScaleMG
+                                       : 100;
+            int valEG = (pt == PAWN)   ? params().PawnValueScaleEG
+                      : (pt == KNIGHT) ? params().KnightValueScaleEG
+                      : (pt == BISHOP) ? params().BishopValueScaleEG
+                      : (pt == ROOK)   ? params().RookValueScaleEG
+                      : (pt == QUEEN)  ? params().QueenValueScaleEG
+                                       : 100;
             while (b) {
                 Square s = pop_lsb(b);
                 int psqIdx = mirror(s, c);
-                mg += sign * (PieceValueMG[pt] + PSQ_MG[pt][psqIdx]);
-                eg += sign * (PieceValueEG[pt] + PSQ_EG[pt][psqIdx]);
+                mg += sign * (PieceValueMG[pt] * valMG / 100 + PSQ_MG[pt][psqIdx] * psqtMG / 100);
+                eg += sign * (PieceValueEG[pt] * valEG / 100 + PSQ_EG[pt][psqIdx] * psqtEG / 100);
+
+                // ---- Knight on a/h file penalty (Round 27) ----
+                // Knights on rim files have ~half their attack range.
+                // Apply penalty per knight on file a or h.
+                if (pt == KNIGHT) {
+                    File f = file_of(s);
+                    if (f == FILE_A || f == FILE_H) {
+                        mg -= sign * params().KnightRimPenaltyMG;
+                        eg -= sign * params().KnightRimPenaltyEG;
+                    }
+                }
+
+                // ---- Rook on 8th rank (Round 30, EG only) ----
+                // Beyond RookOn7th, a rook on the absolute back rank
+                // (relative rank 8) is usually attacking pieces.
+                if (pt == ROOK) {
+                    int relRank = (c == WHITE) ? int(rank_of(s)) : 7 - int(rank_of(s));
+                    if (relRank == 7) {
+                        eg += sign * params().RookOn8thEG;
+                    }
+                }
 
                 // ---- Mobility & king-attack tracking for sliders / knights ----
                 if (pt == KNIGHT || pt == BISHOP || pt == ROOK || pt == QUEEN) {
@@ -355,22 +409,54 @@ Value evaluate(const Position& pos) {
                                                   : attacks_bb<QUEEN> (s, occupied);
                     int mobCount = popcount(atk & mobilityArea);
                     if (mobCount > 27) mobCount = 27;
-                    mg += sign * MobilityMG[pt][mobCount];
-                    eg += sign * MobilityEG[pt][mobCount];
+                    // Round 5: per-piece-type mobility scalar (Texel-tunable).
+                    // Default 100 reproduces the constexpr tables exactly.
+                    int scaleMG = (pt == KNIGHT) ? params().KnightMobScaleMG
+                                : (pt == BISHOP) ? params().BishopMobScaleMG
+                                : (pt == ROOK)   ? params().RookMobScaleMG
+                                                 : params().QueenMobScaleMG;
+                    int scaleEG = (pt == KNIGHT) ? params().KnightMobScaleEG
+                                : (pt == BISHOP) ? params().BishopMobScaleEG
+                                : (pt == ROOK)   ? params().RookMobScaleEG
+                                                 : params().QueenMobScaleEG;
+                    mg += sign * MobilityMG[pt][mobCount] * scaleMG / 100;
+                    eg += sign * MobilityEG[pt][mobCount] * scaleEG / 100;
 
                     // King-attack contribution (attacks on enemy king zone).
+                    // Round 17: KingAttackerWeight is tunable per piece type.
                     Bitboard kingAttacks = atk & kingZone[them];
                     if (kingAttacks) {
-                        attackUnits[c]   += KingAttackerWeight[pt] * popcount(kingAttacks);
+                        int kaw = (pt == KNIGHT) ? params().KingAttacker_Knight
+                                : (pt == BISHOP) ? params().KingAttacker_Bishop
+                                : (pt == ROOK)   ? params().KingAttacker_Rook
+                                                 : params().KingAttacker_Queen;
+                        attackUnits[c]   += kaw * popcount(kingAttacks);
                         ++attackerCount[c];
+                    }
+
+                    // ---- Queen-king tropism (Round 31, MG only) ----
+                    // Queens close to the enemy king get extra pressure
+                    // weight even when not directly attacking the king
+                    // zone. Distance ≤ 3 chebyshev. Off by default.
+                    if (pt == QUEEN && params().QueenKingTropismMG != 0) {
+                        int d = distance(s, ksq[them]);
+                        if (d <= 3) {
+                            mg += sign * params().QueenKingTropismMG * (4 - d);
+                        }
                     }
 
                     // Safe-check contribution. Adds to attackUnits but does
                     // NOT increment attackerCount — that gating remains for
                     // king-zone attackers only.
+                    // Round 17: SafeCheckWeight tunable per piece type.
                     Bitboard safeChecks = atk & kingChecksBy[pt] & ~themDefended;
-                    if (safeChecks)
-                        attackUnits[c] += SafeCheckWeight[pt] * popcount(safeChecks);
+                    if (safeChecks) {
+                        int scw = (pt == KNIGHT) ? params().SafeCheck_Knight
+                                : (pt == BISHOP) ? params().SafeCheck_Bishop
+                                : (pt == ROOK)   ? params().SafeCheck_Rook
+                                                 : params().SafeCheck_Queen;
+                        attackUnits[c] += scw * popcount(safeChecks);
+                    }
 
                     // Knight / bishop outpost: standing on a square supported by a
                     // friendly pawn and not reachable by any enemy pawn.
@@ -386,8 +472,43 @@ Value evaluate(const Position& pos) {
                             eg += sign * (pt == KNIGHT ? P.KnightOutpostEG : P.BishopOutpostEG);
                         }
                     }
+
+                    // Reachable knight outpost (Round 3 + R7 EG split).
+                    // Knight that can jump in one move to a square that is
+                    // (a) an outpost rank, (b) supported by our pawn, (c)
+                    // not attacked by enemy pawns. Weaker than direct
+                    // outpost.
+                    if (pt == KNIGHT) {
+                        Bitboard ourPawnAttacks = pawn_attacks_color(c, pawns[c]);
+                        Bitboard theirPawnAttacks = pawn_attacks_color(them, pawns[them]);
+                        Bitboard reachable = atk
+                            & outpost_ranks(c)
+                            & ourPawnAttacks
+                            & ~theirPawnAttacks
+                            & ~pos.pieces();
+                        if (reachable) {
+                            mg += sign * params().ReachableOutpostMG;
+                            eg += sign * params().ReachableOutpostEG;
+                        }
+                    }
                 }
             }
+        }
+
+        // ---- Pawn islands (Round 28) ----
+        // Count contiguous groups of files that contain own pawns. 1
+        // island = ideal phalanx; each extra island = pawn weakness.
+        {
+            int islands = 0;
+            bool inIsland = false;
+            for (int f = 0; f < 8; ++f) {
+                bool hasPawn = (pawns[c] & FileBBs[f]) != 0;
+                if (hasPawn && !inIsland) ++islands;
+                inIsland = hasPawn;
+            }
+            int extraIslands = std::max(0, islands - 1);
+            mg -= sign * extraIslands * params().PawnIslandPenaltyMG;
+            eg -= sign * extraIslands * params().PawnIslandPenaltyEG;
         }
 
         // ---- Connected pawns ----
@@ -399,8 +520,16 @@ Value evaluate(const Position& pos) {
             while (connected) {
                 Square s = pop_lsb(connected);
                 int relRank = c == WHITE ? int(rank_of(s)) : 7 - int(rank_of(s));
-                mg += sign * ConnectedPawnBonus[relRank] / 2;
-                eg += sign * ConnectedPawnBonus[relRank];
+                // Round 11: indices 4/5/6 (advanced ranks 5/6/7) use
+                // tunable values from eval_params.h; other indices fall
+                // back to the constexpr table.
+                int bonus;
+                if      (relRank == 4) bonus = params().ConnectedPawnRank4;
+                else if (relRank == 5) bonus = params().ConnectedPawnRank5;
+                else if (relRank == 6) bonus = params().ConnectedPawnRank6;
+                else                   bonus = ConnectedPawnBonus[relRank];
+                mg += sign * bonus / 2;
+                eg += sign * bonus;
             }
         }
 
@@ -416,15 +545,39 @@ Value evaluate(const Position& pos) {
 
             // Pawn-attacks on enemy pieces. Computed once per side.
             Bitboard pawnAtkAll = pawn_attacks_color(c, pawns[c]);
+            // Round 16: high-impact threat entries are tunable via
+            // eval_params.h; pawn->lower-value-piece and minor->minor
+            // entries stay constexpr (low-signal).
             for (PieceType vt = KNIGHT; vt <= QUEEN; vt = PieceType(vt + 1)) {
                 Bitboard victims = pos.pieces(them, vt);
                 int n1 = popcount(victims & minorAtkAll);
                 int n2 = popcount(victims & rookAtkAll);
                 int n3 = popcount(victims & pawnAtkAll);
-                mg += sign * n1 * ThreatByMinorMG[vt];
-                mg += sign * n2 * ThreatByRookMG [vt];
-                mg += sign * n3 * ThreatByPawnMG [vt];
-                eg += sign * n3 * ThreatByPawnEG [vt];
+
+                // ThreatByMinor: ROOK / QUEEN tunable, others from constexpr
+                int tbm = (vt == ROOK)  ? params().ThreatByMinor_Rook
+                        : (vt == QUEEN) ? params().ThreatByMinor_Queen
+                                        : ThreatByMinorMG[vt];
+                mg += sign * n1 * tbm;
+
+                // ThreatByRook: QUEEN tunable, others from constexpr
+                int tbr = (vt == QUEEN) ? params().ThreatByRook_Queen
+                                        : ThreatByRookMG[vt];
+                mg += sign * n2 * tbr;
+
+                // ThreatByPawn: N/B/R/Q tunable (MG + EG), pawn->pawn from constexpr
+                int tbpMG = (vt == KNIGHT) ? params().ThreatByPawn_KnightMG
+                          : (vt == BISHOP) ? params().ThreatByPawn_BishopMG
+                          : (vt == ROOK)   ? params().ThreatByPawn_RookMG
+                          : (vt == QUEEN)  ? params().ThreatByPawn_QueenMG
+                                           : ThreatByPawnMG[vt];
+                int tbpEG = (vt == KNIGHT) ? params().ThreatByPawn_KnightEG
+                          : (vt == BISHOP) ? params().ThreatByPawn_BishopEG
+                          : (vt == ROOK)   ? params().ThreatByPawn_RookEG
+                          : (vt == QUEEN)  ? params().ThreatByPawn_QueenEG
+                                           : ThreatByPawnEG[vt];
+                mg += sign * n3 * tbpMG;
+                eg += sign * n3 * tbpEG;
             }
 
             // Hanging: enemy pieces attacked by us but not defended.
@@ -435,7 +588,11 @@ Value evaluate(const Position& pos) {
             // (rough approximation — full attack set would require per-piece scan)
             Bitboard hanging = pos.pieces(them) & ~pos.pieces(them, PAWN) & ~pos.pieces(them, KING)
                              & ourAttacks & ~theirDef;
-            mg += sign * popcount(hanging) * params().HangingPenaltyMG;
+            int hangN = popcount(hanging);
+            mg += sign * hangN * params().HangingPenaltyMG;
+            // Hanging EG: even more decisive once queens come off — material
+            // loss in endgame has no compensating dynamic value.
+            eg += sign * hangN * params().HangingPenaltyEG;
         }
 
         // ---- King pawn shelter ----
@@ -450,16 +607,239 @@ Value evaluate(const Position& pos) {
                 Bitboard ours = pawns[c] & fileMask;
                 if (!ours) ++missing;
             }
-            if (missing > 0) mg -= sign * PawnShelterMissingMG[std::min(missing, 3)];
+            // Round 18: per-missing-count tunable pawn shelter penalty.
+            if (missing == 1) mg -= sign * params().PawnShelter_1Missing;
+            else if (missing == 2) mg -= sign * params().PawnShelter_2Missing;
+            else if (missing >= 3) mg -= sign * params().PawnShelter_3Missing;
+        }
+
+        // ---- Pawn storm vs enemy king (Round 4, mg only) ----
+        // Own pawns advanced into ranks 5-7 (white) / 4-2 (black) within
+        // 2 files of the enemy king. Storming pawns lever open enemy
+        // shelter. SF classical king_safety()::pawn_storm.
+        {
+            int kf = int(file_of(ksq[them]));
+            int fLo = std::max(0, kf - 2);
+            int fHi = std::min(7, kf + 2);
+            Bitboard fileBand = 0;
+            for (int f = fLo; f <= fHi; ++f) fileBand |= FileBBs[f];
+            Bitboard advancedRanks = (c == WHITE)
+                ? (Rank5BB | Rank6BB | Rank7BB)
+                : (Rank4BB | Rank3BB | Rank2BB);
+            int stormPawns = popcount(pawns[c] & fileBand & advancedRanks);
+            mg += sign * stormPawns * params().PawnStormMG;
+        }
+
+        // ---- Knight vs Bishop imbalance (Round 4) ----
+        // Closed positions (many pawns) favour knights; open positions
+        // favour bishops. The bonus scales the (knight_count - bishop_count)
+        // difference by total pawn count delta from 8.
+        {
+            int nN = popcount(pos.pieces(c, KNIGHT));
+            int nB = popcount(pos.pieces(c, BISHOP));
+            int totalPawns = popcount(pos.pieces(WHITE, PAWN) | pos.pieces(BLACK, PAWN));
+            // closedness in [-8 (no pawns) .. +8 (16 pawns)] roughly; use
+            // raw pawn count − 8 so neutral at 8 pawns.
+            int closedness = totalPawns - 8;
+            // Side with more knights benefits from closed; with more bishops, from open.
+            int knightAdv = nN - nB;
+            mg += sign * knightAdv * closedness * params().KnightVsBishopPawnsMG / 8;
+            eg += sign * knightAdv * closedness * params().KnightVsBishopPawnsEG / 8;
         }
 
         // ---- Bishop pair bonus ----
+        // Round 29: extra bonus when position is OPEN (few pawns). Each
+        // pawn below 16 adds Scale% / 100 to the bonus magnitude. Disabled
+        // (Scale=0) by default until tuned.
         if (popcount(pos.pieces(c, BISHOP)) >= 2) {
-            mg += sign * params().BishopPairBonusMG;
-            eg += sign * params().BishopPairBonusEG;
+            int openness = 16 - popcount(pos.pieces(PAWN));   // 0..16
+            int extraMG = params().BishopPairBonusMG * openness * params().BishopPairOpenScaleMG / 1600;
+            int extraEG = params().BishopPairBonusEG * openness * params().BishopPairOpenScaleEG / 1600;
+            mg += sign * (params().BishopPairBonusMG + extraMG);
+            eg += sign * (params().BishopPairBonusEG + extraEG);
         }
 
-        // ---- Rook on open / semi-open file ----
+        // ---- Bishop pawns on same colour (per-pawn penalty, tapered) ----
+        // "Bad bishop": own pawns sitting on squares the same colour as the
+        // bishop occupy its diagonals. Per SF classical evaluate.cpp.
+        {
+            Bitboard ourBishops = pos.pieces(c, BISHOP);
+            while (ourBishops) {
+                Square bs = pop_lsb(ourBishops);
+                bool isDark = (square_bb(bs) & DarkSquares) != 0;
+                Bitboard sameColour = isDark ? DarkSquares : ~DarkSquares;
+                int bad = popcount(pawns[c] & sameColour);
+                mg -= sign * bad * params().BishopPawnSCMG;
+                eg -= sign * bad * params().BishopPawnSCEG;
+            }
+        }
+
+        // ---- Long-diagonal bishop bonus (mg only) ----
+        // Bishop on one of {d4, e4, d5, e5} that also has line of sight along
+        // its long diagonal through the centre, blocked only by own pawns.
+        // Approximation: it can see at least one of the other three centre
+        // squares through pawn-only-as-blocker x-rays. SF classical:
+        // src/evaluate.cpp::pieces<>().
+        {
+            constexpr Bitboard centreFour =
+                  (Bitboard(1) << SQ_D4) | (Bitboard(1) << SQ_E4)
+                | (Bitboard(1) << SQ_D5) | (Bitboard(1) << SQ_E5);
+            Bitboard centreBishops = pos.pieces(c, BISHOP) & centreFour;
+            while (centreBishops) {
+                Square bs = pop_lsb(centreBishops);
+                Bitboard xray = attacks_bb<BISHOP>(bs, pawns[c] | pawns[them]);
+                if (xray & (centreFour ^ square_bb(bs)))
+                    mg += sign * params().LongDiagBishopMG;
+            }
+        }
+
+        // ---- Minor piece behind own pawn (mg only) ----
+        // Knight or bishop with an own pawn one rank in front, same file.
+        // Reward safe development. SF classical.
+        {
+            Bitboard minors = pos.pieces(c, KNIGHT) | pos.pieces(c, BISHOP);
+            // Shift our pawns BACKWARD by one rank to align "pawn-in-front-of-piece"
+            // with the piece's own square. For white, "behind pawn" means piece
+            // at rank R, pawn at rank R+1 → pawn bit at (sq + 8) → shift pawns
+            // right by 8.
+            Bitboard pawnFront = (c == WHITE) ? (pawns[c] >> 8) : (pawns[c] << 8);
+            int sheltered = popcount(minors & pawnFront);
+            mg += sign * sheltered * params().MinorBehindPawnMG;
+        }
+
+        // ---- Trapped bishop in corner (Round 2) ----
+        // Bishop on {a7,h7} (white) or {a2,h2} (black) with own pawn one
+        // rank+file diagonally inward AND enemy pawn one rank further still.
+        // Classic "stuck in corner" pattern from Indian-defense openings.
+        // SF classical: large penalty (~-50 mg / -50 eg in SF units).
+        {
+            Bitboard ourBishops = pos.pieces(c, BISHOP);
+            while (ourBishops) {
+                Square bs = pop_lsb(ourBishops);
+                int f = int(file_of(bs));
+                int r = int(rank_of(bs));
+                // White trapped corners: a7/h7 with own pawn on b6/g6.
+                // Black trapped corners: a2/h2 with own pawn on b3/g3.
+                bool isTrap = false;
+                if (c == WHITE && r == 6) {
+                    if (f == 0 && (pawns[c] & square_bb(SQ_B6))) isTrap = true;
+                    if (f == 7 && (pawns[c] & square_bb(SQ_G6))) isTrap = true;
+                } else if (c == BLACK && r == 1) {
+                    if (f == 0 && (pawns[c] & square_bb(SQ_B3))) isTrap = true;
+                    if (f == 7 && (pawns[c] & square_bb(SQ_G3))) isTrap = true;
+                }
+                if (isTrap) {
+                    mg -= sign * params().TrappedBishopMG;
+                    eg -= sign * params().TrappedBishopEG;
+                }
+            }
+        }
+
+        // ---- Pawn phalanx (Round 2 + R7 EG split) ----
+        // Per pair of own pawns on the same rank, adjacent files. Distinct
+        // from ConnectedPawnBonus (which keys on either phalanx OR support).
+        // This is a small additional bonus for the phalanx-specific shape.
+        {
+            Bitboard pw = pawns[c];
+            // Shift right by 1 file → pairs where bit i is in pw AND
+            // bit (i+1) is in pw. Each phalanx-pair counted once.
+            Bitboard phalanxPairs = pw & ((pw & ~FileABB) >> 1);
+            int n = popcount(phalanxPairs);
+            mg += sign * n * params().PhalanxPawnMG;
+            eg += sign * n * params().PhalanxPawnEG;
+        }
+
+        // ---- Space evaluation (mg only, Round 2) ----
+        // Squares in central 4 files (c..f), our half of board ranks 2-4 (W)
+        // / 5-7 (B), NOT attacked by enemy pawns. SF classical scales this
+        // by piece-count / blocked-pawn-count; we use the plain count as a
+        // single Texel-tunable scalar to keep the addition small.
+        {
+            constexpr Bitboard centralFiles = FileCBB | FileDBB | FileEBB | FileFBB;
+            Bitboard ourHalf = (c == WHITE) ? (Rank2BB | Rank3BB | Rank4BB)
+                                            : (Rank5BB | Rank6BB | Rank7BB);
+            Bitboard area = centralFiles & ourHalf;
+            Bitboard theirPawnAtks = pawn_attacks_color(them, pawns[them]);
+            int safeCount = popcount(area & ~theirPawnAtks);
+            mg += sign * safeCount * params().SpaceAreaMG;
+        }
+
+        // ---- Rook on open / semi-open file + 7th rank (Round 3) ----
+        // Rook on relative rank 7 is a strong asset (cuts off king, harasses
+        // pawns). SF classical evaluate.cpp::pieces<>().
+        {
+            Bitboard relRank7 = (c == WHITE) ? Rank7BB : Rank2BB;
+            Bitboard rooks7   = pos.pieces(c, ROOK) & relRank7;
+            int n7 = popcount(rooks7);
+            mg += sign * n7 * params().RookOn7thMG;
+            eg += sign * n7 * params().RookOn7thEG;
+        }
+
+        // ---- Doubled rooks (Round 4) ----
+        // Two rooks on the same file = strong vertical control.
+        {
+            Bitboard ourRooks = pos.pieces(c, ROOK);
+            int doubledPairs = 0;
+            for (int f = 0; f < 8; ++f) {
+                int n = popcount(ourRooks & FileBBs[f]);
+                if (n >= 2) ++doubledPairs;
+            }
+            mg += sign * doubledPairs * params().DoubledRookMG;
+            eg += sign * doubledPairs * params().DoubledRookEG;
+        }
+
+        // ---- Connected rooks (Round 4 + R7 EG split) ----
+        // Two rooks defending each other along a rank/file with no blocker.
+        // Detection: rook A's rook-attack from its square (with occupancy)
+        // intersects rook B's square.
+        {
+            Bitboard ourRooks = pos.pieces(c, ROOK);
+            if (popcount(ourRooks) >= 2) {
+                // Pick lowest rook, check if its attacks include another
+                // friendly rook.
+                Square r1 = pop_lsb(ourRooks);
+                Bitboard r1Atk = attacks_bb<ROOK>(r1, occupied);
+                if (r1Atk & ourRooks) {   // ourRooks now has other rooks only
+                    mg += sign * params().ConnectedRookMG;
+                    eg += sign * params().ConnectedRookEG;
+                }
+            }
+        }
+
+        // ---- Rook on enemy king's file (Round 6, mg only) ----
+        {
+            Bitboard kingFile = FileBBs[file_of(ksq[them])];
+            int n = popcount(pos.pieces(c, ROOK) & kingFile);
+            mg += sign * n * params().RookOnKingFileMG;
+        }
+
+        // ---- Bishop x-ray on enemy queen (Round 6, mg only) ----
+        // Bishop's diagonal x-ray (no blockers) reaches the enemy queen —
+        // creates pin / skewer pressure.
+        {
+            Bitboard ourBishops = pos.pieces(c, BISHOP);
+            Bitboard enemyQueens = pos.pieces(them, QUEEN);
+            int xrays = 0;
+            while (ourBishops) {
+                Square bs = pop_lsb(ourBishops);
+                if (attacks_bb<BISHOP>(bs, 0) & enemyQueens) ++xrays;
+            }
+            mg += sign * xrays * params().BishopXrayQueenMG;
+        }
+
+        // ---- Open files near enemy king (Round 6, mg only) ----
+        // Files within 2 of enemy king with NO own pawn = "attack runway"
+        // for our heavy pieces.
+        {
+            int kf = int(file_of(ksq[them]));
+            int fLo = std::max(0, kf - 2);
+            int fHi = std::min(7, kf + 2);
+            int openCount = 0;
+            for (int f = fLo; f <= fHi; ++f)
+                if (!(pawns[c] & FileBBs[f])) ++openCount;
+            mg += sign * openCount * params().OpenFilesNearKingMG;
+        }
+
         Bitboard rooks = pos.pieces(c, ROOK);
         while (rooks) {
             Square s = pop_lsb(rooks);
@@ -484,42 +864,548 @@ Value evaluate(const Position& pos) {
             Bitboard sf = passed_pawn_span(c, s);
             if (!(sf & pawns[them])) {
                 int relRank = (c == WHITE) ? int(rank_of(s)) : 7 - int(rank_of(s));
-                eg += sign * PassedRankBonus[relRank];
-                mg += sign * PassedRankBonus[relRank] / 3;
+                // Round 14: indices 4/5/6 use eval_params; others fall
+                // back to the constexpr table.
+                int passedBonus;
+                if      (relRank == 4) passedBonus = params().PassedRank4;
+                else if (relRank == 5) passedBonus = params().PassedRank5;
+                else if (relRank == 6) passedBonus = params().PassedRank6;
+                else                   passedBonus = PassedRankBonus[relRank];
+                eg += sign * passedBonus;
+                mg += sign * passedBonus / 3;
+
+                // Passed-pawn king-distance bonus (endgame only). Reward own
+                // king for being close to the push-target square and enemy
+                // king for being far from it. Skip rank-1 / rank-7 pushes
+                // (pre-promotion or already-promoted edge case).
+                int pushRank = (c == WHITE) ? int(rank_of(s)) + 1
+                                            : int(rank_of(s)) - 1;
+                if (pushRank >= 0 && pushRank <= 7) {
+                    Square pushTo = Square(int(file_of(s)) + 8 * pushRank);
+                    int ownD   = distance(ksq[c],    pushTo);
+                    int enemyD = distance(ksq[them], pushTo);
+                    eg += sign * (enemyD * params().PassedKingEnemyDistEG
+                                - ownD   * params().PassedKingOwnDistEG);
+                }
             }
             // Isolated: no friendly pawn on adjacent files.
+            // Round 19: separate MG/EG penalty.
             if (!(adjacent_files_bb(file_of(s)) & pawns[c])) {
                 mg -= sign * params().IsolatedPawnPenalty;
-                eg -= sign * params().IsolatedPawnPenalty;
+                eg -= sign * params().IsolatedPawnPenaltyEG;
             }
             // Doubled: another friendly pawn on same file behind.
+            // Round 19: separate MG/EG penalty.
             if (popcount(pawns[c] & FileBBs[file_of(s)]) > 1) {
-                mg -= sign * params().DoubledPawnPenalty / 2;   // shared between the two
-                eg -= sign * params().DoubledPawnPenalty / 2;
+                mg -= sign * params().DoubledPawnPenalty / 2;
+                eg -= sign * params().DoubledPawnPenaltyEG / 2;
             }
             // Backward: stop square attacked by enemy pawn, no friendly
             // pawn on adjacent file at our rank or behind to support a
             // safe advance.
+            // Round 19: separate MG/EG.
             if (backward & square_bb(s)) {
                 mg -= sign * params().BackwardPawnPenalty;
-                eg -= sign * params().BackwardPawnPenalty;
+                eg -= sign * params().BackwardPawnPenaltyEG;
+            }
+
+            // Pawn lever (Round 3 + R7 EG split). Own pawn with an enemy
+            // pawn on its diagonal capture square — creates pawn-break
+            // tension.
+            {
+                Bitboard pawnAtkFromS = pawn_attacks_bb(c, s);
+                if (pawnAtkFromS & pawns[them]) {
+                    mg += sign * params().PawnLeverMG;
+                    eg += sign * params().PawnLeverEG;
+                }
+            }
+
+            // Candidate passed pawn (Round 3, eg only). Not yet passed
+            // (some enemy pawn on file or adjacent ahead) but its
+            // supporters at-or-behind outnumber the obstructors. The
+            // pawn could become passed if its file opens up.
+            // Skip if already passed (handled above).
+            if (sf & pawns[them]) {  // sf = passed_pawn_span; has enemy → not passed
+                File f = file_of(s);
+                Bitboard adjFiles = adjacent_files_bb(f);
+                int relRank = (c == WHITE) ? int(rank_of(s)) : 7 - int(rank_of(s));
+                // Supporters: own pawns on adj files at our rank or behind.
+                Bitboard ourBehindMask = (c == WHITE)
+                    ? ((Bitboard(1) << ((relRank + 1) * 8)) - 1)
+                    : ~((Bitboard(1) << (((7 - relRank) + 0) * 8)) - 1);
+                Bitboard supporters  = pawns[c]   & adjFiles & ourBehindMask;
+                // Obstructors: enemy pawns on adj files at next-rank or ahead.
+                int blockerRank = (c == WHITE) ? relRank + 1 : 7 - relRank - 1;
+                Bitboard theirAheadMask;
+                if (c == WHITE)
+                    theirAheadMask = (blockerRank >= 0 && blockerRank <= 7)
+                        ? ~((Bitboard(1) << (blockerRank * 8)) - 1) : 0;
+                else
+                    theirAheadMask = (blockerRank >= 0 && blockerRank <= 7)
+                        ? ((Bitboard(1) << ((blockerRank + 1) * 8)) - 1) : 0;
+                Bitboard obstructors = pawns[them] & adjFiles & theirAheadMask;
+                // No own pawn on our own file ahead (would block our advance).
+                Bitboard ourFileAhead = pawns[c] & FileBBs[f]
+                    & ((c == WHITE) ? ~((Bitboard(1) << ((relRank + 1) * 8)) - 1)
+                                    : ((Bitboard(1) << ((7 - relRank) * 8)) - 1));
+                if (!ourFileAhead
+                    && popcount(supporters) >= popcount(obstructors)
+                    && obstructors)   // require some obstructor — else it's already (semi-)passed
+                    eg += sign * params().CandidatePawnEG;
             }
         }
     }
 
+    // ---- Imbalance polynomial (Round 37, MG only) ----
+    // Stockfish-style 6x6 quadratic material imbalance. Disabled at 0
+    // scale by default until tuned.
+    if (params().ImbalanceScale != 0) {
+        mg += imbalance_score(pos) * params().ImbalanceScale / 100;
+    }
+
     // ---- King safety: scale attack units through SafetyMargin curve. ----
-    for (Color c : { WHITE, BLACK }) {
-        int sign = (c == WHITE) ? 1 : -1;
-        if (attackerCount[c] >= 2) {
-            int idx = std::min(99, attackUnits[c] / 8);
-            mg += sign * SafetyMargin[idx];
+    // Round 6: KingSafetyScale (default 100) lets Texel adjust the overall
+    // weight of the king-safety contribution.
+    {
+        int safetyScale = params().KingSafetyScale;
+        for (Color c : { WHITE, BLACK }) {
+            int sign = (c == WHITE) ? 1 : -1;
+            if (attackerCount[c] >= 2) {
+                int idx = std::min(99, attackUnits[c] / 8);
+                mg += sign * SafetyMargin[idx] * safetyScale / 100;
+            }
+        }
+    }
+
+    // ---- Bad bishop: own pawns on bishop's attack squares (Round 34) ----
+    // Counts own pawns that sit on squares the bishop can attack (with
+    // current occupancy). High count = bishop's mobility is choked by
+    // own pawns — strong "bad bishop" signal beyond the same-colour
+    // count.
+    {
+        Bitboard occupied = pos.pieces();
+        for (Color c : { WHITE, BLACK }) {
+            int sign = (c == WHITE) ? 1 : -1;
+            Bitboard ourBishops = pos.pieces(c, BISHOP);
+            Bitboard ourPawns   = pos.pieces(c, PAWN);
+            int totalBlocked = 0;
+            while (ourBishops) {
+                Square bs = pop_lsb(ourBishops);
+                Bitboard reach = attacks_bb<BISHOP>(bs, occupied);
+                totalBlocked += popcount(reach & ourPawns);
+            }
+            mg -= sign * totalBlocked * params().BadBishopBlockedMG;
+            eg -= sign * totalBlocked * params().BadBishopBlockedEG;
+        }
+    }
+
+    // ---- Connected passers (Round 32) ----
+    // Two passed pawns on adjacent files support each other.
+    // Computed per side; bonus per adjacent-file passer pair.
+    {
+        for (Color c : { WHITE, BLACK }) {
+            Bitboard ourPawns   = pos.pieces(c, PAWN);
+            Bitboard theirPawns = pos.pieces(~c, PAWN);
+            Bitboard passed = 0;
+            Bitboard pw = ourPawns;
+            while (pw) {
+                Square s = pop_lsb(pw);
+                if (!(passed_pawn_span(c, s) & theirPawns))
+                    passed |= square_bb(s);
+            }
+            int pairs = 0;
+            for (int f = 0; f < 7; ++f) {
+                if ((passed & FileBBs[f]) && (passed & FileBBs[f+1])) ++pairs;
+            }
+            int sign = (c == WHITE) ? 1 : -1;
+            mg += sign * pairs * params().ConnectedPasserMG;
+            eg += sign * pairs * params().ConnectedPasserEG;
+        }
+    }
+
+    // ---- Trade-down bonus (Round 33, EG only) ----
+    // When materially ahead in PIECE value (non-pawn), prefer trading
+    // remaining pieces to simplify. Applied as +/- per non-pawn piece on
+    // the leading side, scaled by the leading side's lead magnitude.
+    {
+        Value wNP = pos.non_pawn_material(WHITE);
+        Value bNP = pos.non_pawn_material(BLACK);
+        if (wNP != bNP) {
+            Color leader = (wNP > bNP) ? WHITE : BLACK;
+            int sign = (leader == WHITE) ? 1 : -1;
+            int leadPieces = popcount(pos.pieces(leader, KNIGHT))
+                           + popcount(pos.pieces(leader, BISHOP))
+                           + popcount(pos.pieces(leader, ROOK))
+                           + popcount(pos.pieces(leader, QUEEN));
+            // Fewer pieces on the leader's side = more simplified =
+            // better. Bonus is inverse to piece count.
+            eg += sign * (7 - std::min(7, leadPieces)) * params().TradeDownBonusEG;
+        }
+    }
+
+    // ---- Rook trapped by own king (Round 35, MG only) ----
+    // After loss of castling rights, a rook stuck in the corner with the
+    // king blocking the e-side files is passive. CRITICAL: only fires
+    // when castling RIGHTS on that side are LOST — otherwise normal
+    // pre-castle positions (Ra1+Kc1, Rh1+Kg1) get false-flagged.
+    {
+        const CastlingRights kingside[2]  = { WHITE_OO,  BLACK_OO  };
+        const CastlingRights queenside[2] = { WHITE_OOO, BLACK_OOO };
+        for (Color c : { WHITE, BLACK }) {
+            int sign = (c == WHITE) ? 1 : -1;
+            Rank rank1 = (c == WHITE) ? RANK_1 : RANK_8;
+            Bitboard rooksOnRank1 = pos.pieces(c, ROOK) & rank_bb(rank1);
+            Square kSq = ksq[c];
+            if (rank_of(kSq) != rank1) continue;
+            int kingFile = int(file_of(kSq));
+            bool canCastleK = pos.can_castle(kingside[c]);
+            bool canCastleQ = pos.can_castle(queenside[c]);
+            while (rooksOnRank1) {
+                Square rSq = pop_lsb(rooksOnRank1);
+                int rookFile = int(file_of(rSq));
+                // Kingside trap: rook on files f-h, king on g/h-side (blocks
+                // rook's exit toward e), no kingside castle right.
+                if (!canCastleK
+                    && rookFile >= 5
+                    && kingFile >= 4 && kingFile <= rookFile
+                    && kingFile > 3) {
+                    mg -= sign * params().RookTrappedByKingMG;
+                }
+                // Queenside trap: rook on files a-c, king on a/b-side, no
+                // queenside castle right.
+                else if (!canCastleQ
+                    && rookFile <= 2
+                    && kingFile <= 3 && kingFile >= rookFile
+                    && kingFile < 4) {
+                    mg -= sign * params().RookTrappedByKingMG;
+                }
+            }
+        }
+    }
+
+    // ---- Backward pawn on half-open file (Round 36) ----
+    // A backward pawn on a file with no enemy pawn ahead is easy prey
+    // for the enemy's rook. Extra penalty beyond R1's BackwardPawnPenalty.
+    {
+        for (Color c : { WHITE, BLACK }) {
+            int sign = (c == WHITE) ? 1 : -1;
+            Bitboard ourPawns   = pos.pieces(c, PAWN);
+            Bitboard theirPawns = pos.pieces(~c, PAWN);
+            Bitboard backward = backward_pawns(c, ourPawns,
+                pawn_attacks_color(~c, theirPawns));
+            Bitboard b = backward;
+            while (b) {
+                Square s = pop_lsb(b);
+                File f = file_of(s);
+                // Half-open file from c's POV: no enemy pawn on the same file
+                // ahead of s.
+                Bitboard ahead = (c == WHITE)
+                    ? ~((Bitboard(1) << ((rank_of(s) + 1) * 8)) - 1)
+                    : ((Bitboard(1) << (rank_of(s) * 8)) - 1);
+                bool halfOpen = !(theirPawns & FileBBs[f] & ahead);
+                if (halfOpen) {
+                    mg -= sign * params().BackwardOnHalfOpenMG;
+                    eg -= sign * params().BackwardOnHalfOpenEG;
+                }
+            }
+        }
+    }
+
+    // ---- Mop-up eval (Round 20, EG only) ----
+    // When one side has K (or K + 1 minor, no pawns) and the other side
+    // has more, reward driving the loser's king to the corner and the
+    // winner's king close. Helps mate conversion. EG only.
+    {
+        auto loner_side = [&](Color c) -> bool {
+            return pos.pieces(c, PAWN) == 0
+                && pos.pieces(c, ROOK) == 0
+                && pos.pieces(c, QUEEN) == 0
+                && popcount(pos.pieces(c, KNIGHT) | pos.pieces(c, BISHOP)) <= 1;
+        };
+        bool wIsLoner = loner_side(WHITE);
+        bool bIsLoner = loner_side(BLACK);
+        // Only trigger when exactly one side is a loner.
+        if (wIsLoner != bIsLoner) {
+            Color loser  = wIsLoner ? WHITE : BLACK;
+            Color winner = ~loser;
+            int sign = (winner == WHITE) ? 1 : -1;
+            Square lk = ksq[loser];
+            Square wk = ksq[winner];
+            // Chebyshev distance from loser-king to nearest centre square.
+            int dCentre = int(distance(lk, SQ_D4));
+            dCentre = std::min(dCentre, int(distance(lk, SQ_E4)));
+            dCentre = std::min(dCentre, int(distance(lk, SQ_D5)));
+            dCentre = std::min(dCentre, int(distance(lk, SQ_E5)));
+            int dKings = int(distance(wk, lk));
+            int bonus = dCentre * params().MopUpKingCenter
+                      + (14 - dKings) * params().MopUpKingDistance;
+            eg += sign * bonus;
+        }
+    }
+
+    // ---- Opposite-colour bishop endgame scaling (Round 21) ----
+    // Each side has exactly 1 bishop on opposite colours, no other
+    // minor/major pieces → strong drawing tendency, scale eg by
+    // OCBEgScale% (default 50).
+    {
+        bool oneBishopEach =
+            popcount(pos.pieces(WHITE, BISHOP)) == 1
+            && popcount(pos.pieces(BLACK, BISHOP)) == 1
+            && pos.pieces(KNIGHT) == 0
+            && pos.pieces(ROOK)   == 0
+            && pos.pieces(QUEEN)  == 0;
+        if (oneBishopEach) {
+            Bitboard wbBB = pos.pieces(WHITE, BISHOP);
+            Bitboard bbBB = pos.pieces(BLACK, BISHOP);
+            Square wb = pop_lsb(wbBB);
+            Square bb = pop_lsb(bbBB);
+            bool wbDark = (square_bb(wb) & DarkSquares) != 0;
+            bool bbDark = (square_bb(bb) & DarkSquares) != 0;
+            if (wbDark != bbDark) {
+                eg = eg * params().OCBEgScale / 100;
+            }
+        }
+    }
+
+    // ---- Initiative bonus (Round 22, EG only) ----
+    // Source: Stockfish 7 / sf_10 src/evaluate.cpp::initiative().
+    // Endgame-only sign-aware complexity bonus that rewards positions
+    // where the eg score is real (asymmetric pawns, both flanks, king
+    // outflanking, pure endgame). The bonus is clamped to ±|eg| so it
+    // can never flip the sign of the evaluation.
+    {
+        constexpr Bitboard QueenSideBB = FileABB | FileBBB | FileCBB | FileDBB;
+        constexpr Bitboard KingSideBB  = FileEBB | FileFBB | FileGBB | FileHBB;
+        int outflanking = std::abs(int(file_of(ksq[WHITE])) - int(file_of(ksq[BLACK])))
+                        - std::abs(int(rank_of(ksq[WHITE])) - int(rank_of(ksq[BLACK])));
+        Bitboard allPawns = pos.pieces(PAWN);
+        bool pawnsBothFlanks = (allPawns & QueenSideBB) && (allPawns & KingSideBB);
+        int totalPawns = popcount(allPawns);
+        bool pureEndgame = (pos.non_pawn_material() == 0);
+        int complexity = params().InitiativeOutflanking * outflanking
+                       + params().InitiativePawnCount   * totalPawns
+                       + params().InitiativeBothFlanks  * (pawnsBothFlanks ? 1 : 0)
+                       + params().InitiativePureEndgame * (pureEndgame ? 1 : 0)
+                       - params().InitiativeOffset;
+        int sign_eg = (eg > 0) - (eg < 0);
+        int initiative = sign_eg * std::max(complexity, -std::abs(eg));
+        eg += initiative * params().InitiativeScale / 100;
+    }
+
+    // ---- KBNK mating drive (Round 23, EG only) ----
+    // King + Bishop + Knight vs lone King is a known forced mate, but
+    // only into the corner matching the bishop's colour. Without this
+    // table, the search wanders for many moves before finding the
+    // win — pushing toward the wrong corner draws by the 50-move rule.
+    // Source: SF sf_10 src/endgame.cpp::Endgame<KBNK>.
+    {
+        auto bareKing = [&](Color c) -> bool {
+            return pos.pieces(c, PAWN)   == 0
+                && pos.pieces(c, KNIGHT) == 0
+                && pos.pieces(c, BISHOP) == 0
+                && pos.pieces(c, ROOK)   == 0
+                && pos.pieces(c, QUEEN)  == 0;
+        };
+        auto hasBN = [&](Color c) -> bool {
+            return pos.pieces(c, PAWN) == 0
+                && pos.pieces(c, ROOK) == 0
+                && pos.pieces(c, QUEEN) == 0
+                && popcount(pos.pieces(c, BISHOP)) == 1
+                && popcount(pos.pieces(c, KNIGHT)) == 1;
+        };
+        // SF's tables, exact values. PushClose: 0,0,100,80,60,40,20,10.
+        // PushToCorners: 200 in matching corners (a1,h8), falling toward 110
+        // at the off-colour corners (h1,a8). Halved here vs SF's 200-peak so
+        // we don't dwarf material — this is supplemental, not standalone.
+        static constexpr int PushClose[8] = { 0, 0, 100, 80, 60, 40, 20, 10 };
+        static constexpr int PushToCorners[64] = {
+            200, 190, 180, 170, 160, 150, 140, 130,
+            190, 180, 170, 160, 150, 140, 130, 140,
+            180, 170, 155, 140, 140, 125, 140, 150,
+            170, 160, 140, 120, 110, 140, 150, 160,
+            160, 150, 140, 110, 120, 140, 160, 170,
+            150, 140, 125, 140, 140, 155, 170, 180,
+            140, 130, 140, 150, 160, 170, 180, 190,
+            130, 140, 150, 160, 170, 180, 190, 200
+        };
+        Color strong = (hasBN(WHITE) && bareKing(BLACK)) ? WHITE
+                     : (hasBN(BLACK) && bareKing(WHITE)) ? BLACK
+                     : COLOR_NB;
+        if (strong != COLOR_NB) {
+            Color weak = ~strong;
+            Bitboard bishopsBB = pos.pieces(strong, BISHOP);
+            Square bishopSq = pop_lsb(bishopsBB);
+            Square winK = ksq[strong];
+            Square losK = ksq[weak];
+            // If the bishop is on a LIGHT square (a1 is dark), flip
+            // squares so the table's "200 corners" become the light
+            // corners (h1, a8) which are now drive-targets.
+            bool bishopOnDark = (square_bb(bishopSq) & DarkSquares) != 0;
+            if (!bishopOnDark) {
+                winK = Square(winK ^ 56);   // mirror over a1-h8 (rank flip)
+                losK = Square(losK ^ 56);
+            }
+            int bonus = PushToCorners[losK] * params().KBNKCornerScale / 100
+                      + PushClose[distance(winK, losK)] * params().KBNKCloseScale / 100;
+            int sign = (strong == WHITE) ? 1 : -1;
+            eg += sign * bonus;
+        }
+    }
+
+    // ---- Drawish endgame scaling (Round 25, EG only) ----
+    // Recognize specific known-drawn material configurations and scale the
+    // eg score down. Stockfish's scale_factor pattern, simplified to the
+    // 3 most-impactful cases. The OCB scaling (R21) above is the first
+    // case; this block adds:
+    //   (a) Wrong-coloured bishop + only rook-pawn(s) vs bare king
+    //       (defender king on/near queening square) → near-draw.
+    //   (b) Single knight + only rook-pawn(s) vs bare king → drawish.
+    //   (c) Generic rook-pair-or-fewer + few pawns ending → mild scale.
+    // Apply ONLY when one side is materially stronger; for equal material
+    // this would be a no-op since eg ≈ 0.
+    {
+        // Constants for "winning side" detection.
+        auto strongerSide = [&]() -> Color {
+            Value w = pos.non_pawn_material(WHITE);
+            Value b = pos.non_pawn_material(BLACK);
+            if (w > b + PieceValueMG[PAWN] / 2) return WHITE;
+            if (b > w + PieceValueMG[PAWN] / 2) return BLACK;
+            return COLOR_NB;
+        };
+
+        // (a) Wrong-bishop + only rook-pawn(s) check.
+        // Bishop on file a/h is "wrong" if it cannot defend the queening
+        // square. queening square = a8 / h8 (for white pawns).
+        // Detect: strong has 1 bishop + only pawns on a/h file, no others.
+        auto wrongBishopRookPawn = [&](Color strong) -> bool {
+            Color weak = ~strong;
+            if (popcount(pos.pieces(strong, BISHOP)) != 1) return false;
+            if (pos.pieces(strong, KNIGHT)) return false;
+            if (pos.pieces(strong, ROOK))   return false;
+            if (pos.pieces(strong, QUEEN))  return false;
+            // Weak side has at most a king (lone king required for the
+            // strict draw rule).
+            if (pos.pieces(weak, PAWN) || pos.pieces(weak, KNIGHT)
+                || pos.pieces(weak, BISHOP) || pos.pieces(weak, ROOK)
+                || pos.pieces(weak, QUEEN))
+                return false;
+            // Strong's pawns: only on file a OR only on file h.
+            Bitboard sp = pos.pieces(strong, PAWN);
+            if (!sp) return false;
+            bool allA = !(sp & ~FileABB);
+            bool allH = !(sp & ~FileHBB);
+            if (!allA && !allH) return false;
+            // Bishop colour must NOT match the promotion-square colour.
+            // Promotion squares: a8 is LIGHT (the a1-h8 main diagonal is
+            // dark, so a8 = off-corner = light). h8 is DARK.
+            Bitboard wb = pos.pieces(strong, BISHOP);
+            Square bishop = pop_lsb(wb);
+            bool bishopOnDark = (square_bb(bishop) & DarkSquares) != 0;
+            // "Wrong" bishop:
+            //   a-pawns promote to a8 (light) → wrong bishop = dark-square.
+            //   h-pawns promote to h8 (dark)  → wrong bishop = light-square.
+            bool wrongBishop = allA ? bishopOnDark : !bishopOnDark;
+            if (!wrongBishop) return false;
+            // Weak king must be near the queening square (chebyshev ≤ 1
+            // from the corner = sealed). Approximate: file matches.
+            Square wkSq = ksq[weak];
+            File queenFile = allA ? FILE_A : FILE_H;
+            return file_of(wkSq) == queenFile
+                || std::abs(int(file_of(wkSq)) - int(queenFile)) == 1;
+        };
+
+        // (b) Knight + only rook-pawn(s) vs bare king. Knight is too slow
+        // to support the rook-pawn against a defending king in the corner.
+        auto knightRookPawn = [&](Color strong) -> bool {
+            Color weak = ~strong;
+            if (popcount(pos.pieces(strong, KNIGHT)) != 1) return false;
+            if (pos.pieces(strong, BISHOP)) return false;
+            if (pos.pieces(strong, ROOK))   return false;
+            if (pos.pieces(strong, QUEEN))  return false;
+            if (pos.pieces(weak, PAWN) || pos.pieces(weak, KNIGHT)
+                || pos.pieces(weak, BISHOP) || pos.pieces(weak, ROOK)
+                || pos.pieces(weak, QUEEN))
+                return false;
+            Bitboard sp = pos.pieces(strong, PAWN);
+            if (!sp) return false;
+            bool allA = !(sp & ~FileABB);
+            bool allH = !(sp & ~FileHBB);
+            if (!allA && !allH) return false;
+            // Weak king on the right corner side (file a or h).
+            Square wkSq = ksq[weak];
+            File queenFile = allA ? FILE_A : FILE_H;
+            return file_of(wkSq) == queenFile
+                || std::abs(int(file_of(wkSq)) - int(queenFile)) == 1;
+        };
+
+        Color str = strongerSide();
+        if (str != COLOR_NB) {
+            if (wrongBishopRookPawn(str)) {
+                eg = eg * params().WrongBishopRPScale / 100;
+            } else if (knightRookPawn(str)) {
+                eg = eg * params().KnightRPScale / 100;
+            }
+        }
+    }
+
+    // ---- KPK bitbase probe (Round 26, EG only) ----
+    // K + 1 pawn vs K is fully solvable. Probe the precomputed bitbase to
+    // get the exact win/draw result; if drawn, scale eg down. This catches
+    // the common "race to the queening square" cases the regular passed-
+    // pawn eval misjudges (the defender king is just in time / just too
+    // late).
+    {
+        bool kpvk =
+            popcount(pos.pieces(WHITE, PAWN))   == 1
+            && pos.pieces(BLACK, PAWN)   == 0
+            && pos.pieces(WHITE, KNIGHT) == 0
+            && pos.pieces(WHITE, BISHOP) == 0
+            && pos.pieces(WHITE, ROOK)   == 0
+            && pos.pieces(WHITE, QUEEN)  == 0
+            && pos.pieces(BLACK, KNIGHT) == 0
+            && pos.pieces(BLACK, BISHOP) == 0
+            && pos.pieces(BLACK, ROOK)   == 0
+            && pos.pieces(BLACK, QUEEN)  == 0;
+        bool kpvk_inv =
+            popcount(pos.pieces(BLACK, PAWN))   == 1
+            && pos.pieces(WHITE, PAWN)   == 0
+            && pos.pieces(WHITE, KNIGHT) == 0
+            && pos.pieces(WHITE, BISHOP) == 0
+            && pos.pieces(WHITE, ROOK)   == 0
+            && pos.pieces(WHITE, QUEEN)  == 0
+            && pos.pieces(BLACK, KNIGHT) == 0
+            && pos.pieces(BLACK, BISHOP) == 0
+            && pos.pieces(BLACK, ROOK)   == 0
+            && pos.pieces(BLACK, QUEEN)  == 0;
+        if (kpvk) {
+            Bitboard pawnBB = pos.pieces(WHITE, PAWN);
+            Square wp = pop_lsb(pawnBB);
+            bool won = KPK::probe(ksq[WHITE], wp, ksq[BLACK],
+                                  pos.side_to_move());
+            if (!won) eg = eg * params().KPKDrawScale / 100;
+        } else if (kpvk_inv) {
+            // Black is strong side. Mirror the position vertically so KPK
+            // probe (which expects white-as-strong-side) works.
+            Bitboard pawnBB = pos.pieces(BLACK, PAWN);
+            Square bp = pop_lsb(pawnBB);
+            // Flip ranks: rank 1 <-> rank 8, etc.
+            Square wpMirror = Square(int(bp) ^ 56);
+            Square wkMirror = Square(int(ksq[BLACK]) ^ 56);
+            Square bkMirror = Square(int(ksq[WHITE]) ^ 56);
+            Color  stmMirror = ~pos.side_to_move();
+            bool won = KPK::probe(wkMirror, wpMirror, bkMirror, stmMirror);
+            if (!won) eg = eg * params().KPKDrawScale / 100;
         }
     }
 
     phase = std::min(phase, MaxPhase);
     int score = (mg * phase + eg * (MaxPhase - phase)) / MaxPhase;
 
-    return Value((pos.side_to_move() == WHITE ? score : -score) + Tempo);
+    // Tapered tempo (Round 2): MG/EG split, Texel-tunable in eval_params.h.
+    int tempo = (params().TempoMG * phase
+               + params().TempoEG * (MaxPhase - phase)) / MaxPhase;
+
+    return Value((pos.side_to_move() == WHITE ? score : -score) + tempo);
 }
 
 }  // namespace hypersion::Eval
