@@ -13,11 +13,13 @@
 #include "search.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <random>
 #include <sstream>
+#include <vector>
 
 #include "evaluate.h"
 #include "misc.h"
@@ -236,7 +238,7 @@ namespace tunables {
 // 12 search-margin constants — pre-A3 (post-individual-sweep) values shown
 // inline; A3 SPSA-tuned defaults below shifted these by <2 % each but the
 // joint effect is +33 ELO @ 600g (see A3 tombstone block at bottom of namespace).
-int RFP_MARGIN_PER_DEPTH    = 240;    // Reverse futility (unchanged by A3).
+int RFP_MARGIN_PER_DEPTH    = 240;    // 2026-05-12 SPSA campaign regressed, reverted.
     // Sweep: 200 = -8.1 ELO at 129g; 280 = -15.6 ELO at 200g.
 int RAZOR_MARGIN_BASE       = 852;    // A3: 850 -> 852. Sweep history:
     // 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3 (kept pre-A3).
@@ -250,13 +252,13 @@ int SEE_QUIET_MARGIN        = -181;   // A3: -180 -> -181. Sweep history:
     // -150 = -70 ELO; -220 = -1.7 +/- 38.5 ELO.
 int SEE_CAPT_MARGIN         = -252;   // A3: -250 -> -252. Sweep history:
     // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
-int NMP_EVAL_BETA_DIV       = 803;    // A3: 800 -> 803. Sweep history:
+int NMP_EVAL_BETA_DIV       = 803;    // 2026-05-12 SPSA campaign regressed, reverted.
     // 600 -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
-int PROBCUT_MARGIN          = 802;    // A3: 800 -> 802. Manual sweep:
+int PROBCUT_MARGIN          = 802;    // 2026-05-12 SPSA campaign regressed, reverted.
     //   500: -24.4 ELO; 600: baseline; 800: +22.6 ELO (shipped); 1000: -45.4.
 int ASPIRATION_DELTA0       =  50;    // A3: 51 -> 50. Sweep history:
     // 30 = -10.4 ELO; 80 = +1.7 ELO.
-int STABILITY_SWING_TH      =  61;    // A3: 60 -> 61. Sweep history:
+int STABILITY_SWING_TH      =  61;    // 2026-05-12 SPSA campaign (8 params, 1600g) regressed -13.9 ELO @ 200g. Reverted.
     // 100 / 40 both regress vs 60.
 int QSEARCH_CAP_GAIN        = 3221;   // A9 joint: 3259 -> 3221. A3 was: 3300 -> 3259.
     // Sweep history: 2200 = -209 ELO @ 13g; 5000 = 0.0 ELO @ 30g.
@@ -392,7 +394,7 @@ int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 // continuous parameter region.
 int THREAT_BY_LESSER_PENALTY = -19;    // unchanged from pre-A5
 int THREAT_BY_LESSER_BONUS   =  20;    // unchanged from pre-A5
-int LMR_STATSCORE_DIV        = 7938;   // A9 joint: 8063 -> 7938. A5 was: 8192 -> 8063.
+int LMR_STATSCORE_DIV        = 7938;   // 2026-05-12 SPSA campaign regressed, reverted.
 
 // ---- A6 history.h gravity constants (2026-05-09) ----
 // HIST_MAX: saturation cap on history values. Used as both a clamp
@@ -501,7 +503,7 @@ int MATERIAL_SCALE_BASE = 77871;   // SF-tuned, A8 confirmed local optimum
 // run-confirm criteria established earlier in the session, SHIP.
 // Higher FALLING_EVAL_DIV means a SMALLER time bump per cp of eval
 // drop — Hypersion was over-weighting the falling-eval signal at /1000.
-int FALLING_EVAL_DIV =  1058;   // A10: 1000 -> 1058
+int FALLING_EVAL_DIV =  1058;   // 2026-05-12 SPSA campaign regressed, reverted.
 int EFFORT_TH        = 93340;   // SF-tuned, A10 confirmed
 int EFFORT_SCALE     =    76;   // SF-tuned, A10 confirmed
 
@@ -517,8 +519,8 @@ int EFFORT_SCALE     =    76;   // SF-tuned, A10 confirmed
 // as A6/A7/A8 already-tuned regions. SF's 0.5/0.75 stable-iter
 // scales are at Hypersion's local optimum too. Infrastructure stays
 // SHIPPED for future re-tuning campaigns.
-int STABLE_HIGH_SCALE =  50;   // SF-tuned, A11 confirmed local optimum
-int STABLE_LOW_SCALE  =  75;   // SF-tuned, A11 confirmed local optimum
+int STABLE_HIGH_SCALE =  50;   // 2026-05-12 SPSA campaign regressed, reverted.
+int STABLE_LOW_SCALE  =  75;   // 2026-05-12 SPSA campaign regressed, reverted.
 
 // SPSA campaign history — DO NOT REPEAT FAILED VARIANTS WITHOUT READING.
 //
@@ -618,6 +620,30 @@ inline bool is_shuffling(Move m, const Stack* ss, const Position& pos) {
         && prev1.from_sq() == prev2.to_sq();
 }
 
+// SF18 src/search.cpp:127 — `value_draw` randomises the returned draw
+// value by 2 cp based on a low bit of nodes searched. Without this, search
+// sees draw == exactly 0 and can lock into "alpha == beta == 0" equilibria
+// in won positions that lead to 3-fold repetition. The ±1 cp wobble forces
+// search to ALWAYS find SOMETHING better than a draw, breaking 3-fold
+// blindness. -contempt is folded in so user-set contempt still controls
+// how much we want to avoid draws.
+inline Value value_draw(std::uint64_t n, int contempt) {
+    return Value(int(n & 0x2) - 1 - contempt);   // -1-contempt or +1-contempt
+}
+
+// T1.1 (Kirin V8 port) — TOMBSTONED 2026-05-14.
+// Tried material-aware draw contempt: when STM materially ahead/behind,
+// penalty added to the returned draw value (up to ±50 cp) so search
+// avoids settling for draw when winning / accepts draw when losing.
+// Result: NNUE bench shifted by -13 nodes (1,273,328 -> 1,273,315) and
+// WAC depth-8 dropped 184 -> 182. The change is tiny but non-zero.
+// Search apparently relies on the exact draw value to stay at the
+// "right" magnitude for alpha-beta windows; small material-driven
+// shifts subtly change pruning. Reverted.
+// Future contributor: if this experiment is re-tried, gate it on
+// limits.contempt > 0 only (user-explicit anti-draw mode), not
+// always-on. Or use a much smaller penalty (<= 5 cp).
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -637,6 +663,12 @@ void Worker::clear() {
     materialCorrHist.clear();
     for (auto& ch : contHist) ch->clear();
     // Note: TT clearing is the pool's responsibility — done once across all threads.
+    // NOTE: 2026-05-12 added minor + nonpawn-W + nonpawn-B correction histories
+    // with SF18 weight blend (10347, 8821, 11665, 11665) → /42498/256 divisor.
+    // Bundled with NMP changes for LTC test. LTC 20g cumulative -34.9 ± 111
+    // ELO. Reverted. Future retry: add ONE corrhist at a time (just minor, or
+    // just nonpawn), not the full bundle. Storage cost: ~512KB per extra
+    // table per worker — manageable.
 }
 
 void Worker::decay_for_new_game() {
@@ -752,6 +784,15 @@ bool Worker::should_stop() {
     // Only the main worker enforces the clock — helpers run until the main
     // thread explicitly tells the pool to stop, so they keep filling the TT.
     if (isMain && !limits.infinite && limits.depth == 0) {
+        // NOTE: 2026-05-12 tried rate-limiting tm.elapsed() to once per
+        // 2048-node window via `if ((nodes.load() & 2047) != 0) return false;`
+        // (skips ~99.95 % of chrono calls; worst-case time-budget overrun
+        // ~2.7 ms at 770 kNPS — well inside the 30 ms moveOverhead buffer).
+        // Bench NPS over 15 runs: 719 k vs 726 k baseline = -1.0 % (noise).
+        // No measurable win — modern Windows steady_clock fast path
+        // (QPC/RDTSC) is ~30-50 ns rather than the assumed 200 ns, and
+        // the compiler likely already optimizes the branch-predicted
+        // common case well. Reverted to keep code simple.
         TimePoint el = tm.elapsed();
         if (el >= tm.maximum()) return true;
         // Soft preemption: once we've spent > 3 × optimum we abandon the current
@@ -835,17 +876,55 @@ void Worker::iterative_deepen(Position& pos) {
     }
 
     // ---- Root Syzygy probe ----
-    // When the position is in the tablebases, restrict root moves to those
-    // recommended by Fathom and report the TB-aware score immediately.
+    // SF18-style per-move ranking via probe_root_dtz: Fathom assigns each
+    // legal root move a tbRank where 1000 = "winning AND under no 50-move-
+    // rule risk" and lower ranks come from `1000 - (dtz + rule50)` when
+    // we're near the 50-move cliff. Above the cliff (dtz + rule50 > 99)
+    // ranks separate sharply: a 2-ply-faster move can be the difference
+    // between "ship in time" and "drawn by rule50".
+    //
+    // The legacy probe_root() bailed when rule50_count > 0, leaving the
+    // engine to king-shuffle through TB-winning K+P / K+R+P endgames at
+    // low time (user PGN game 2, drawn by 100-move adjudication despite a
+    // winning advantage). The new path fires regardless of rule50.
+    //
+    // Measured improvement (testing/test_endgame_conversion.py at TC
+    // wtime=2000 btime=2000 winc=0, 6 positions in 3-4-5 TB with rule50
+    // already 40-85):
+    //   PRE-DTZ (prevScore fix only):  2/6 converted to mate in 60 plies
+    //   POST-DTZ (this change):        4/6 converted to mate in 60 plies
+    // Both binaries: 0/6 TB-losing bestmoves. The fix converts where
+    // PRE-DTZ shuffles into a 50-move draw. Codex audit 2026-05-12.
+    //
+    // No SPRT was run because SPRT openings are middlegame-heavy and
+    // sample this regime sparsely. The targeted endgame test IS the
+    // benchmark for this change.
     if (isMain && Syzygy::is_loaded()) {
-        Syzygy::RootProbe tbp;
-        if (Syzygy::probe_root(pos, tbp) && tbp.bestMove != Move::none()) {
-            // Filter rootMoves to keep only the Syzygy-best move (and any
-            // legal alternative if the WDL is a draw — keeps variety).
-            for (auto& rm : rootMoves) if (rm.pv0 == tbp.bestMove) rm.score = tbp.score;
+        std::vector<Syzygy::RootMoveEntry> tbMoves;
+        if (Syzygy::probe_root_dtz(pos, tbMoves) && !tbMoves.empty()) {
+            int bestRank = INT_MIN;
+            Move bestMv  = Move::none();
+            for (auto& entry : tbMoves) {
+                if (entry.rank > bestRank) {
+                    bestRank = entry.rank;
+                    bestMv   = entry.move;
+                }
+                // Match Fathom move -> rootMove entry, propagate rank+score
+                // so the RootMove::operator< (tbRank desc, score desc) puts
+                // the TB-best move at index 0 of rootMoves.
+                for (auto& rm : rootMoves) {
+                    if (rm.pv0 == entry.move) {
+                        rm.tbRank = entry.rank;
+                        rm.score  = entry.score;
+                        break;
+                    }
+                }
+            }
             std::stable_sort(rootMoves.begin(), rootMoves.end());
-            std::cout << "info string syzygy: " << move_uci(tbp.bestMove)
-                      << " (wdl=" << tbp.wdl << ")" << std::endl;
+            std::cout << "info string syzygy: " << move_uci(bestMv)
+                      << " (rank=" << bestRank
+                      << ", rule50=" << pos.rule50_count() << ")"
+                      << std::endl;
         }
     }
 
@@ -1062,6 +1141,10 @@ void Worker::iterative_deepen(Position& pos) {
     PVLine bestPV;
 
     Value prevScore       = -VALUE_INFINITE;
+    bool  havePrevScore   = false;  // gates readers of prevScore — covers SMP-
+                                    // helper case where threads skip early
+                                    // depths and would otherwise compare
+                                    // against the sentinel.
     Move  prevBestMove    = Move::none();
     int   bestMoveChanges = 0;     // how many recent iterations changed bestmove
     int   stableIters     = 0;     // consecutive iterations with same bestmove + small score change
@@ -1199,7 +1282,34 @@ void Worker::iterative_deepen(Position& pos) {
         for (auto& rm : rootMoves) rm.prevScore = rm.score;
 
         bestMove       = rootMoves[0].pv0;
-        prevScore      = bestScore;
+        // NOTE: prevScore is intentionally NOT updated here. It must hold
+        // the previous COMPLETED iteration's bestScore for the smallSwing
+        // (line ~1242) and fallingEval (line ~1298) comparisons below.
+        //
+        // Bug found 2026-05-12 by Codex audit, confirmed by source
+        // inspection: pre-fix this assignment lived here, making
+        // `bestScore - prevScore` always 0 -> smallSwing permanently true
+        // (stableIters incremented unconditionally -> 0.5x time scale too
+        // aggressively), fallingEval permanently 1.0 (eval-drop time bump
+        // never fired). SPSA-tuned STABILITY_SWING_TH=61 and
+        // FALLING_EVAL_DIV=1058 were tuned over dead code.
+        //
+        // Update now at the bottom of the iteration body after both
+        // smallSwing and fallingEval have read the old value. A
+        // `havePrevScore` boolean (instead of `d > 1`) gates readers, so
+        // SMP-helper threads that skip early depths (line ~1099) don't
+        // compare bestScore against the sentinel -VALUE_INFINITE.
+        //
+        // SPRT measurement (2026-05-12, conc=6, TC 5+0.05):
+        //   POST-FIX vs PRE-FIX (200g):                 -3.5 +/- 35.5 ELO
+        //   ABLATION (no fallingEval) vs PRE-FIX (200g): -6.9 +/- 38.6 ELO
+        // Statistically indistinguishable from no-op. Code is correct now;
+        // both formerly-dead heuristics are firing within their tuned
+        // ranges, but they nearly cancel at bullet TC (smallSwing
+        // tightening slightly slows play, fallingEval bump slightly speeds
+        // conversion). Path to recover ELO: SPSA retune
+        // STABILITY_SWING_TH + FALLING_EVAL_DIV over the now-active code,
+        // and validate at LTC where Codex prior was "+5 to +15 ELO".
         completedDepth = d;
 
         // Only the main worker emits UCI info. Helpers run silently to keep
@@ -1216,7 +1326,11 @@ void Worker::iterative_deepen(Position& pos) {
         if (std::abs(bestScore) >= VALUE_MATE_IN_MAX_PLY) break;
 
         // Track score / bestmove stability for time scaling.
-        if (d > 1) {
+        // Gate on havePrevScore (not d > 1): SMP-helper threads may skip
+        // early depths via the distribution at line ~1091 and thus first
+        // arrive here at d > 1 with prevScore still at the sentinel
+        // -VALUE_INFINITE. Codex audit P3, 2026-05-12.
+        if (havePrevScore) {
             bool sameMove   = (bestMove == prevBestMove);
             bool smallSwing = std::abs(int(bestScore - prevScore)) < STABILITY_SWING_TH;
             if (sameMove && smallSwing) ++stableIters;
@@ -1273,7 +1387,7 @@ void Worker::iterative_deepen(Position& pos) {
             //
             // Scale: Hypersion's eval is at SF's 5x scale, so divide
             // the eval-drop-to-time factor by 5 vs SF's coefficient.
-            if (d > 1) {
+            if (havePrevScore) {
                 int drop = int(prevScore - bestScore);   // > 0 when eval dropped
                 // A10: pre-tunable was hardcoded /1000.0
                 double fallingEval = std::clamp(1.0 + double(drop) / double(FALLING_EVAL_DIV),
@@ -1395,6 +1509,13 @@ void Worker::iterative_deepen(Position& pos) {
             optScaled = std::min<TimePoint>(optScaled, tm.maximum());
             if (tm.elapsed() > optScaled) break;
         }
+
+        // End-of-iteration: save this iter's bestScore so the NEXT iter can
+        // compare against it via smallSwing / fallingEval. Pre-2026-05-12 this
+        // happened at the top of the iteration, before the comparisons —
+        // making them no-ops. See the long comment higher in this loop.
+        prevScore     = bestScore;
+        havePrevScore = true;
     }
 
 done:
@@ -1438,7 +1559,8 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     int ply = ss->ply;
     if (ply > selDepth) selDepth = ply;
     if (should_stop()) return VALUE_ZERO;
-    if (pos.is_draw(ply)) return Value(-limits.contempt);   // STM perspective
+    if (pos.is_draw(ply))
+        return value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
     if (ply >= MAX_PLY)   return Eval::evaluate(pos);
 
     bool inCheck = pos.checkers();
@@ -1541,7 +1663,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     if (should_stop())   return VALUE_ZERO;
     if (depth <= 0)      return qsearch(pos, ss, alpha, beta, isPv);
     if (ply >= MAX_PLY)  return Eval::evaluate(pos);
-    if (pos.is_draw(ply))return Value(-limits.contempt);   // STM perspective
+    if (pos.is_draw(ply))
+        return value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
@@ -1666,6 +1789,20 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             improving = true;   // unknown → assume improving, gentler pruning
     }
 
+    // SF18 opponentWorsening flag (src/search.cpp:751). True when our static
+    // eval is better-for-us than opponent's was at their last ply. Used to
+    // sharpen pruning margins — when opponent is doing worse, we can prune
+    // more aggressively because their refutation is less likely.
+    bool opponentWorsening = false;
+    if (!inCheck && ply >= 1 && (ss - 1)->staticEval != VALUE_NONE)
+        opponentWorsening = staticEval > -(ss - 1)->staticEval;
+
+    // NOTE: 2026-05-12 tested SF18:859-867 eval-diff history bonus port
+    // (update opponent's mainHistory at node entry based on -(prev_eval +
+    // cur_eval) clamped + scaled). Hypersion 5x-scale port with bonus
+    // multiplier 9/5: -88.7 ± 165 ELO @ 12g. Direct port regresses for
+    // same local-optimum reason as opponentWorsening RFP. Reverted.
+
     // NOTE: rounds 7/8/10/12 added an `opponentWorsening` flag and used it
     // in RFP, futility, ProbCut, and razoring margins. Each individual A/B
     // showed strong positive results (+33, +117, +35, +102), but a final
@@ -1678,6 +1815,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // in testing/IMPROVEMENTS_LOG.md.
 
     // ---- Reverse Futility Pruning (Static Null-Move) ----
+    // NOTE: 2026-05-12 opponentWorsening RFP margin reduction tested TWICE:
+    //   825 cp: -114 ± 118 ELO @ 22g (way too aggressive)
+    //    40 cp: -44 ± 94 ELO @ 40g (still negative, SF-calibrated mag)
+    // Even SF's mathematical-equivalent magnitude fails in Hypersion. The
+    // local-optimum hypothesis is confirmed: SF's RFP works with its full
+    // pruning stack (5 corrhists, ttHit-adjusted futilityMult, etc); the
+    // opponentWorsening sub-term can't be ported in isolation. SF docs
+    // confirm individual heuristics are tested at fishtest with tens of
+    // thousands of games against the full engine — single-feature ports
+    // to differently-tuned engines often fail.
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
         && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
@@ -1718,6 +1865,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // UCI_AnalyseMode skips NMP: forcing-line analysis can miss zugzwang
     // mate-threats when NMP cuts the entire ZW branch. At analysis time
     // the cost of being thorough is acceptable.
+    // NOTE: 2026-05-12 tested SF18-style NMP gate `cutNode` + base R=7
+    // (drop eval-beta term) + capHist 1.13x update scaling + dynamic
+    // ProbCut depth + multi-corrhist expansion as a bundle. LTC 20g @
+    // TC 30+0.3 vs prior shipped: -34.9 +/- 111.3 ELO (4W-6L-10D).
+    // CI crosses 0 but trajectory dropped from +50 ELO at game 13 to
+    // -34.9 final — late games lost. Conversion test was flat at 4/6.
+    // REVERTED back to single-port stack.
     if (!isPv && !inCheck && depth >= 3
         && !limits.analyseMode
         && (ss - 1)->currentMove != Move::null()
@@ -1759,6 +1913,9 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     if (!isPv && !inCheck && depth >= 5
         && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
         && ss->excludedMove == Move::none()) {
+        // NOTE: SF18-style dynamic probCutDepth (depth - 5 - (eval-beta)/315)
+        // tested 2026-05-12 bundled with NMP changes; LTC cumulative -34.9
+        // ELO. Reverted to fixed depth - 4.
         Value probCutBeta = std::min<int>(beta + PROBCUT_MARGIN, VALUE_INFINITE - 1);
         MovePicker pcMp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0);
         Move m;
@@ -1784,7 +1941,42 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             }
             pos.undo_move(m);
             if (should_stop()) return VALUE_ZERO;
-            if (v >= probCutBeta) return v;
+            if (v >= probCutBeta) {
+                // SF18 src/search.cpp:977-978: ProbCut confirmed `v >=
+                // probCutBeta` (= beta + margin), but the reduced search only
+                // proved "score is at least probCutBeta". Returning v as-is
+                // claims the full margin's worth of score even when v was
+                // only barely above the threshold. SF returns `v - (probCutBeta
+                // - beta)` which subtracts the margin back so the returned
+                // score doesn't overclaim. Pre-2026-05-12 Hypersion returned
+                // v directly — too optimistic, especially when TT stores it.
+                // Only adjust non-decisive scores (mate/TB stays as-is).
+                if (std::abs(v) < VALUE_MATE_IN_MAX_PLY)
+                    return Value(int(v) - int(probCutBeta - beta));
+                return v;
+            }
+        }
+    }
+
+    // ---- Small ProbCut (SF18 src/search.cpp:985-989) ----
+    // TT-based fail-high shortcut: when the TT entry is a LOWER bound at
+    // sufficient depth AND its stored value is well above beta (by 418 cp
+    // in SF's scale = ~2000 in Hypersion's 5x scale), we can return early
+    // without searching. Cheap check, no recursive search needed. Codex
+    // flagged this as untested in Hypersion's prior audit.
+    //
+    // 2026-05-12: ported with classical-eval-aware port (NNUE-off testing
+    // mode); will A/B vs prior shipped at fast TC + endgame conversion.
+    {
+        Value smallProbCutBeta = std::min<int>(beta + 2090, VALUE_INFINITE - 1);
+        if (!isPv && !inCheck
+            && ttHit && tte->bound() == BOUND_LOWER
+            && tte->depth() >= depth - 4
+            && ttValue != VALUE_NONE && ttValue >= smallProbCutBeta
+            && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
+            && std::abs(ttValue) < VALUE_MATE_IN_MAX_PLY)
+        {
+            return smallProbCutBeta;
         }
     }
 
@@ -1799,6 +1991,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // with priorReduction's plumbing being live.
     if ((isPv || cutNode) && depth >= 4 && ttMove == Move::none())
         depth -= 1;
+
+    // SF18 src/search.cpp:927 — upgrade `improving` to also be true when
+    // the current static eval is at or above beta, not just when it grew
+    // from 2/4 plies ago. The original `improving` only flips true if the
+    // STM's eval trajectory is rising; this catches the case where eval is
+    // already strong (>= beta) but happens to be flat or even slightly
+    // worsening over recent plies. Used downstream by LMP (lmp_threshold
+    // takes `improving`) and per-move pruning margins. Gentler pruning in
+    // good positions = fewer false cutoffs at depth.
+    improving |= staticEval >= beta;
 
     // Counter-move and previous-move bookkeeping for continuation history lookups.
     Move  prevMove1  = (ss - 1)->currentMove;
@@ -2034,15 +2236,26 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             v = -search(pos, ss + 1, -beta, -alpha, newDepth, childPv, isPv, false);
         } else {
             // Reduced null-window search.
-            v = -search(pos, ss + 1, -alpha - 1, -alpha, newDepth - r, childPv,
+            int reducedDepth = newDepth - r;
+            v = -search(pos, ss + 1, -alpha - 1, -alpha, reducedDepth, childPv,
                         /*isPv=*/false, true);
-            // If reduced search beat alpha, re-search at full depth.
-            if (!should_stop() && v > alpha && r > 0)
-                v = -search(pos, ss + 1, -alpha - 1, -alpha, newDepth, childPv,
+            // SF18 src/search.cpp:1250-1253 doDeeper/doShallower full-depth
+            // re-search depth adjustment. When the reduced search returned
+            // way above bestValue, the position is more interesting than we
+            // thought — search deeper on re-search. When it barely beat
+            // alpha, the move isn't that strong — search shallower.
+            // Magnitudes in SF's cp: +50/-9. Hypersion 5x scale: +250/-45.
+            int adjustedDepth = newDepth;
+            if (!should_stop() && v > alpha && r > 0) {
+                bool doDeeper    = reducedDepth < newDepth && v > bestValue + 250;
+                bool doShallower = v < bestValue + 45;
+                adjustedDepth += int(doDeeper) - int(doShallower);
+                v = -search(pos, ss + 1, -alpha - 1, -alpha, adjustedDepth, childPv,
                             /*isPv=*/false, !cutNode);
+            }
             // If still better than alpha and we're in a PV node, full window re-search.
             if (!should_stop() && v > alpha && (isPv || v < beta))
-                v = -search(pos, ss + 1, -beta, -alpha, newDepth, childPv,
+                v = -search(pos, ss + 1, -beta, -alpha, adjustedDepth, childPv,
                             /*isPv=*/true, false);
         }
 
@@ -2131,20 +2344,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));
                         if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
-                        // NOTE: tested SF18 capture-history scaling
-                        // (best capture: bonus*1395/1024 = +36% emphasis,
-                        // tried-but-failed: -bonus*1448/1024 = +41% demote)
-                        // matching SF18 src/search.cpp:1856,1869.
-                        // Result: 30g triage +23.2 +/- 98.9, 200g confirm
-                        // +5.2 +/- 36.3 — at the PROTOCOL.md REJECT bar
-                        // (<= +5 with CI ±35).  The trend is mildly
-                        // positive but not clean enough to ship.
-                        // Future retry: try smaller scaling (1.10-1.20x)
-                        // or sweep with longer SPRT (300-500g) since the
-                        // signal might be real-but-weak. Hypersion's
-                        // bonus is already much larger than SF's at low
-                        // depth (quadratic vs linear), so SF's exact
-                        // multiplier may over-amplify here.
+                        // NOTE: SF18 capture-history scaling re-tested 2026-
+                        // 05-12 at smaller 1.13x (vs prior 1.395x at +5.2
+                        // ELO borderline). Bundled with NMP changes; LTC
+                        // 20g cumulative -34.9 ± 111. Reverted.
                         captureHist.update(moving, m.to_sq(), victim, bonus);
                     }
                     for (int i = 0; i < captureCount; ++i) {
