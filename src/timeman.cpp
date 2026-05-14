@@ -53,6 +53,16 @@ void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
     int64_t inc       = std::max<int64_t>(limits.inc[us], 0);
     int     mtg       = limits.movestogo > 0 ? limits.movestogo : MOVE_HORIZON;
 
+    // SF18-style: gradually reduce moves-to-go when time is low (< 1 sec).
+    // SF formula: centiMTG = scaledTime * 5.051 (so mtg = scaledTime / 19.8).
+    // Without this, the engine assumes ~40 more moves to play even when
+    // it has 200ms left, producing optimum=5ms per move - too tight.
+    // With this, at remaining=500ms -> mtg=25, optimum=20ms. At
+    // remaining=200ms -> mtg=10, optimum=20ms. Much safer for bullet
+    // flag-out conversion.
+    if (limits.movestogo == 0 && remaining < 1000)
+        mtg = std::max(2, int(remaining / 20));
+
     // Optimum: divide remaining roughly evenly + a chunk of the increment.
     int64_t optimum = remaining / mtg + (inc * 3) / 4;
     optimum = std::min(optimum, remaining / 2);   // never spend more than half on a single move
