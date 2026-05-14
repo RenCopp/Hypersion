@@ -443,7 +443,7 @@ struct Params {
     // QuadraticTheirs in src/imbalance.h). Computed score is applied to
     // mg only (SF practice), scaled by ImbalanceScale / 100. Disabled
     // at 0 by default until tuned.
-    int ImbalanceScale        = 0;
+    int ImbalanceScale        = 2;   // tiny activation; bench unchanged
 };
 
 // Single global instance; mutable. Default-constructed with the values
