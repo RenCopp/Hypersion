@@ -239,22 +239,26 @@ namespace tunables {
 // inline; A3 SPSA-tuned defaults below shifted these by <2 % each but the
 // joint effect is +33 ELO @ 600g (see A3 tombstone block at bottom of namespace).
 int RFP_MARGIN_PER_DEPTH    = 240;    // 2026-05-12 SPSA campaign regressed, reverted.
+                                       // 2026-05-14 Joint A+B SPSA also regressed (-20.9 ELO @ 200g
+                                       // nodes=50000): tried 202; SPRT REJECTED. Reverted to 240.
     // Sweep: 200 = -8.1 ELO at 129g; 280 = -15.6 ELO at 200g.
 int RAZOR_MARGIN_BASE       = 852;    // A3: 850 -> 852. Sweep history:
     // 600 = 0.0 +/- 36.4 ELO; 850 = +3.5 +/- 38.3 (kept pre-A3).
 int RAZOR_MARGIN_PER_DEPTH  = 383;    // A9 joint: 387 -> 383. A3 was: 390 -> 387.
     // Sweep history: 300 = -34.9 ELO @ 30g; 480 = +46.6 @ 30g but -51.6 @ 61g.
-int FUTIL_MARGIN_PER_DEPTH  = 397;    // A3: 400 -> 397. Sweep history:
+int FUTIL_MARGIN_PER_DEPTH  = 397;    // Joint A+B SPSA tried 400 (no-op-ish), REJECTED. Sweep history:
     // 330 -> 400 was +15.6 +/- 37.6 ELO @ 200g.
 int FUTIL_MARGIN_BASE       = 385;    // A3: 390 -> 385. Sweep history:
     // 480 = -23.2 ELO; 300 = -46.6 ELO. Both directions worse than 390.
-int SEE_QUIET_MARGIN        = -181;   // A3: -180 -> -181. Sweep history:
+int SEE_QUIET_MARGIN        = -181;   // Joint A+B SPSA tried -155, REJECTED. Sweep history:
     // -150 = -70 ELO; -220 = -1.7 +/- 38.5 ELO.
-int SEE_CAPT_MARGIN         = -252;   // A3: -250 -> -252. Sweep history:
+int SEE_CAPT_MARGIN         = -252;   // Joint A+B SPSA tried -246, REJECTED. Sweep history:
     // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
 int NMP_EVAL_BETA_DIV       = 803;    // 2026-05-12 SPSA campaign regressed, reverted.
+                                       // 2026-05-14 Joint A+B SPSA tried 859, REJECTED (-20.9 ELO).
     // 600 -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
 int PROBCUT_MARGIN          = 802;    // 2026-05-12 SPSA campaign regressed, reverted.
+                                       // 2026-05-14 Joint A+B SPSA tried 757, REJECTED (-20.9 ELO).
     //   500: -24.4 ELO; 600: baseline; 800: +22.6 ELO (shipped); 1000: -45.4.
 int ASPIRATION_DELTA0       =  50;    // A3: 51 -> 50. Sweep history:
     // 30 = -10.4 ELO; 80 = +1.7 ELO.
@@ -395,6 +399,7 @@ int TM_EASY_GAP40       =  85;   // pre-A4: 0.85, A4 unchanged
 int THREAT_BY_LESSER_PENALTY = -19;    // unchanged from pre-A5
 int THREAT_BY_LESSER_BONUS   =  20;    // unchanged from pre-A5
 int LMR_STATSCORE_DIV        = 7938;   // 2026-05-12 SPSA campaign regressed, reverted.
+                                        // 2026-05-14 Joint A+B SPSA tried 8488, REJECTED.
 
 // ---- A6 history.h gravity constants (2026-05-09) ----
 // HIST_MAX: saturation cap on history values. Used as both a clamp
