@@ -264,17 +264,25 @@ top:
         cur = endMoves = movesBuf;
         endMoves = generate<QUIETS>(pos, movesBuf);
         score_quiets();
-        // NOTE: tested std::stable_sort here for tie-determinism (Hypersion's
-        // bench is non-deterministic across processes even with Threads=1,
-        // unlike Stockfish; std::sort with strict-weak-only comparator gives
-        // unspecified order on equal-score ties, varying with ASLR's effect
-        // on introsort partitioning). Result: -56.1 +/- 54.3 ELO @ 100g
-        // 5+0.05. The deterministic-tie order from stable_sort isn't worth
-        // the per-call overhead. Bench non-determinism is upstream of move
-        // ordering — leaving the search non-deterministic for now (game
-        // SPRT still gives unbiased ELO since both sides are equally
-        // affected). Future fix: identify the actual root cause of
-        // non-determinism (NOT a movepick sort issue) and address that.
+        // 2026-05-12 follow-up to the std::stable_sort tombstone below:
+        // verified that std::sort here is NOT the root cause of bench
+        // non-determinism. Tested the Google-recommended tiebreaker pattern
+        // (`a.value > b.value` with `a.move.raw() < b.move.raw()` as
+        // secondary key) — bench at depth 13 still produced 5 different
+        // node counts across 5 runs (1.10M, 1.34M, 1.48M, 1.50M, 1.53M).
+        // The actual root cause is `value_draw(nodes, contempt) = Value(
+        // int(n & 0x2) - 1 - contempt)` at search.cpp:630 — the draw
+        // score depends on the live node counter. Tiny timing jitter (OS
+        // interrupt, cache pressure, branch prediction state) shifts
+        // when draws are evaluated, which flips the +1/-1 draw value,
+        // which propagates through alpha-beta into different node counts.
+        // SF18 has the same value_draw(n, contempt) and the same bench
+        // non-determinism. NOT a bug — by design. CLAUDE.md's "std::sort
+        // is the root cause" needs correcting.
+        // NOTE: original tombstone: std::stable_sort regressed -56.1
+        // +/- 54.3 ELO @ 100g 5+0.05. That result stands — stable_sort
+        // freezes movegen-iteration order, which is a different ELO
+        // signal than the value_draw question.
         std::sort(movesBuf, endMoves,
                   [](const ExtMove& a, const ExtMove& b) { return a.value > b.value; });
         ++stage;

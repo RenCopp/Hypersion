@@ -131,8 +131,8 @@ TUNER_SRCS   = tools/tuner/tuner.cpp \
                src/zobrist.cpp src/misc.cpp src/evaluate.cpp
 tuner: $(TUNER_TARGET)
 $(TUNER_TARGET): $(TUNER_SRCS)
-	$(CXX) $(STD) $(WARN) $(ARCH_FLAGS) -O3 -DNDEBUG -fno-exceptions \
-	    -o $@ $(TUNER_SRCS) -static -static-libstdc++ -static-libgcc -Wl,--stack,16777216
+	$(CXX) $(STD) $(WARN) $(ARCH_FLAGS) -O3 -DNDEBUG -fno-exceptions -fopenmp \
+	    -o $@ $(TUNER_SRCS) -static -static-libstdc++ -static-libgcc -Wl,--stack,16777216 -fopenmp
 	@echo "Built $@"
 
 # ----- PGN-to-positions extractor (for the tuner) --------------------------

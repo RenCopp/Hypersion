@@ -668,6 +668,13 @@ struct Network {
             for (int pt = PAWN; pt <= KING; ++pt) {
                 Piece attacker = make_piece(c, PieceType(pt));
                 Bitboard bb = pos.pieces(c, PieceType(pt));
+                // The `attacks &= occ` filter below guarantees that every
+                // bit in the inner loop targets an occupied square, so
+                // `pos.piece_on(to)` is always a real Piece — the
+                // `if (attacked == NO_PIECE) continue;` line that used to
+                // gate the body in each of the three sub-loops here was
+                // dead. Removed 2026-05-13 (verified deterministic-bench
+                // NNUE-on: 1,273,328 nodes unchanged across the cleanup).
                 if (pt == PAWN) {
                     int fwd_r = (c == WHITE) ?  9 : -7;
                     int fwd_l = (c == WHITE) ?  7 : -9;
@@ -680,7 +687,6 @@ struct Network {
                         Square to = pop_lsb(atk_r);
                         int from = int(to) - fwd_r;
                         Piece attacked = pos.piece_on(to);
-                        if (attacked == NO_PIECE) continue;
                         int idx = threat_index(persp, int(attacker), from, int(to),
                                                int(attacked), ksq);
                         if (idx < 0 || idx >= THREAT_DIM) continue;
@@ -692,7 +698,6 @@ struct Network {
                         Square to = pop_lsb(atk_l);
                         int from = int(to) - fwd_l;
                         Piece attacked = pos.piece_on(to);
-                        if (attacked == NO_PIECE) continue;
                         int idx = threat_index(persp, int(attacker), from, int(to),
                                                int(attacked), ksq);
                         if (idx < 0 || idx >= THREAT_DIM) continue;
@@ -716,7 +721,6 @@ struct Network {
                         while (attacks) {
                             Square to = pop_lsb(attacks);
                             Piece attacked = pos.piece_on(to);
-                            if (attacked == NO_PIECE) continue;
                             int idx = threat_index(persp, int(attacker), int(from), int(to),
                                                    int(attacked), ksq);
                             if (idx < 0 || idx >= THREAT_DIM) continue;
@@ -913,14 +917,17 @@ struct Network {
         // A8: pre-tunable was hardcoded 77871.
         const int matBase = Search::tunables::MATERIAL_SCALE_BASE;
         int v = (nnue * (matBase + mat)) / matBase;
-        // NOTE: tried SF18 rule-50 eval damping (`v -= v * rule50_count /
-        // 199`) here. Result: -13.9 +/- 39.2 ELO at 200g 5+0.05.
-        // CI crosses zero but point estimate mildly negative; combined
-        // with neutral verification result vs v2 (+1.7 ELO) the change
-        // would push the cumulative below v2 baseline. Long-TC test
-        // would be needed to reliably measure (the benefit shows in
-        // long endgames where rule50 reaches the damping zone, which
-        // are rare at 5+0.05). Left as future work.
+        // NOTE: SF18 rule-50 eval damping (`v -= v * rule50_count / 199`)
+        // tested twice:
+        //   2026-05-08: SPRT @ 5+0.05 200g: -13.9 +/- 39.2 ELO
+        //   2026-05-12: testing/test_endgame_conversion.py (the user-
+        //     directed endgame regime where the damping should help most):
+        //     POST-ABCD avg 4.33/6 vs POST-AB avg 4.67/6 (within noise,
+        //     point estimate slightly negative even where it should help).
+        // Damping uniformly attenuates eval for all moves at a given
+        // rule50, so RELATIVE move ordering barely changes — the engine
+        // doesn't pick different moves, just slightly different scores.
+        // TOMBSTONED — port doesn't translate to Hypersion's calibration.
         // Attenuate raw NNUE output to match Hypersion's classical-eval
         // magnitude (search params are Texel-tuned to that scale). Measured:
         // raw NNUE avg|v|=636, classical avg|v|=220, so divisor ~= 636/220 =

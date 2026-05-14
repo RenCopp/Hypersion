@@ -32,7 +32,22 @@ struct RootMove {
     // move was the one being explored. Used by `bestMoveEffort` time scaling
     // — when one root move dominates the search, time can be saved.
     std::uint64_t effort = 0;
-    bool    operator<(const RootMove& other) const { return score > other.score; }
+    // SF18-style Syzygy rank from tb_probe_root_dtz. 1000 = TB-winning AND
+    // DTZ-optimal; lower = winning-but-slower; <=0 = draw/loss. Default 0
+    // means "not set" so non-TB positions sort by score alone. Set at root
+    // by the Syzygy block in iterative_deepen() before search begins.
+    int     tbRank   = 0;
+    // Sort order:
+    //   1. Descending tbRank (TB-best moves first)
+    //   2. Descending score (NNUE eval tiebreak within TB-equal moves)
+    // This puts the TB-optimal move at position 0 of rootMoves regardless
+    // of what NNUE thinks, and uses NNUE to order the rest. Crucial for
+    // endgame conversion at low TC where NNUE alone gets the WDL right but
+    // picks a slow DTZ move.
+    bool    operator<(const RootMove& other) const {
+        if (tbRank != other.tbRank) return tbRank > other.tbRank;
+        return score > other.score;
+    }
 };
 
 // Per-ply state passed down the search recursion.
@@ -145,6 +160,10 @@ private:
     CorrectionHistory materialCorrHist;   // SF18-style: a second correction
                                           // source keyed by material distribution
                                           // rather than pawn structure.
+    // NOTE: 2026-05-12 added minorCorrHist + nonPawnCorrHist[2] with SF18
+    // weight blend. LTC 20g cumulative -34.9 ± 111 ELO when bundled with
+    // other SF18 ports. Reverted. Tables stay declared as dead code in case
+    // a future contributor wants to retry with single-port discipline.
     // Continuation-history tables, one per lookback distance.
     // contHist[i] tracks (prev-(i+1)-ply move) -> current-move bonus.
     // contHist[0] = 1-ply lookback (counter-move history).

@@ -80,10 +80,35 @@ Value TranspositionTable::value_to_tt(Value v, int ply) {
           : v <= -VALUE_MATE_IN_MAX_PLY ? Value(v - ply)
                                         : v;
 }
-Value TranspositionTable::value_from_tt(Value v, int ply, int /*rule50*/) {
+Value TranspositionTable::value_from_tt(Value v, int ply, int rule50) {
     if (v == VALUE_NONE) return VALUE_NONE;
-    if (v >=  VALUE_MATE_IN_MAX_PLY) return Value(v - ply);
-    if (v <= -VALUE_MATE_IN_MAX_PLY) return Value(v + ply);
+
+    // SF18 src/search.cpp:1763-1805: when a stored mate/TB-win score requires
+    // more plies to deliver than the 50-move rule allows, the score is
+    // "potentially false" — the 50-move rule will draw before we get to
+    // execute the mating sequence. In that case, downgrade to a generic
+    // "winning, but not a confirmed mate" value so the search keeps looking
+    // for a fast conversion instead of trusting a stale mate score.
+    //
+    // Pre-2026-05-12 Hypersion ignored rule50, which meant the engine could
+    // commit to a "mate-in-30" line that actually drew by the 50-move rule
+    // in the resulting position. Codex audit #2.
+    //
+    // VALUE_MATE - v = the mate distance encoded in the stored score.
+    // 100 - rule50  = plies remaining before the 50-move rule fires
+    //                 (rule50 is a half-move counter).
+    // If mate distance > rule50 budget → can't actually deliver the mate.
+
+    if (v >= VALUE_MATE_IN_MAX_PLY) {
+        if (VALUE_MATE - v > 100 - rule50)
+            return Value(VALUE_MATE_IN_MAX_PLY - 1);   // "decisive but uncertain"
+        return Value(v - ply);
+    }
+    if (v <= -VALUE_MATE_IN_MAX_PLY) {
+        if (VALUE_MATE + v > 100 - rule50)
+            return Value(-VALUE_MATE_IN_MAX_PLY + 1);  // "decisive but uncertain"
+        return Value(v + ply);
+    }
     return v;
 }
 

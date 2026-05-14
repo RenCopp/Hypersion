@@ -144,6 +144,7 @@ public:
     Key      key()                          const { return st->key; }
     Key      pawn_key()                     const { return st->pawnKey; }
     Key      material_key()                 const { return st->materialKey; }
+    Key      minor_key()                    const { return st->minorKey; }
     Key      non_pawn_key(Color c)          const { return st->nonPawnKey[c]; }
     Value    non_pawn_material(Color c)     const { return st->nonPawnMaterial[c]; }
     Value    non_pawn_material()            const { return st->nonPawnMaterial[WHITE] + st->nonPawnMaterial[BLACK]; }
