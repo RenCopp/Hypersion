@@ -74,7 +74,7 @@ endif
 # -----------------------------------------------------------------------------
 WARN     = -Wall -Wextra -Wcast-qual -Wshadow -pedantic -Wno-unused-parameter
 COMMON   = $(STD) $(WARN) $(ARCH_FLAGS) -pthread
-RELEASE  = -O3 -DNDEBUG -flto -fno-exceptions
+RELEASE  = -O3 -DNDEBUG -flto=auto -fno-exceptions
 # NOTE: tried -funroll-loops; bench showed +9% NPS but 200g 5+0.05 match
 # regressed -22.6 ELO. Likely cause: aggressive unrolling expands the
 # instruction footprint, hurting i-cache hit rate when 8 cutechess
@@ -94,7 +94,7 @@ RELEASE  = -O3 -DNDEBUG -flto -fno-exceptions
 DEBUG    = -O0 -g3 -fsanitize=address,undefined -fno-omit-frame-pointer
 
 CXXFLAGS ?= $(COMMON) $(RELEASE)
-LDFLAGS  += -pthread -flto
+LDFLAGS  += -pthread -flto=auto
 
 # Windows: static-link libstdc++ / libgcc so the .exe is portable.
 # Bump default stack to 16 MB — qsearch can recurse deep with large MovePicker buffers on stack.
@@ -196,12 +196,24 @@ clean:
 	@rm -rf $(OBJDIR) $(TARGET)
 	@echo "Cleaned."
 
+# Fast sanity check after any change to src/. Runs deterministic bench
+# and reports the node count vs the v3.1 baseline. Use this BEFORE
+# pushing any non-trivial change to catch unintended search-behavior
+# shifts. Exit status non-zero if bench differs.
+verify: build
+	@echo "Running bench (Threads=1)..."
+	@printf 'setoption name Threads value 1\nbench 13\n' | ./$(TARGET) 2>&1 | grep "Nodes searched :"
+	@printf 'setoption name Threads value 1\nbench 13\n' | ./$(TARGET) 2>&1 | grep -q "Nodes searched : 1273328" \
+	  && echo "[OK] bench=1273328 (v3.1 baseline preserved)" \
+	  || (echo "[!!] bench differs from 1273328 -- explain in commit message"; exit 1)
+
 help:
 	@echo "Hypersion Makefile targets:"
 	@echo "  make build    - release build (default)"
 	@echo "  make debug    - debug build with sanitizers"
 	@echo "  make profile  - PGO build"
 	@echo "  make bench    - build and run bench"
+	@echo "  make verify   - build + bench, fail if signature drifts"
 	@echo "  make clean    - remove build artifacts"
 	@echo ""
 	@echo "Architecture selection: ARCH=x86-64-avx2|x86-64-bmi2|x86-64-avx512|native"
