@@ -1,5 +1,51 @@
 # Hypersion CHANGELOG
 
+## Session 2026-05-15 — anti-patterns + infrastructure cleanup
+
+7 commits, all green CI. No engine ELO shipped — confirmed two
+parallel rejections of the "give first own search more resources"
+class of changes, and consolidated build / docs.
+
+### Engine experiments (both REJECTED, tombstoned)
+- **v8 H1** — boost optimum-time budget +30 % for the first 3 own
+  searches per game. Hypothesis: TT-cold searches need more time.
+  SPRT 200g TC 5+0.05 conc=6: **-24.4 +/- 39.3 ELO** (59W-73L-68D).
+  Tombstoned in `src/timeman.cpp`. Field `SearchLimits::ownSearchIndex`
+  + uci.cpp counter kept for future variants.
+
+- **v13** — widen initial aspiration window 4x (delta=200) for the
+  first own search. Hypothesis: TT-cold prevScore is unreliable, so
+  the standard +/-50 window fails repeatedly. SPRT 200g TC 5+0.05
+  conc=6: **-10.4 +/- 38.3 ELO** (60W-66L-74D). Tombstoned in
+  `src/search.cpp`.
+
+Both share the same **Black-side asymmetry**: candidate-as-Black
+scored ~39 % while candidate-as-White scored ~57 %. Documented as
+an anti-pattern in `.claude/skills/chess-engine-dev/references/
+common-bugs.md` so future sessions skip this class of experiment.
+
+### Infrastructure (all green CI)
+- **Build**: `-MMD -MP` automatic dependency tracking. Editing a
+  header now correctly rebuilds all dependent .o files; eliminates
+  the spurious `-Wodr` warning from incremental builds with LTO.
+- **CLAUDE.md**: bench non-determinism was previously documented as
+  "RESOLVED 2026-05-13"; re-measured at Threads=1 and found 14-30 %
+  variance across processes. Moved back to open status with
+  candidate causes and a 5-run sanity check replacing the previous
+  exact-match `make verify` gate.
+- **.gitignore**: `release/`, `*.bak`, `*.exe.stripped` so the
+  working tree stays clean after packaging or tuner runs.
+- **README**: Build / CodeQL / GPLv3 badges.
+
+### Black-vs-1.e4 blunder analysis (deferred reference)
+- `testing/analyze_blunders.py`: Stockfish 18 at depth 14 over the
+  6 Hypersion-as-Black-vs-1.e4 lichess losses. Persistent SF UCI
+  process; ~60s wall-clock for the full sweep.
+- `testing/BLUNDER_ANALYSIS.md`: actual non-mate blunders cluster
+  at moves 8-30, NOT 1-3 — invalidates the "empty TT" hypothesis
+  that drove v8 H1 / v13. (Both files live under gitignored
+  `testing/` tree; check the repo at the user's machine.)
+
 ## Project status (2026-05-14)
 
 **Classical eval expansion + tuning session complete.** Engine
