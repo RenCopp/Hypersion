@@ -1,6 +1,60 @@
 # Hypersion CHANGELOG
 
-## Session 2026-05-15 — anti-patterns + infrastructure cleanup
+## Session 2026-05-15 (extended) — first-move tombstones, LMR ship, interior sweeps
+
+18 commits, all green CI. **Engine ELO shipped: +20.9 ± 39.3** via
+LMR divisor tweak (v18, e9486d7). Plus 7 additional tombstones across
+2 thematic groups.
+
+### SHIPPED
+- **v18** (`e9486d7`) — LMR divisor `1.85 -> 1.87`. SPRT 200g at TC
+  5+0.05 conc=6: **+20.9 ± 39.3 ELO** (72W-60L-68D, NEW-as-White
+  54.6 %, NEW-as-Black 50.5 %, symmetric). The 1.87 sweep point
+  lives in the previously-unexplored interior between SF18 master
+  (1.85) and Hypersion v2.0 (1.90). Smaller divisor = larger
+  reduction; 1.87 means slightly SHALLOWER cuts than 1.85.
+
+### Group 1: first-own-search parameter tombstones (3 rejects, both directions)
+- **v8 H1** — +30 % optimum-time budget for moves 1-3.
+  SPRT 200g: -24.4 ± 39.3 ELO. Tombstoned in `src/timeman.cpp`.
+- **v13** — 4x wider initial aspiration window for first own move.
+  SPRT 200g: -10.4 ± 38.3 ELO. Tombstoned in `src/search.cpp`.
+- **v16** — REDUCE optimum-time budget -23 % for moves 1-3 (inverse
+  of v8 H1). SPRT 200g: -15.6 ± 38.2 ELO. Tombstoned in `src/timeman.cpp`.
+
+Both more-effort variants (v8 H1, v13) showed strong Black asymmetry
+(NEW-as-Black ~39 %). v16 (less effort) had no asymmetry but still
+regressed ~15 ELO. Combined verdict: first-move time/window settings
+are at a tight local optimum at TC 5+0.05. Anti-pattern documented
+in `.claude/skills/chess-engine-dev/references/common-bugs.md`.
+
+### Group 2: SPSA-tunable interior sweep points (4 rejects, 1 ship)
+- **v18** SHIPPED — see above.
+- **v19 + v20** — LMR sweep continuation: 1.87 -> 1.89 = 0.0 ELO @
+  30g (11W-11L-8D); 1.87 -> 1.86 = 0.0 ELO @ 30g (10W-10L-10D).
+  1.87 confirmed as local optimum.
+- **v21** — `ASPIRATION_DELTA0` 50 -> 65. -34.9 ELO @ 30g (8W-11L-11D).
+- **v22** — `RAZOR_MARGIN_BASE` 852 -> 750. -8.7 ± 37.9 ELO @ 200g
+  (after +11.6 fakeout at 30g).
+- **v23** — `SEE_QUIET_MARGIN` -181 -> -200. -15.6 ± 37.2 ELO @ 200g
+  (after +23.2 fakeout at 30g; Black asymmetry 40.9 %).
+
+Lesson: interior-sweep-point interpolation works when BOTH endpoints
+showed positive sweep results vs prior baseline (LMR 1.85 + 1.90
+both positive vs 1.95). When one endpoint is strongly negative
+(SEE_QUIET -150 = -70 ELO), the interior doesn't help.
+
+### Infrastructure (unchanged from earlier summary)
+- **Build**: `-MMD -MP` automatic dependency tracking (`95a3359`).
+- **CLAUDE.md**: bench non-determinism note (`a80310e`).
+- **.gitignore**: `release/`, `*.bak`, `*.exe.stripped` (`c9fe6db`).
+- **README**: Build / CodeQL / GPLv3 badges (`1f865a0`).
+- **Skill**: anti-pattern doc (`0f082b0`, updated in `a365636`).
+
+## Session 2026-05-15 — anti-patterns + infrastructure cleanup (early phase)
+
+[Note: superseded by the extended session entry above which includes
+the v18 ship and post-v8/v13/v16 LMR + interior-sweep work.]
 
 10 commits, all green CI. No engine ELO shipped — confirmed three
 parallel rejections at the first-own-search parameter granularity
