@@ -120,3 +120,36 @@ ucinewgame events. Check: log `TT.hashfull()` at start of each bench position
 - `testing/sprt.py` — proper SPRT runner.
 - `Hypersion perft N` — move generation correctness.
 - `Hypersion eval` — single-position eval print.
+
+## Anti-pattern: "give first own search more resources"
+
+Tombstones in `src/timeman.cpp` (v8 H1) and `src/search.cpp` (v13)
+document two independent attempts to help the first 1-3 own-search
+moves per game (where TT is cold and there's no eval continuation
+from book play). Both regressed at TC 5+0.05 conc=6 200g:
+
+| Attempt | Mechanism | SPRT 200g result |
+|---|---|---:|
+| v8 H1 | +30 % optimum-time budget for moves 1-3                | -24.4 +/- 39.3 ELO |
+| v13   | 4x wider initial aspiration window for first own move | -10.4 +/- 38.3 ELO |
+
+**Both regressions stem from a Black-side asymmetry**: candidate-as-Black
+scored ~39 % while candidate-as-White scored ~57 %. The deeper / more
+reliable first-move eval reveals Black's structural disadvantage in
+typical EPD openings too clearly, causing the engine to commit to
+passive defense that gives up initiative over the rest of the game.
+
+If you find yourself reasoning "the first own search has an empty TT,
+so [more time / wider window / pre-warming] should help":
+
+1. **Re-read the BLUNDER_ANALYSIS.md observation**: the actual bullet
+   game blunders cluster at moves 8-30, NOT in the first 3 own moves.
+   The "empty TT" intuition targets the wrong window.
+2. **Test color-asymmetric variants instead** — if the failure mode is
+   Black-side, gate the effect on `rootPos.side_to_move() == WHITE`.
+3. **Don't ship without confirming Black asymmetry is gone** — split
+   SPRT result by NEW-as-White vs NEW-as-Black; if Black is below 45 %,
+   reject regardless of net score.
+
+The `SearchLimits::ownSearchIndex` field and the uci.cpp counter (added
+during v8 H1, repurposed by v13) remain in tree for future variants.
