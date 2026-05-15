@@ -43,8 +43,16 @@ engines/
 # Release-build staging area + the binary release zips themselves.
 release_staging/
 release_staging_*/
+# Newer release staging directory (used by testing/make_v31_zips.py).
+release/
 Hypersion-*-windows-*.zip
 Hypersion-*-linux-*.tar.gz
+# Stripped exe variants that landed in release/ during v3.1 packaging.
+*.exe.stripped
+
+# Backups created by various tuner / analysis scripts (e.g. apply_tuned_values.py
+# saves eval_params.h.bak before mutating eval_params.h).
+*.bak
 
 # Python
 __pycache__/
