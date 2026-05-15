@@ -266,7 +266,9 @@ int FUTIL_MARGIN_PER_DEPTH  = 397;    // Joint A+B SPSA tried 400 (no-op-ish), R
 int FUTIL_MARGIN_BASE       = 385;    // A3: 390 -> 385. Sweep history:
     // 480 = -23.2 ELO; 300 = -46.6 ELO. Both directions worse than 390.
 int SEE_QUIET_MARGIN        = -181;   // Joint A+B SPSA tried -155, REJECTED. Sweep history:
-    // -150 = -70 ELO; -220 = -1.7 +/- 38.5 ELO.
+    // -150 = -70 ELO; -220 = -1.7 +/- 38.5 ELO;
+    // -200 = -15.6 +/- 37.2 ELO @ 200g (v23 30g triage was +23.2 -- classic
+    //   fakeout, Stage 2 reverted to mild negative with Black asymmetry).
 int SEE_CAPT_MARGIN         = -252;   // Joint A+B SPSA tried -246, REJECTED. Sweep history:
     // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
 int NMP_EVAL_BETA_DIV       = 803;    // 2026-05-12 SPSA campaign regressed, reverted.
