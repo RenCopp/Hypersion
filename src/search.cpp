@@ -58,6 +58,14 @@ void init() {
             //   1.85 vs 1.87: +20.9 +/- 39.3 ELO @ 200g 5+0.05 conc=6
             //     (72W-60L-68D, NEW-as-White 54.6 %, NEW-as-Black 50.5 %,
             //      no color asymmetry) — SHIPPED 2026-05-15.
+            //   LTC validation at TC 20+0.2 conc=6, 100g:
+            //     -20.9 +/- 55.8 ELO (30W-36L-34D, NEW-as-White 44.0 %,
+            //      NEW-as-Black 51.0 % — Black asymmetry REVERSED from
+            //      bullet). v18 is bullet-specific; at LTC the smaller
+            //      divisor produces too-shallow reductions for the deeper
+            //      search trees. CI includes 0 but trends negative.
+            //      Bullet ship retained (lichess bot plays bullet); future
+            //      contributors may want a TC-adaptive divisor.
             //   1.87 vs 1.89: 0.0 +/- 109.8 ELO @ 30g triage (11W-11L-8D)
             //     — no signal, kept 1.87.
             //   1.86 vs 1.87: 0.0 +/- 104.4 ELO @ 30g triage (10W-10L-10D)
