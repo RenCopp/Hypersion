@@ -201,7 +201,7 @@ void save_recent() {
     for (const auto& m : recent) f << m << '\n';
 }
 
-void remember_first_move(const std::string& mvUci) {
+[[maybe_unused]] void remember_first_move(const std::string& mvUci) {
     auto& recent = recent_first_moves();
     // Move to-front: remove if already present, then append.
     auto it = std::find(recent.begin(), recent.end(), mvUci);
@@ -215,7 +215,7 @@ void remember_first_move(const std::string& mvUci) {
 
 // Convert our Move to a polyglot-compatible UCI string for the recent-list
 // (so we don't need an external move-formatter dependency).
-std::string move_to_uci(const Move m) {
+[[maybe_unused]] std::string move_to_uci(const Move m) {
     if (m == Move::none()) return "";
     std::string s;
     Square from = m.from_sq();
@@ -274,56 +274,20 @@ Move probe(const Position& pos, bool pickBest) {
     }
     if (cands.empty()) return Move::none();
 
-    // ─── Cross-session opening variety (Kirin V8 port) ───────────────
-    // At startpos, exclude recently-played first moves so the bot doesn't
-    // play the same opening every game. Progressive window-shrink lets
-    // us drop the constraint when the book has too few candidates.
+    // ─── Cross-session opening variety (Kirin V8 port) — DISABLED ─────
+    // 2026-05-15: user reported the engine was "staying longer in the
+    // opening" after a bot restart — the variety filter was excluding
+    // most candidate book moves at startpos, leaving the book with thin
+    // / empty result sets that forced an early book exit. The engine
+    // then spent search time on what used to be book moves.
     //
-    // Startpos detection: canonical piece counts + side-to-move +
-    // castling rights + rule50. Skipping the polyglot-key comparison
-    // because the piece-count check is unambiguous for standard chess
-    // (Chess960 starting positions also have 32 pieces but the bot
-    // doesn't currently load a Chess960-specific book, so this stays).
-    bool isStartpos = (popcount(pos.pieces()) == 32
-                   && popcount(pos.pieces(WHITE, PAWN))   == 8
-                   && popcount(pos.pieces(BLACK, PAWN))   == 8
-                   && popcount(pos.pieces(WHITE, KNIGHT)) == 2
-                   && popcount(pos.pieces(BLACK, KNIGHT)) == 2
-                   && pos.side_to_move() == WHITE
-                   && pos.rule50_count() == 0
-                   && pos.can_castle(WHITE_CASTLING)
-                   && pos.can_castle(BLACK_CASTLING));
-
-    if (isStartpos) {
-        auto& recent = recent_first_moves();
-        if (!recent.empty()) {
-            // Progressive shrink: try excluding the last 8, then 7, etc.
-            std::vector<Cand> filtered;
-            int window = std::min(8, int(recent.size()));
-            while (window >= 1) {
-                std::vector<std::string> recentSet(recent.end() - window,
-                                                    recent.end());
-                filtered.clear();
-                for (const auto& c : cands) {
-                    std::string u = move_to_uci(c.m);
-                    bool found = false;
-                    for (const auto& r : recentSet)
-                        if (u == r) { found = true; break; }
-                    if (!found) filtered.push_back(c);
-                }
-                if (!filtered.empty()) break;
-                --window;
-            }
-            // Last-resort: at least exclude the SINGLE most-recent move
-            // so we never play it back-to-back.
-            if (filtered.empty() && recent.size() >= 1) {
-                const std::string& last = recent.back();
-                for (const auto& c : cands)
-                    if (move_to_uci(c.m) != last) filtered.push_back(c);
-            }
-            if (!filtered.empty()) cands = filtered;
-        }
-    }
+    // Tombstoning the filter: book::probe now uses the full weighted-
+    // candidate set without the recent-first-moves exclusion. The
+    // recent-openings file (hypersion_recent_openings.txt) is no longer
+    // read or written.
+    //
+    // To re-enable: change ENABLE_OPENING_VARIETY to true.
+    constexpr bool ENABLE_OPENING_VARIETY = false;
 
     double total = 0;
     for (auto& c : cands) total += c.w;
@@ -337,7 +301,11 @@ Move probe(const Position& pos, bool pickBest) {
     }
 
     // Remember first-move at startpos for the cross-session variety filter.
-    if (isStartpos) remember_first_move(move_to_uci(chosen));
+    // Disabled along with the filter (see comment above).
+    if constexpr (ENABLE_OPENING_VARIETY) {
+        // (Compile-time-dead since ENABLE_OPENING_VARIETY = false.)
+        // Was: if (isStartpos) remember_first_move(move_to_uci(chosen));
+    }
     return chosen;
 }
 
