@@ -2,11 +2,11 @@
 
 ## Session 2026-05-15 — anti-patterns + infrastructure cleanup
 
-7 commits, all green CI. No engine ELO shipped — confirmed two
-parallel rejections of the "give first own search more resources"
-class of changes, and consolidated build / docs.
+10 commits, all green CI. No engine ELO shipped — confirmed three
+parallel rejections at the first-own-search parameter granularity
+(both directions tested), and consolidated build / docs.
 
-### Engine experiments (both REJECTED, tombstoned)
+### Engine experiments (all THREE REJECTED, tombstoned)
 - **v8 H1** — boost optimum-time budget +30 % for the first 3 own
   searches per game. Hypothesis: TT-cold searches need more time.
   SPRT 200g TC 5+0.05 conc=6: **-24.4 +/- 39.3 ELO** (59W-73L-68D).
@@ -19,10 +19,20 @@ class of changes, and consolidated build / docs.
   conc=6: **-10.4 +/- 38.3 ELO** (60W-66L-74D). Tombstoned in
   `src/search.cpp`.
 
-Both share the same **Black-side asymmetry**: candidate-as-Black
-scored ~39 % while candidate-as-White scored ~57 %. Documented as
-an anti-pattern in `.claude/skills/chess-engine-dev/references/
-common-bugs.md` so future sessions skip this class of experiment.
+- **v16** — REDUCE optimum-time budget -23 % for the first 3 own
+  searches (opposite-direction test of v8 H1). Hypothesis: less
+  effort on first move might bypass the Black-side asymmetry seen
+  in v8 H1 / v13, and saved clock flows to moves 8-30 where the
+  actual blunders cluster. SPRT 200g TC 5+0.05 conc=6: **-15.6
+  +/- 38.2 ELO** (58W-67L-75D). Classic 30g-fakeout pattern
+  (Stage 1 was +70 ELO at 30g). Tombstoned in `src/timeman.cpp`.
+
+v8 H1 + v13 (more-effort variants) both showed a Black-side asymmetry
+(candidate-as-Black ~39 %, candidate-as-White ~57 %). v16 had no
+asymmetry — both sides under-parity ~3-5 ELO. **Combined verdict**:
+first-move time/window settings are at a tight local optimum at TC
+5+0.05; neither direction helps. Anti-pattern doc in
+`.claude/skills/chess-engine-dev/references/common-bugs.md`.
 
 ### Infrastructure (all green CI)
 - **Build**: `-MMD -MP` automatic dependency tracking. Editing a
