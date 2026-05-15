@@ -1794,11 +1794,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             improving = true;   // unknown → assume improving, gentler pruning
     }
 
-    // SF18 opponentWorsening flag (src/search.cpp:751). True when our static
-    // eval is better-for-us than opponent's was at their last ply. Used to
-    // sharpen pruning margins — when opponent is doing worse, we can prune
-    // more aggressively because their refutation is less likely.
-    bool opponentWorsening = false;
+    // SF18 opponentWorsening flag (src/search.cpp:751). Computed but not yet
+    // wired into any pruning margin in Hypersion — kept as scaffolding for a
+    // future port. `[[maybe_unused]]` silences -Wunused-but-set-variable.
+    // When we wire this in, gate via SPSA: any aggressive use of the flag
+    // touches LMR/RFP margins that are jointly tuned (see history.h tombstones).
+    [[maybe_unused]] bool opponentWorsening = false;
     if (!inCheck && ply >= 1 && (ss - 1)->staticEval != VALUE_NONE)
         opponentWorsening = staticEval > -(ss - 1)->staticEval;
 

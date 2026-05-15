@@ -983,7 +983,7 @@ Value evaluate(const Position& pos) {
     // own pawns — strong "bad bishop" signal beyond the same-colour
     // count.
     {
-        Bitboard occupied = pos.pieces();
+        Bitboard occBB = pos.pieces();
         for (Color c : { WHITE, BLACK }) {
             int sign = (c == WHITE) ? 1 : -1;
             Bitboard ourBishops = pos.pieces(c, BISHOP);
@@ -991,7 +991,7 @@ Value evaluate(const Position& pos) {
             int totalBlocked = 0;
             while (ourBishops) {
                 Square bs = pop_lsb(ourBishops);
-                Bitboard reach = attacks_bb<BISHOP>(bs, occupied);
+                Bitboard reach = attacks_bb<BISHOP>(bs, occBB);
                 totalBlocked += popcount(reach & ourPawns);
             }
             mg -= sign * totalBlocked * params().BadBishopBlockedMG;
