@@ -73,7 +73,14 @@ endif
 # Common flags
 # -----------------------------------------------------------------------------
 WARN     = -Wall -Wextra -Wcast-qual -Wshadow -pedantic -Wno-unused-parameter
-COMMON   = $(STD) $(WARN) $(ARCH_FLAGS) -pthread
+# -MMD -MP generates per-object dependency files (.d) so make rebuilds the
+# right .o files when headers change. Without this, modifying a header
+# (e.g. timeman.h) only rebuilds the .o whose .cpp directly references it
+# via the compile-target rule — leaving stale .o files for indirect users.
+# At -flto link time this surfaces as a "type 'struct X' violates the C++
+# One Definition Rule [-Wodr]" warning, requiring `make clean` to clear.
+# With -MMD -MP, dep tracking is automatic and `make -j` Just Works.
+COMMON   = $(STD) $(WARN) $(ARCH_FLAGS) -pthread -MMD -MP
 RELEASE  = -O3 -DNDEBUG -flto=auto -fno-exceptions
 # NOTE: tried -funroll-loops; bench showed +9% NPS but 200g 5+0.05 match
 # regressed -22.6 ELO. Likely cause: aggressive unrolling expands the
@@ -158,7 +165,7 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cpp | $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -I$(FATHOM_DIR) -c -o $@ $<
 
 $(OBJDIR)/fathom_%.o: $(FATHOM_DIR)/%.c | $(OBJDIR)
-	gcc -O3 -DNDEBUG -flto -DTB_NO_HELPER_API -I$(FATHOM_DIR) -c -o $@ $<
+	gcc -O3 -DNDEBUG -flto -DTB_NO_HELPER_API -MMD -MP -I$(FATHOM_DIR) -c -o $@ $<
 
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
@@ -195,6 +202,12 @@ profile:
 clean:
 	@rm -rf $(OBJDIR) $(TARGET)
 	@echo "Cleaned."
+
+# -MMD generates one .d file per .o with the same stem. Pull them all in.
+# Wrapped in conditional include so a missing .d (e.g. first build) isn't
+# an error.
+DEPS = $(OBJECTS:.o=.d) $(FATHOM_OBJECTS:.o=.d)
+-include $(DEPS)
 
 # Fast sanity check after any change to src/. Runs deterministic bench
 # and reports the node count vs the v3.1 baseline. Use this BEFORE
