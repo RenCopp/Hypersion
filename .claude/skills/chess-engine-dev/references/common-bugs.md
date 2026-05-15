@@ -123,21 +123,30 @@ ucinewgame events. Check: log `TT.hashfull()` at start of each bench position
 
 ## Anti-pattern: "give first own search more resources"
 
-Tombstones in `src/timeman.cpp` (v8 H1) and `src/search.cpp` (v13)
-document two independent attempts to help the first 1-3 own-search
-moves per game (where TT is cold and there's no eval continuation
-from book play). Both regressed at TC 5+0.05 conc=6 200g:
+Tombstones in `src/timeman.cpp` (v8 H1 + v16) and `src/search.cpp`
+(v13) document THREE independent attempts to perturb the first 1-3
+own-search moves per game (where the TT is cold). All three regressed
+at TC 5+0.05 conc=6 200g — in BOTH directions:
 
 | Attempt | Mechanism | SPRT 200g result |
 |---|---|---:|
 | v8 H1 | +30 % optimum-time budget for moves 1-3                | -24.4 +/- 39.3 ELO |
 | v13   | 4x wider initial aspiration window for first own move | -10.4 +/- 38.3 ELO |
+| v16   | -23 % optimum-time budget for moves 1-3 (inverse of H1)| -15.6 +/- 38.2 ELO |
 
-**Both regressions stem from a Black-side asymmetry**: candidate-as-Black
-scored ~39 % while candidate-as-White scored ~57 %. The deeper / more
-reliable first-move eval reveals Black's structural disadvantage in
-typical EPD openings too clearly, causing the engine to commit to
-passive defense that gives up initiative over the rest of the game.
+**Lesson**: the first-move time/window settings are at a TIGHT local
+optimum at TC 5+0.05. NEITHER more search effort (v8 H1 / v13) NOR
+less (v16) helps. The original underlying tunings (ASPIRATION_DELTA0
+= 50, the time-budget formula in timeman.cpp) are jointly calibrated
+across the existing parameter set.
+
+v8 H1 and v13 (more-effort variants) also showed a Black-side
+asymmetry: candidate-as-Black scored ~39 % while candidate-as-White
+scored ~57 %. The deeper / more reliable first-move eval reveals
+Black's structural disadvantage in typical EPD openings too clearly,
+causing the engine to commit to passive defense that gives up
+initiative over the rest of the game. v16 (less effort) had no
+Black asymmetry — both sides under-performed by ~3-5 ELO instead.
 
 If you find yourself reasoning "the first own search has an empty TT,
 so [more time / wider window / pre-warming] should help":

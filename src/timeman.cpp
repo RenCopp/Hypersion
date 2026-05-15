@@ -111,6 +111,35 @@ void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
     // The SearchLimits::ownSearchIndex field and the uci.cpp counter
     // stay in tree so future variants can re-use the wiring.
     // ---------------------------------------------------------------------
+
+    // ----- Tombstone: under-spend first 3 own moves (v16) ----------------
+    // 2026-05-15: opposite-direction test of v8 H1. Reduced optimumTime
+    // by 23 % (×10/13, inverse of v8 H1's ×13/10) on first 3 own searches.
+    // Hypothesis: v8 H1 + v13 both regressed via Black-side asymmetry
+    // when adding effort to first-move search; reducing effort might
+    // help Black avoid revealing structural disadvantage too clearly,
+    // and the saved clock budget would flow into moves 8-30 where the
+    // actual blunders cluster.
+    //
+    //   SPRT (TC 5+0.05, conc=6):
+    //     Stage 1  30g triage : +70.4 +/- 99.8  ELO (12W- 6L-12D)
+    //     Stage 2 200g        : -15.6 +/- 38.2  ELO (58W-67L-75D)
+    //   REJECTED.
+    //
+    // Classic 30g-fakeout pattern (CLAUDE.md / PROTOCOL.md). Stage 1's
+    // strong positive was opening-set variance; Stage 2 reverted to
+    // mildly negative. Final score: NEW playing White 30-31-38 (49.5 %),
+    // NEW playing Black 28-35-35 (46.4 %) — both sides slightly under
+    // parity, no asymmetry signal.
+    //
+    // Combined with v8 H1 (-24 ELO at +30 %) and v13 (-10 ELO at wider
+    // aspiration), this confirms the first-move time/window settings
+    // are at a TIGHT local optimum at TC 5+0.05. Neither direction
+    // helps. Future contributors: don't touch optimum-time scaling at
+    // first-move granularity without paired re-tuning of the underlying
+    // time-budget formula (mtg, overhead) — single-feature shifts here
+    // are net-negative.
+    // ----------------------------------------------------------------------
     (void)limits.ownSearchIndex;   // tombstoned: no time scaling
 }
 
