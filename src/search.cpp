@@ -326,6 +326,9 @@ int QSEARCH_CAP_GAIN        = 3221;   // A9 joint: 3259 -> 3221. A3 was: 3300 ->
 int HIST_BONUS_DEPTH2 = 16;     // unchanged
 int HIST_BONUS_DEPTH1 = 30;     // A2-v2: was 32 (A9 confirmed)
 int HIST_BONUS_CAP    = 2065;   // A9 joint: 2059 -> 2065. A2-v2 was: 2000 -> 2059.
+    // v26 trial 2080: +1.7 +/- 36.3 ELO @ 200g (57W-56L-87D, NEW-as-Black
+    // 41.9 %). Per protocol REJECT (≤ +5 with CI ±35-36). 30g triage was
+    // +58.5 -- classic fakeout. SPSA trend ceiling at 2065.
 int BFLY_WEIGHT       = 101;    // A2-v2: was 100 (A9 confirmed)
 int CONT1_WEIGHT      =  99;    // A2-v2: was 100 (A9 confirmed)
 int CONT2_WEIGHT      =  48;    // A9 joint: 47 -> 48. A2-v2 was: 50 -> 47.
