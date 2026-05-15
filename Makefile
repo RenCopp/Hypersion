@@ -209,18 +209,29 @@ clean:
 DEPS = $(OBJECTS:.o=.d) $(FATHOM_OBJECTS:.o=.d)
 -include $(DEPS)
 
-# Quick sanity check after any change to src/. Runs bench 5x and prints
-# the node counts. Use this BEFORE pushing to catch search-behavior
-# shifts (a 2x bench change is a red flag; 10-15 % variance is normal
-# given the current Threads=1 non-determinism regression — see
-# CLAUDE.md "Bench non-determinism" entry, 2026-05-15).
+# Strict bench determinism gate. Bench at Threads=1 should be 100 %
+# deterministic at the project's current state (verified 2026-05-15
+# post-session: 10/10 identical at 1,359,738 nodes after `make clean`).
+# Earlier session work hit a stale-obj-file issue where incremental
+# builds produced non-deterministic binaries — a clean rebuild fixed it.
+# If verify fails here, run `make clean && make -j` and try again before
+# investigating real search-behavior changes.
+BENCH_NODES_EXPECTED ?= 1359738
 verify: build
-	@echo "Running bench 5x (Threads=1)..."
+	@echo "Running bench 5x (Threads=1, NNUE on, depth 13)..."
 	@for i in 1 2 3 4 5; do \
-	    printf 'setoption name Threads value 1\nbench 13\nquit\n' | ./$(TARGET) 2>&1 \
+	    printf 'setoption name Threads value 1\nisready\nbench 13\nquit\n' | ./$(TARGET) 2>&1 \
 	      | grep "Nodes searched :" | sed "s/^/  Run $$i: /"; \
 	  done
-	@echo "[INFO] Inspect for >2x outliers vs the cluster (real regressions)."
+	@n=$$(printf 'setoption name Threads value 1\nisready\nbench 13\nquit\n' | ./$(TARGET) 2>&1 \
+	      | grep "Nodes searched :" | awk '{print $$NF}'); \
+	 if [ "$$n" = "$(BENCH_NODES_EXPECTED)" ]; then \
+	   echo "[OK] bench=$$n matches expected $(BENCH_NODES_EXPECTED)"; \
+	 else \
+	   echo "[!!] bench=$$n differs from expected $(BENCH_NODES_EXPECTED)"; \
+	   echo "[!!] If you didn't change src/, run \`make clean && make -j\`."; \
+	   exit 1; \
+	 fi
 
 help:
 	@echo "Hypersion Makefile targets:"

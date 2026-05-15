@@ -137,32 +137,27 @@ field addition. Always.
 
 ## Resolved (kept for context)
 
-- **Bench non-determinism** — REGRESSED, observed 2026-05-15. Previously
-  documented as resolved (5/5 identical at 1,273,328 nodes); current
-  measurements show wide variance even at explicit `setoption name
-  Threads value 1`.
-    5-run sample (commit 95a3359, single piped stdin per run):
-      1283903, 1420734, 1438512, 1487624, 1667455  (range ≈ 30 %)
-    Verified with stashed pre-v8-H1 baseline too (commit 124c02d):
-      1221141, 1365435, 1400541  (range ≈ 14 %)
-  So this regressed BEFORE 2026-05-15's v8 H1 work — somewhere between
-  2026-05-13 (last "RESOLVED 5/5 identical" check-in) and 124c02d. The
-  per-bench-position node counts ALSO vary, so the issue is inside
-  `iterative_deepen`, not in cmd_bench harness state. Candidate causes
-  (un-bisected):
-    - The worker thread is launched in a `std::thread` (search.cpp:777).
-      Even at Threads=1, search runs on a *different* thread than the
-      UCI loop. If any shared state has non-atomic access, it could
-      vary across runs.
-    - `tm.elapsed()` is read inside iter-deepening (line 1515) and
-      checked even for depth-limited searches — `tm.optimum()` at
-      depth-mode is `INT64_MAX/4`, but `optScaled = optimum() * scale`
-      where `scale` is a double may overflow to varying values.
-    - Some thread-local state (e.g. correction histories) that
-      `Worker::clear()` doesn't actually zero.
-  **For now**: bench at Threads=1 should be treated as non-deterministic
-  across processes. Don't use `make verify`'s exact-match gate; compare
-  medians across 5+ runs.
+- **Bench non-determinism** — RESOLVED 2026-05-15 (root cause: stale .o
+  files from incremental rebuilds). Earlier in the same session, bench
+  at Threads=1 NNUE-on was observed varying 14-30 % across processes
+  (1.22M / 1.36M / 1.40M / 1.49M / 1.67M nodes). Initial diagnostic
+  hypotheses (`std::thread` worker scheduling, `optScaled` double
+  overflow, thread-local histories) were all wrong.
+    Actual root cause: incremental builds after structural edits to
+    SearchLimits / search.cpp internals produced .o files with
+    inconsistent ABI/layout across translation units. Even with `-MMD
+    -MP` dependency tracking, some changes (e.g. adding a namespace-scope
+    variable, refactoring an array between namespaces) didn't trigger
+    rebuilds of all dependent .o files.
+    Verified fix: `make clean && make -j` from current HEAD produces a
+    binary with **10/10 identical 1,359,738 nodes** at Threads=1 NNUE-on
+    depth 13. The `make verify` exact-match gate is restored to use this
+    as the expected signature.
+  **Rule**: when bench varies across `make -j` invocations, the first
+  thing to try is `make clean`. If determinism returns, the prior result
+  was a stale-build artefact, not a real search bug. Only after
+  confirming determinism with a clean build, investigate any real
+  behavior shifts (compare to BENCH_NODES_EXPECTED in Makefile).
 
 ## TC-specificity finding (documented 2026-05-09)
 
