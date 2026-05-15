@@ -162,3 +162,50 @@ so [more time / wider window / pre-warming] should help":
 
 The `SearchLimits::ownSearchIndex` field and the uci.cpp counter (added
 during v8 H1, repurposed by v13) remain in tree for future variants.
+
+## Anti-pattern: "interior sweep point" SPSA-mimicking experiments
+
+Session 2026-05-15 tested 7 interior sweep points across the existing
+SPSA-tuned parameter set (LMR divisor, RAZOR/SEE/FUTIL margins, HIST
+weights). Only ONE was a real ship; SIX were 30g-fakeout REJECTS.
+
+| Attempt | Param | Change | 30g triage | 200g result |
+|---|---|---|---:|---:|
+| v18 | LMR_DIVISOR        | 1.85 -> 1.87 | +23.2 | **+20.9 SHIPPED** |
+| v22 | RAZOR_MARGIN_BASE  |  852 -> 750  | +11.6 | -8.7 REJECTED |
+| v23 | SEE_QUIET_MARGIN   | -181 -> -200 | +23.2 | -15.6 REJECTED |
+| v25 | FUTIL_PER_DEPTH    |  397 -> 410  | -58.5 | (skipped, ≤-50 at triage) |
+| v26 | HIST_BONUS_CAP     | 2065 -> 2080 | +58.5 | +1.7 REJECTED |
+| v28 | CONT2_WEIGHT       |   48 -> 49   | +46.6 | +1.7 REJECTED |
+| v29 | HIST_BONUS_DEPTH1  |   30 -> 31   | +58.5 |  0.0 REJECTED |
+
+The only successful attempt (v18) had a 30g triage RIGHT at the +50
+protocol threshold (+23). All six attempts with 30g >+30 reverted to
+near-zero at 200g — confirming the **"30g [+5, +50] fakeout" anti-
+pattern** documented in CLAUDE.md / PROTOCOL.md.
+
+**Rule of thumb for SPSA-tuned param sweeps**:
+- 30g triage > +50 with opening-set noise CI ±100 looks great but
+  is HIGHLY susceptible to opening selection (cutechess sequential
+  order draws from the same EPD prefix per match, but small samples
+  produce ~70+ ELO swings just from which side of the matchup gets
+  the better opening repertoire first).
+- Stage 2 200g tightens CI to ±35-40 and almost always exposes the
+  fakeout.
+- The interior sweep only works when BOTH endpoints of the SPSA-
+  documented range show positive results vs the prior baseline.
+  LMR 1.85 vs 1.95 had clear interior optimum; SEE_QUIET -150 (-70 ELO)
+  vs -220 (-1.7) has no positive interior to find.
+
+**Recommended workflow**:
+1. Inspect the inline sweep comments in src/search.cpp for the
+   parameter's known endpoint results.
+2. Only test interior points when both endpoints are positive
+   relative to their reference baseline.
+3. Be ready to tombstone 5 of 6 attempts even when the parameter
+   class is well-chosen.
+
+This is why v18 was a real ELO ship and most other SPSA-mimicking
+attempts in this engine don't move the needle. The remaining ELO
+ceiling for isolated parameter tweaks is exhausted; future progress
+needs joint multi-parameter SPSA campaigns or NNUE retrain.
