@@ -424,6 +424,14 @@ struct Params {
     // so future LTC SPRT can validate with actual game-play tests.
     int ConnectedPasserMG     = 0;
     int ConnectedPasserEG     = 0;
+    // 2026-05-15: tried small activation ConnectedPasserEG=20 (R32-disabled).
+    // WAC dropped 178 -> 174 (-4 points) and SPRT classical-only at TC 10+0.1
+    // showed -20.2 +/- 67.7 ELO at 69g (killed early; trending negative).
+    // Even small activations of R32 ConnectedPasser hurt game ELO at this
+    // calibration -- the feature interacts badly with the existing PassedRank
+    // bonus and gets too-eagerly preserves pawn structures the engine
+    // should be willing to liquidate. Keep at 0 until a coordinated re-tune
+    // of all passed-pawn-related knobs together.
 
     // ── Round 33 (2026-05-14) — Trade-down bonus ──────────────────────────
     int TradeDownBonusEG      = 0;
