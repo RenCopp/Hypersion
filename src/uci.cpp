@@ -608,6 +608,19 @@ void cmd_bench(std::istringstream& is) {
 
 void loop(int argc, char** argv) {
     std::cout << engine_id() << " by " << ENGINE_AUTHOR << std::endl;
+    // Allow `--no-nnue-default` on the CLI to skip the auto-load of NNUE
+    // networks at startup. Used by classical-only benchmarking + SPSA
+    // campaigns over eval_params (e.g. testing/spsa_eval.py) to avoid
+    // the ~1.5 s NNUE load on each engine spawn followed by an immediate
+    // unload via setoption EvalFile=<empty>.
+    bool noNnueDefault = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--no-nnue-default") {
+            noNnueDefault = true;
+            Options.evalFile      = "<empty>";
+            Options.evalFileSmall = "<empty>";
+        }
+    }
     // Surface compiled SIMD level so users / tournament managers can see
     // which build is running. Helps debugging "why is bench different on
     // your machine" reports.
@@ -632,10 +645,13 @@ void loop(int argc, char** argv) {
 
     // Auto-load SF18 NNUE networks from the binary's directory if present.
     // Quiet failure — classical eval kicks in if either or both are missing.
-    if (!Options.evalFile.empty()      && Options.evalFile      != "<empty>")
-        NNUE::load_big  (Options.evalFile);
-    if (!Options.evalFileSmall.empty() && Options.evalFileSmall != "<empty>")
-        NNUE::load_small(Options.evalFileSmall);
+    // Skipped entirely when --no-nnue-default was passed (see top of loop).
+    if (!noNnueDefault) {
+        if (!Options.evalFile.empty()      && Options.evalFile      != "<empty>")
+            NNUE::load_big  (Options.evalFile);
+        if (!Options.evalFileSmall.empty() && Options.evalFileSmall != "<empty>")
+            NNUE::load_small(Options.evalFileSmall);
+    }
 
     std::string cli;
     for (int i = 1; i < argc; ++i) {
