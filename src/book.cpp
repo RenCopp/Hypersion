@@ -171,11 +171,6 @@ namespace {
 constexpr int OPENING_HISTORY_MAX = 16;
 const char*   OPENING_HISTORY_FILE = "hypersion_recent_openings.txt";
 
-// Polyglot key of the chess starting position. Cached the first time
-// it's needed (computed from a fresh start-pos Position).
-std::uint64_t g_startpos_polykey = 0;
-bool          g_startpos_polykey_init = false;
-
 std::vector<std::string>& recent_first_moves() {
     static std::vector<std::string> recent;
     static bool loaded = false;
@@ -283,20 +278,12 @@ Move probe(const Position& pos, bool pickBest) {
     // At startpos, exclude recently-played first moves so the bot doesn't
     // play the same opening every game. Progressive window-shrink lets
     // us drop the constraint when the book has too few candidates.
-    if (!g_startpos_polykey_init) {
-        // Lazily compute the startpos polyglot key on first probe.
-        // We compute it indirectly: the actual startpos has a known
-        // polyglot key value, but to avoid hardcoding it we just
-        // accept that the first probe with a "full piece set, no
-        // moves played" key is treated as startpos.
-        // Actually, the simplest reliable way: compare position-piece
-        // counts. If we have exactly 32 pieces with the canonical
-        // starting layout AND it's white-to-move with full castling
-        // rights AND no en-passant AND rule50=0, this is startpos.
-        g_startpos_polykey_init = true;
-        // Set startpos key from this query if it matches the criteria.
-    }
-
+    //
+    // Startpos detection: canonical piece counts + side-to-move +
+    // castling rights + rule50. Skipping the polyglot-key comparison
+    // because the piece-count check is unambiguous for standard chess
+    // (Chess960 starting positions also have 32 pieces but the bot
+    // doesn't currently load a Chess960-specific book, so this stays).
     bool isStartpos = (popcount(pos.pieces()) == 32
                    && popcount(pos.pieces(WHITE, PAWN))   == 8
                    && popcount(pos.pieces(BLACK, PAWN))   == 8
