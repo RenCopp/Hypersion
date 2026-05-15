@@ -52,11 +52,19 @@ void init() {
         for (int mc = 0; mc <= LMR_MAX_MOVE; ++mc) {
             // Stockfish-style: ~ log(d) * log(mc) / 2 plies. SF18 master uses
             // 1.85 directly; Hypersion v2.0 settled at 1.90 after history.
-            // A/B at 200g 5+0.05: 1.85 vs 1.90 = +3.5 +/- 36.8 ELO (within
-            // noise but positive, matches SF). Earlier history: 1.95->1.90
-            // gave +59.6 ELO over AVX2 baseline.
+            // Sweep:
+            //   1.95 -> 1.90: +59.6 ELO @ initial baseline (shipped as v2.0)
+            //   1.85 vs 1.90: +3.5 +/- 36.8 ELO @ 200g (within noise)
+            //   1.85 vs 1.87: +20.9 +/- 39.3 ELO @ 200g 5+0.05 conc=6
+            //     (72W-60L-68D, NEW-as-White 54.6 %, NEW-as-Black 50.5 %,
+            //      no color asymmetry) — SHIPPED 2026-05-15.
+            // 1.87 puts us between SF18 master (1.85) and Hypersion v2.0
+            // (1.90), in the previously-unexplored interior of the sweep
+            // window. Slightly less reduction than 1.85 (smaller divisor
+            // gives larger reduction; 1.87 > 1.85 means LESS reduction,
+            // i.e. SHALLOWER cuts on quiet moves at high move-count).
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
-                              : int(std::log(double(d)) * std::log(double(mc)) / 1.85);
+                              : int(std::log(double(d)) * std::log(double(mc)) / 1.87);
         }
     Threads.set_size(2);
 }
