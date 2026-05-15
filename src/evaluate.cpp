@@ -298,6 +298,26 @@ void init() {
     KPK::init();
 }
 
+// Runtime tunable dispatch for game-level SPSA on classical-eval parameter
+// clusters. UCI: `setoption name Tune_<NAME> value <int>`. Caller is uci.cpp's
+// setoption handler (after Search::set_tunable returns false).
+//
+// Exposes only the SPSA campaign target cluster — passed-pawn family — for
+// now. Add more fields here as future clusters are tuned. Names must match
+// Params struct field names exactly so the SPSA driver can spec them via JSON.
+bool set_tunable(const std::string& name, int value) {
+    auto& p = params();
+    if      (name == "PassedRank4")            p.PassedRank4            = value;
+    else if (name == "PassedRank5")            p.PassedRank5            = value;
+    else if (name == "PassedRank6")            p.PassedRank6            = value;
+    else if (name == "PassedKingEnemyDistEG")  p.PassedKingEnemyDistEG  = value;
+    else if (name == "PassedKingOwnDistEG")    p.PassedKingOwnDistEG    = value;
+    else if (name == "ConnectedPasserMG")      p.ConnectedPasserMG      = value;
+    else if (name == "ConnectedPasserEG")      p.ConnectedPasserEG      = value;
+    else return false;
+    return true;
+}
+
 Value evaluate(const Position& pos) {
     // Stockfish 18 NNUE first if a network is loaded (via UCI EvalFile /
     // EvalFileSmall). Falls through to classical otherwise.

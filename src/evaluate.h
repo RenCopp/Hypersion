@@ -22,6 +22,13 @@ constexpr Value PieceValueEG[PIECE_TYPE_NB] = { 0, 208, 854, 915, 1380, 2682, 0,
 void  init();
 Value evaluate(const Position& pos);   // returns value from side-to-move's POV
 
+// Runtime-mutable eval-parameter dispatch. Returns true if `name` matched
+// a tunable field in Eval::params() and was set to `value`. Used by the
+// UCI `setoption name Tune_<NAME>` handler for game-level SPSA campaigns
+// over classical-eval parameter clusters (e.g. passed-pawn family).
+// See testing/SPSA_PLAN.md for the campaign methodology.
+bool set_tunable(const std::string& name, int value);
+
 }  // namespace hypersion::Eval
 
 #endif  // HYPERSION_EVALUATE_H
