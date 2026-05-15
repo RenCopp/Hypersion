@@ -1192,6 +1192,28 @@ void Worker::iterative_deepen(Position& pos) {
         for (int pvIdx = 0; pvIdx < multiPv; ++pvIdx) {
             Value windowAlpha = -VALUE_INFINITE, windowBeta = VALUE_INFINITE;
             int   delta = ASPIRATION_DELTA0;
+            // Tombstone (v13, 2026-05-15): tried widening initial aspiration
+            // window 4x for first-own-search (ownSearchIndex == 1) on the
+            // theory that TT-cold prevScore at d=3 is unreliable. SPRT
+            // result at TC 5+0.05 conc=6:
+            //     Stage 1  30g triage : +58.5 +/- 119.5 ELO (15W-10L-5D)
+            //     Stage 2 200g        : -10.4 +/- 38.3 ELO (60W-66L-74D)
+            //   REJECTED.
+            // Same failure mode as v8 H1: candidate-as-Black scored 39 %
+            // vs 50 % parity (22W-43L-34D Black, 36W-22L-40D White). Both
+            // attempts to "give first own search more resources" (time in
+            // v8 H1, wider window here) hurt Black-side play. Hypothesis:
+            // at fast TC the deeper-or-more-reliable first eval reveals
+            // Black's structural disadvantage too clearly, causing the
+            // engine to commit to passive defense. Aspiration is already
+            // tuned at delta=50 for ALL ply>=4 iterations; widening only
+            // on first move loses the narrowing benefit on that move
+            // without compensating gain.
+            // Future contributors: don't re-test 4x. Possible variants:
+            //   - TIGHTER window on first move (delta=25, opposite direction).
+            //   - Wider window on later moves (5-15) where real blunders
+            //     cluster per testing/BLUNDER_ANALYSIS.md.
+            //   - Color-asymmetric tuning (different delta for White vs Black).
             if (d >= 4 && std::abs(rootMoves[pvIdx].prevScore) < VALUE_MATE_IN_MAX_PLY) {
                 windowAlpha = std::max<int>(rootMoves[pvIdx].prevScore - delta, -VALUE_INFINITE);
                 windowBeta  = std::min<int>(rootMoves[pvIdx].prevScore + delta,  VALUE_INFINITE);
