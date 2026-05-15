@@ -58,6 +58,8 @@ void init() {
             //   1.85 vs 1.87: +20.9 +/- 39.3 ELO @ 200g 5+0.05 conc=6
             //     (72W-60L-68D, NEW-as-White 54.6 %, NEW-as-Black 50.5 %,
             //      no color asymmetry) — SHIPPED 2026-05-15.
+            //   1.87 vs 1.89: 0.0 +/- 109.8 ELO @ 30g triage (11W-11L-8D)
+            //     — no signal, kept 1.87. Local optimum at 1.87.
             // 1.87 puts us between SF18 master (1.85) and Hypersion v2.0
             // (1.90), in the previously-unexplored interior of the sweep
             // window. Slightly less reduction than 1.85 (smaller divisor
