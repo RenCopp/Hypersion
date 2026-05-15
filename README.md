@@ -1,5 +1,9 @@
 # Hypersion
 
+[![Build](https://github.com/RenCopp/Hypersion/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/RenCopp/Hypersion/actions/workflows/build.yml)
+[![CodeQL](https://github.com/RenCopp/Hypersion/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/RenCopp/Hypersion/actions/workflows/codeql.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 A free, open-source UCI chess engine.
 
 🤖 **Play against Hypersion on Lichess**: [lichess.org/@/Hypersion](https://lichess.org/@/Hypersion) — click the "Challenge" button. The bot accepts standard, rated/casual, Chess960, bullet/blitz/rapid/classical, and supports draw offers + up to 3 takebacks per game.
