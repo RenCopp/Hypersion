@@ -111,6 +111,13 @@ void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
 
 void reset_position() { statePly = 0; pos.set(StartFEN, &states[statePly++]); }
 
+// Counts own-search moves per game (not book hits). Reset to 0 in
+// cmd_ucinewgame. Incremented just before Search::Threads.start() runs.
+// TimeManager boosts optimum-time when value is in [1..3] — the first
+// 3 searches have no TT continuity. See testing/BLUNDER_ANALYSIS.md
+// (2026-05-15).
+int g_ownSearchesThisGame = 0;
+
 Move parse_uci_move(const std::string& str, const Position& p) {
     if (str.length() < 4) return Move::none();
     for (Move m : MoveList<LEGAL>(p)) {
@@ -220,6 +227,7 @@ void cmd_ucinewgame() {
     Search::Threads.clear_all();
     NNUE::new_game();
     reset_position();
+    g_ownSearchesThisGame = 0;  // first own search will get index 1 → boost
 }
 
 // "position [startpos | fen <fen>] [moves m1 m2 ...]"
@@ -299,6 +307,7 @@ void cmd_go(std::istringstream& is) {
     if (Options.ownBook && !Options.analyseMode && Book::is_open()) {
         Move bm = Book::probe(pos, Options.bookBest);
         if (bm != Move::none()) {
+            // Book hit: don't increment own-search counter (we didn't search).
             Square from = bm.from_sq(), to = bm.to_sq();
             std::string s;
             s += char('a' + file_of(from));
@@ -314,6 +323,10 @@ void cmd_go(std::istringstream& is) {
             return;
         }
     }
+
+    // Book missed (or skipped). About to run search — bump counter and
+    // pass the 1-indexed search count to TimeManager.
+    lim.ownSearchIndex = ++g_ownSearchesThisGame;
 
     Search::Threads.start(pos, lim);
 }

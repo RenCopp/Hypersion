@@ -44,6 +44,18 @@ struct SearchLimits {
     int     contempt      = 0;        // cp added to draw eval (positive = avoid draw)
     bool    showWDL       = false;    // emit `wdl W D L` per-iteration
     bool    analyseMode   = false;    // UCI_AnalyseMode: reduce pruning for thoroughness
+
+    // 1-indexed counter of own-search moves this game. Set by uci.cpp
+    // (g_ownSearchesThisGame) before Search::Threads.start(). Book hits
+    // don't increment. Reset to 0 in cmd_ucinewgame.
+    //
+    // Originally added for the v8 H1 "empty-TT boost" experiment which
+    // boosted timeman.cpp::optimumTime by 30 % when this is in [1..3].
+    // That experiment was REJECTED (SPRT -27 ELO @ 200g, see tombstone
+    // in timeman.cpp). The field and counter are kept in the codebase
+    // so a future variant (e.g. aspiration-window adjustments, TT pre-
+    // warming, or a different boost magnitude) can reuse the wiring.
+    int     ownSearchIndex = 0;
 };
 
 class TimeManager {

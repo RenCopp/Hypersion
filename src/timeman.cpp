@@ -81,6 +81,37 @@ void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
     // larger. Bumps optimum only; maximum stays the safe hard ceiling.
     if (limits.ponderEnabled)
         optimumTime += optimumTime / 4;
+
+    // ----- Tombstone: empty-TT boost (v8 H1) -----------------------------
+    // 2026-05-15: boosted optimumTime by 30 % for the first 3 own searches
+    // per game (ownSearchIndex ∈ [1..3]). Hypothesis: TT-empty searches
+    // after book-exit lacked continuity, so extra time would let the
+    // engine deepen by ~1 ply and pick up TT entries. Motivated by
+    // bullet game analysis showing 3 of 6 Black-vs-1.e4 losses had
+    // -150 to -550 cp blunders in moves 8-15.
+    //
+    //   SPRT (TC 5+0.05, conc=6):
+    //     Stage 1  30g triage : -58.5 +/- 102.5 ELO (7W-12L-11D)
+    //     Stage 2 200g        : -24.4 +/- 39.3 ELO (59W-73L-68D)
+    //   REJECTED.
+    //
+    // Failure mode observation: candidate-as-Black scored 39 % vs 50 %
+    // at parity (very asymmetric). The +1-ply deepening on first moves
+    // seems to surface worse Black evals at higher depth and the engine
+    // commits to defensive lines that lose initiative.
+    //
+    // Also: actual blunders in our lichess sample happened at moves
+    // 8-15-20-30, NOT in the first 3 own moves. The boost targeted the
+    // wrong window.
+    //
+    // Don't re-test the same 1.3x boost. Future ideas if pursuing:
+    //   1. Skip aspiration window (start [-INF, +INF]) for move 1.
+    //   2. Boost later moves (5-15) where blunders actually cluster.
+    //   3. Pre-warm TT with a shallow probe at ucinewgame.
+    // The SearchLimits::ownSearchIndex field and the uci.cpp counter
+    // stay in tree so future variants can re-use the wiring.
+    // ---------------------------------------------------------------------
+    (void)limits.ownSearchIndex;   // tombstoned: no time scaling
 }
 
 }  // namespace hypersion
