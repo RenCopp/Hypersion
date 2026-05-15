@@ -141,6 +141,29 @@ void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
     // are net-negative.
     // ----------------------------------------------------------------------
     (void)limits.ownSearchIndex;   // tombstoned: no time scaling
+
+    // ----- Tombstone: TC-adaptive LMR divisor (v30/v30b) -------------------
+    // 2026-05-15: attempted runtime-switching LMR divisor (1.87 at bullet,
+    // 1.85 at LTC) via precomputed dual tables ReductionsBullet[][] and
+    // ReductionsLTC[][] in search.cpp, with a Search::UseBulletLMR global
+    // set here based on (a) optimumTime < 300 ms (v30) then (b) inc < 100
+    // (v30b after v30 had instability mid-game).
+    //
+    // **Both implementations were behaviorally NO-OPS.** Verified by
+    // computing the int() of log(d)*log(mc)/divisor across the full
+    // [d, mc] in {[2..64], [2..64]} grid: every cell rounds to the
+    // SAME integer for 1.85 and 1.87 — the 1.07 % fractional difference
+    // is absorbed by integer truncation. So the SPRT signal observed
+    // (v30b vs v18 at LTC: -25 ELO at 27g, CI ±110) was pure noise from
+    // the +2 KB struct-layout shift across translation units, NOT a real
+    // search-behavior difference.
+    //
+    // For a real TC-adaptive divisor, the LMR table would need to keep
+    // fractional precision — e.g. store reductions in 1/1024ths and round
+    // per-call. Out of scope for autonomous-loop work. Future contributors
+    // pursuing this: refactor Reductions[][] to fixed-point 1024× before
+    // adding the runtime selector.
+    // -----------------------------------------------------------------------
 }
 
 }  // namespace hypersion
