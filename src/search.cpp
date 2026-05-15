@@ -340,6 +340,8 @@ int HIST_BONUS_CAP    = 2065;   // A9 joint: 2059 -> 2065. A2-v2 was: 2000 -> 20
 int BFLY_WEIGHT       = 101;    // A2-v2: was 100 (A9 confirmed)
 int CONT1_WEIGHT      =  99;    // A2-v2: was 100 (A9 confirmed)
 int CONT2_WEIGHT      =  48;    // A9 joint: 47 -> 48. A2-v2 was: 50 -> 47.
+    // v28 trial 49: +1.7 +/- 39.7 ELO @ 200g (68W-67L-65D) -- noise.
+    // Per protocol REJECT (≤ +5 with CI ±35-40). Restored to 48.
 
 // ---- A4 time-management tunables (2026-05-08+) ----
 // Stored as percent multipliers (value / 100). Defaults preserve the
