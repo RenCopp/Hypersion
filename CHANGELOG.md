@@ -1,10 +1,46 @@
 # Hypersion CHANGELOG
 
-## Session 2026-05-15 (extended) — first-move tombstones, LMR ship, interior sweeps
+## Session 2026-05-15 (extended ×2) — LMR ship + LTC validation + more tombstones
 
-18 commits, all green CI. **Engine ELO shipped: +20.9 ± 39.3** via
-LMR divisor tweak (v18, e9486d7). Plus 7 additional tombstones across
-2 thematic groups.
+24 commits, all green CI. **Engine ELO shipped: +20.9 ± 39.3** via
+LMR divisor tweak (v18, e9486d7) -- BULLET-SPECIFIC ship validated.
+LTC follow-up showed v18 is -20.9 ELO at TC 20+0.2 (100g), so the
+ship is bullet-only and a future TC-adaptive variant is queued.
+Plus 9 additional tombstones across 3 thematic groups.
+
+### LTC validation note (v27, `a49d134`)
+- LMR 1.87 vs 1.85 at TC 20+0.2 (slow-time control) conc=6, 100g:
+  **-20.9 ± 55.8 ELO** (30W-36L-34D)
+- NEW-as-White: 11-17-22 (44.0 %) -- regression
+- NEW-as-Black: 19-18-12 (51.0 %) -- neutral
+- CI includes 0 (not statistically definitive) but trends negative
+- Same MAGNITUDE as bullet ship, OPPOSITE sign. Smaller divisor
+  produces too-aggressive reductions at the deeper LTC search trees.
+- Decision: bullet ship retained (lichess bot plays bullet). For
+  multi-TC ELO measurement (OpenBench, tournaments), a TC-adaptive
+  LMR divisor would be the right next step.
+
+### Group 3: additional interior sweep tombstones (later commits)
+- **v25** (`ea2202e`) — `FUTIL_MARGIN_PER_DEPTH` 397 -> 410: -58.5 +/- 108.4
+  ELO @ 30g triage (below -50 lower bound, REJECT before Stage 2).
+- **v26** (`fcb395a`) — `HIST_BONUS_CAP` 2065 -> 2080 (extending the
+  positive SPSA-tune trend 2000->2059->2065): +58.5 +/- 114.0 ELO
+  @ 30g triage but +1.7 +/- 36.3 @ 200g (classic fakeout).
+- **v28** (`5089c29`) — `CONT2_WEIGHT` 48 -> 49 (interior between
+  shipped 48 and prior A2-v2 50): +46.6 +/- 110.7 ELO @ 30g but
+  +1.7 +/- 39.7 @ 200g (classic fakeout, no asymmetry).
+
+Pattern confirmed across 6 interior-sweep attempts: Stage 1 30g
+results in the +5..+50 fakeout zone REVERT to noise at Stage 2 200g
+in virtually all cases. Only v18 (which had 30g +23.2 right at the
+edge) actually held positive at 200g. The other interior sweeps
+(v22 RAZOR, v23 SEE_QUIET, v26 HIST_BONUS_CAP, v28 CONT2_WEIGHT)
+all fakeed out.
+
+Net session result: 1 ship (+20.9 bullet, ~0 LTC) + 11 tombstones.
+
+18 commits in the earlier extended summary; this entry supersedes
+with 24 total.
 
 ### SHIPPED
 - **v18** (`e9486d7`) — LMR divisor `1.85 -> 1.87`. SPRT 200g at TC
