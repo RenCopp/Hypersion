@@ -341,6 +341,14 @@ struct Params {
     int InitiativePureEndgame = 100;
     int InitiativeOffset      = 0;
     int InitiativeScale       = 112;
+    // 2026-05-15: tried InitiativeScale 112 -> 100 to narrow the
+    // White/Black asymmetry observed in the post-R37 vs pre-R1 baseline
+    // SPRT (+22 W / -23 B / +7 net). Result: -18.4 ELO at 132g (killed
+    // early; classical-only, NNUE off, TC 10+0.1, conc=6). Init=112 was
+    // correctly joint-tuned. The Black-side asymmetry is not from this
+    // knob; it's inherent to the MSE-tuned master-game distribution.
+    // Future contributors: don't lower Scale below 112 without paired
+    // re-tuning of the rest of the Initiative block.
 
     // ── Round 23 (2026-05-13) — KBNK mating drive ────────────────────────
     // KBN-vs-K is a forced mate, but only into the corner matching the
