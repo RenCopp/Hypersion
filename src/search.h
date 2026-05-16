@@ -107,6 +107,12 @@ public:
     void reset_clock() { tm.reset_start(); }       // restart clock (ponderhit)
     std::uint64_t nodes_searched() const { return nodes.load(); }
 
+    // Persistent correction history I/O (Lc0-inspired online learning).
+    // Save / load both corr-history tables to a single file. File format:
+    // 4-byte magic 'HCP1' + pawnCorrHist blob + materialCorrHist blob.
+    bool save_corr_hist(const std::string& path) const;
+    bool load_corr_hist(const std::string& path);
+
     // Best root-move data exposed for ThreadPool::best_move().
     int           completed_depth() const { return completedDepth; }
     Value         root_score()     const { return rootMoves.empty() ? VALUE_NONE : rootMoves[0].score; }
@@ -201,6 +207,14 @@ public:
     void decay_all();
     int  size() const { return int(workers.size()); }
     Worker& main_worker() { return *workers[0]; }
+
+    // Save / load corr-history. Save uses the main worker's table. Load
+    // populates all workers with the same data so all threads share the
+    // learned-from-mistakes baseline. Returns true on success, false on
+    // any error (and the affected tables are left in a defined state:
+    // existing on save-failure, cleared on load-failure).
+    bool save_corr_hist(const std::string& path) const;
+    bool load_corr_hist(const std::string& path);
     std::atomic<bool>& global_stop() { return stopAll; }
     std::atomic<bool>& ponder_flag() { return pondering; }
     void  reset_clock_start();              // re-anchor each worker's TimeManager

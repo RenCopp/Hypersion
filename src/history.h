@@ -13,7 +13,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "types.h"
 
@@ -198,6 +201,51 @@ struct CorrectionHistory {
 #if defined(__GNUC__) || defined(__clang__)
         __builtin_prefetch(&data[c][idx(pawnKey)]);
 #endif
+    }
+
+    // ── Persistent correction history (Lc0-inspired "learn from mistakes")
+    // Save / load the table to/from a binary file. The file format is:
+    //   4 bytes  : magic 'HCH1' (Hypersion Corr-Hist v1)
+    //   4 bytes  : table size in bytes (must match sizeof(data) on load)
+    //   data     : raw table bytes
+    // Failures (file missing on load, write error) are non-fatal and silent
+    // from the engine's perspective — the in-memory table just stays at its
+    // previous state.
+    static constexpr std::uint32_t MAGIC = 0x31484348u;  // 'H','C','H','1' little-endian
+
+    bool save_to_file(const std::string& path) const {
+        std::FILE* f = std::fopen(path.c_str(), "wb");
+        if (!f) return false;
+        std::uint32_t magic = MAGIC;
+        std::uint32_t size  = std::uint32_t(sizeof(data));
+        bool ok = std::fwrite(&magic, 4, 1, f) == 1
+               && std::fwrite(&size,  4, 1, f) == 1
+               && std::fwrite(data,   1, sizeof(data), f) == sizeof(data);
+        std::fclose(f);
+        return ok;
+    }
+    bool load_from_file(const std::string& path) {
+        std::FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) return false;
+        std::uint32_t magic = 0, size = 0;
+        bool header_ok = std::fread(&magic, 4, 1, f) == 1
+                      && std::fread(&size,  4, 1, f) == 1
+                      && magic == MAGIC
+                      && size  == std::uint32_t(sizeof(data));
+        if (!header_ok) { std::fclose(f); return false; }
+        bool data_ok = std::fread(data, 1, sizeof(data), f) == sizeof(data);
+        std::fclose(f);
+        return data_ok;
+    }
+    // Halve all entries — applied once at load to fade old data slightly.
+    // Without this, history accumulated against weak opponents could bias
+    // play against stronger ones. Per-game decay (decay_for_new_game) still
+    // halves on every `ucinewgame`; this just adds one extra halving on
+    // engine startup as a safety net for very long-lived corrhist files.
+    void halve() {
+        for (int c = 0; c < COLOR_NB; ++c)
+            for (int i = 0; i < SIZE; ++i)
+                data[c][i] /= 2;
     }
 };
 

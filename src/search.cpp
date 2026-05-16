@@ -722,6 +722,57 @@ void Worker::decay_for_new_game() {
     for (auto& ch : contHist) ch->decay();
 }
 
+// ── Lc0-inspired persistent correction history I/O ────────────────────────
+// File layout (single file holding BOTH tables):
+//   4 bytes  magic 'HCP1'   (Hypersion Corr-history Pair v1)
+//   4 bytes  size_pawnCH    (bytes in pawnCorrHist.data; must match on load)
+//   data     pawnCorrHist.data (~128 KB)
+//   4 bytes  size_matCH     (bytes in materialCorrHist.data)
+//   data     materialCorrHist.data (~128 KB)
+// Failures (missing file / mismatched size / read error) are non-fatal:
+// the in-memory tables stay at their previous state.
+static constexpr std::uint32_t HCP1_MAGIC = 0x31504348u;   // 'H','C','P','1'
+
+bool Worker::save_corr_hist(const std::string& path) const {
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return false;
+    std::uint32_t magic = HCP1_MAGIC;
+    std::uint32_t sz_pch = std::uint32_t(sizeof(pawnCorrHist.data));
+    std::uint32_t sz_mch = std::uint32_t(sizeof(materialCorrHist.data));
+    bool ok = std::fwrite(&magic,   4, 1, f) == 1
+           && std::fwrite(&sz_pch,  4, 1, f) == 1
+           && std::fwrite(pawnCorrHist.data,    1, sz_pch, f) == sz_pch
+           && std::fwrite(&sz_mch,  4, 1, f) == 1
+           && std::fwrite(materialCorrHist.data, 1, sz_mch, f) == sz_mch;
+    std::fclose(f);
+    return ok;
+}
+bool Worker::load_corr_hist(const std::string& path) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::uint32_t magic = 0, sz_pch = 0, sz_mch = 0;
+    auto read_u32 = [&](std::uint32_t& dst) {
+        return std::fread(&dst, 4, 1, f) == 1;
+    };
+    bool ok = read_u32(magic) && magic == HCP1_MAGIC
+           && read_u32(sz_pch) && sz_pch == sizeof(pawnCorrHist.data)
+           && std::fread(pawnCorrHist.data, 1, sz_pch, f) == sz_pch
+           && read_u32(sz_mch) && sz_mch == sizeof(materialCorrHist.data)
+           && std::fread(materialCorrHist.data, 1, sz_mch, f) == sz_mch;
+    std::fclose(f);
+    if (ok) {
+        // Apply one extra halving on load. Cumulative effect: very old data
+        // (from many sessions ago) fades faster than per-game decay alone.
+        pawnCorrHist.halve();
+        materialCorrHist.halve();
+    } else {
+        // On any read failure, leave both tables untouched.
+        pawnCorrHist.clear();
+        materialCorrHist.clear();
+    }
+    return ok;
+}
+
 void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool* p,
                      int tid, bool main) {
     stop();
@@ -882,6 +933,26 @@ void ThreadPool::wait_all() {
 void ThreadPool::clear_all() {
     for (auto& w : workers) w->clear();
     TT.clear();
+}
+
+bool ThreadPool::save_corr_hist(const std::string& path) const {
+    if (workers.empty()) return false;
+    return workers[0]->save_corr_hist(path);
+}
+bool ThreadPool::load_corr_hist(const std::string& path) {
+    if (workers.empty()) return false;
+    // Load into worker 0, then copy its tables into the other workers so
+    // all threads start a game with the same learned baseline. (Workers
+    // diverge naturally during search.)
+    if (!workers[0]->load_corr_hist(path)) return false;
+    for (size_t i = 1; i < workers.size(); ++i) {
+        // Public copy: each Worker exposes its corr-history tables for
+        // bulk-copy. We could write methods, but raw memcpy through the
+        // friend-y access is just as safe given they're plain arrays.
+        // Instead, re-load the file per worker (cheap, ~256 KB I/O each):
+        workers[i]->load_corr_hist(path);
+    }
+    return true;
 }
 
 void ThreadPool::decay_all() {

@@ -82,6 +82,14 @@ struct {
     // user's tournament-organizing intent over preserving global ELO.
     // Empty / false (default) = previous behavior.
     bool gameTournament = false;
+    // ── Lc0-inspired persistent correction-history ─────────────────────────
+    // PersistCorrHist=true (default): on engine startup, load corr-history
+    // from CorrHistFile if present; on ucinewgame (before per-game decay),
+    // save to that file. Lets the engine remember which pawn structures had
+    // systematically-wrong static evals from previous games -- a form of
+    // "learn from its mistakes" without needing offline NNUE retrain.
+    bool        persistCorrHist = true;
+    std::string corrHistFile    = "hypersion_corrhist.bin";
 } Options;
 
 // Opponent matching offset. The bot plays consistently BELOW the
@@ -216,6 +224,12 @@ void cmd_uci() {
               // even if UCI_GameRated=true. Lets the user run rated
               // tournaments with rating-balanced play.
               << "option name UCI_GameTournament type check default false\n"
+              // Lc0-inspired online "learn from mistakes" toggle. When true,
+              // the corr-history table is loaded from CorrHistFile on startup
+              // and saved on every ucinewgame, so the engine remembers
+              // eval corrections across games / sessions. See history.h.
+              << "option name PersistCorrHist type check default true\n"
+              << "option name CorrHistFile type string default hypersion_corrhist.bin\n"
               << "uciok" << std::endl;
 }
 
@@ -224,10 +238,25 @@ void cmd_isready()    { std::cout << "readyok" << std::endl; }
 void cmd_ucinewgame() {
     Search::Threads.stop_all();
     Search::Threads.wait_all();
+    // Lc0-inspired persistent corr-history: save BEFORE clear_all() so the
+    // just-finished game's learning is preserved across `ucinewgame`. The
+    // save is silent on failure (file lock, full disk) -- engine still
+    // works fine, just doesn't accumulate cross-game knowledge.
+    if (Options.persistCorrHist && !Options.corrHistFile.empty()
+        && Options.corrHistFile != "<empty>") {
+        Search::Threads.save_corr_hist(Options.corrHistFile);
+    }
     Search::Threads.clear_all();
     NNUE::new_game();
     reset_position();
     g_ownSearchesThisGame = 0;  // first own search will get index 1 → boost
+    // After clear_all() wiped the tables, re-load them so the new game
+    // starts with the cross-game learned baseline. (clear_all() is needed
+    // for transposition table + non-corr histories which DO want fresh.)
+    if (Options.persistCorrHist && !Options.corrHistFile.empty()
+        && Options.corrHistFile != "<empty>") {
+        Search::Threads.load_corr_hist(Options.corrHistFile);
+    }
 }
 
 // "position [startpos | fen <fen>] [moves m1 m2 ...]"
@@ -432,6 +461,8 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_MatchOpponent"))   parse_bool(Options.matchOpponent);
     else if (eq("UCI_GameRated"))       parse_bool(Options.gameRated);
     else if (eq("UCI_GameTournament"))  parse_bool(Options.gameTournament);
+    else if (eq("PersistCorrHist"))     parse_bool(Options.persistCorrHist);
+    else if (eq("CorrHistFile"))        Options.corrHistFile = value;
     else if (eq("UCI_Opponent"))   {
         // python-chess sends: "<title> <rating> <player_type> <name>"
         // (e.g. "none 600 human RisotPlayer" or "GM 2700 computer Stockfish").
@@ -653,6 +684,18 @@ void loop(int argc, char** argv) {
             NNUE::load_small(Options.evalFileSmall);
     }
 
+    // Lc0-inspired persistent corr-history load. If the file exists from
+    // a previous session, populate all worker threads with the saved
+    // tables. Failure is silent — engine just starts with empty histories
+    // (the normal first-run state).
+    if (Options.persistCorrHist && !Options.corrHistFile.empty()
+        && Options.corrHistFile != "<empty>") {
+        if (Search::Threads.load_corr_hist(Options.corrHistFile)) {
+            std::cerr << "info string loaded corr-history from "
+                      << Options.corrHistFile << '\n';
+        }
+    }
+
     std::string cli;
     for (int i = 1; i < argc; ++i) {
         if (i > 1) cli += ' ';
@@ -705,6 +748,12 @@ void loop(int argc, char** argv) {
         else if (token == "quit" || token == "exit") {
             cmd_stop();
             Search::Threads.wait_all();
+            // Final save of corr-history on clean shutdown so the last
+            // game's learning isn't lost when the engine exits.
+            if (Options.persistCorrHist && !Options.corrHistFile.empty()
+                && Options.corrHistFile != "<empty>") {
+                Search::Threads.save_corr_hist(Options.corrHistFile);
+            }
             break;
         }
         else if (token == "bench") {
