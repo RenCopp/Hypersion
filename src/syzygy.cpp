@@ -127,23 +127,41 @@ bool probe_root_dtz(const Position& pos, std::vector<RootMoveEntry>& out) {
     if (pos.can_castle(WHITE_CASTLING) || pos.can_castle(BLACK_CASTLING)) return false;
 
     // Workaround for Fathom-library hang on certain KQK / KRK positions
-    // where probe_dtz recursion blows up: skip root DTZ probe for very-
-    // small endgames where the regular search trivially finds the win.
-    // Specifically: K+Q vs K or K+R vs K with no pawns and a clearly
-    // winning material advantage. The internal-node WDL probe at
-    // search.cpp:1711 still fires (cheap WDL lookup, no recursion).
-    // This loses the DTZ root-rank optimization for those positions but
-    // avoids the hang and the search finds mate-in-N in well under 1s.
+    // where probe_dtz recursion blows up: skip root DTZ probe ONLY for
+    // those specific material configs where the regular search trivially
+    // finds the win in <1s.
     //
     // Repro: position fen 8/8/8/4k3/8/8/8/Q3K3 w - - 0 1 + Syzygy loaded
     // -> tb_probe_root_dtz never returns. Other KQK configurations
     // (e.g., kings off the same file) probe fine. Likely a Fathom
-    // probe_dtz_table edge case for specific king-on-same-file
-    // configurations.
+    // probe_dtz_table edge case for specific king-on-same-file configs.
+    //
+    // 2026-05-16 NARROWED: the previous version of this skip caught ALL
+    // 4-piece-no-pawn positions including KBNK. KBNK is a known-difficult
+    // endgame where NNUE+search alone shuffles indefinitely (depth-28
+    // NNUE-on test: score cp 236, no mate found, drawn by 50-move rule
+    // in actual play). DTZ root ranking is the only practical way to
+    // convert KBNK at engine TC. Restrict the hang-workaround to KQK
+    // and KRK specifically; allow KBNK / KBBK / KNNK / KQBK / KQNK /
+    // KRBK / KRNK through to the probe.
     int totalPieces = popcount(pos.pieces());
-    if (totalPieces <= 4 && pos.pieces(PAWN) == 0) {
-        // KX-vs-K or KXY-vs-K configurations. Skip root DTZ probe.
+    if (totalPieces == 3) {
+        // KvK / KP / KB / KN / KR / KQ vs lone K — trivial or drawn,
+        // no probe needed. (Some 3-piece configs are the original hangers.)
         return false;
+    }
+    if (totalPieces == 4 && pos.pieces(PAWN) == 0) {
+        // 4-piece, no pawn. Skip ONLY for known-hang KQK and KRK shapes
+        // (i.e., a queen or rook is the only minor/major + 2 kings).
+        bool hasQ = pos.pieces(QUEEN)  != 0;
+        bool hasR = pos.pieces(ROOK)   != 0;
+        bool hasB = pos.pieces(BISHOP) != 0;
+        bool hasN = pos.pieces(KNIGHT) != 0;
+        bool sf_hang_shape = (hasQ || hasR) && !hasB && !hasN;
+        if (sf_hang_shape) return false;
+        // KBNK / KBBK / KNNK fall through to the probe — they need DTZ
+        // ranking to drive the lone king to the correct corner inside
+        // the 50-move budget.
     }
 
     TBQuery q = build_query(pos);
