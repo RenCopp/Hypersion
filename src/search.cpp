@@ -591,6 +591,33 @@ int STABLE_LOW_SCALE  =  75;   // 2026-05-12 SPSA campaign regressed, reverted.
 // any real gradient. With proper statistical power, even 2 % parameter
 // shifts can compose into +33 ELO when found jointly.
 //
+// Phase 2 / v33 joint A+B retry (2026-05-16) — TOMBSTONE:
+//   7 search-margin params (RFP, LMR_STATSCORE, SEE_QUIET, SEE_CAPT,
+//   FUTIL, NMP_EVAL_BETA, PROBCUT) at 16 games/iter (the noise-floor
+//   middle ground between A1's 4 and A2-v2/A3's 64), 200 iters, TC
+//   5+0.05 conc=6. Total 3200 SPSA games, ~2h50m wall, seed=33.
+//   Convergence shifts vs defaults:
+//     RFP_MARGIN_PER_DEPTH:   240 -> 246  (+2.5%)
+//     LMR_STATSCORE_DIV:     7938 -> 7900 (-0.5%)
+//     SEE_QUIET_MARGIN:      -181 -> -183 (-1.1%)
+//     SEE_CAPT_MARGIN:       -252 -> -250 (+0.8%)
+//     FUTIL_MARGIN_PER_DEPTH: 397 -> 386  (-2.8%)
+//     NMP_EVAL_BETA_DIV:      803 -> 792  (-1.4%)
+//     PROBCUT_MARGIN:         802 -> 803  (+0.1%)
+//   All shifts <3 %. Two-run SPRT vs defaults (Tune_*):
+//     run 1: +27.9 +/- 38.7 ELO @ 200g  (72-56-72)
+//     run 2: -26.1 +/- 39.7 ELO @ 200g  (60-75-65)
+//     combined 400g: ~+1 ELO  (132-131-137, dead-even)
+//   Two independent runs disagreed in sign — classic SPRT fakeout at
+//   1-run sample size. Combined 400g is essentially zero ELO change.
+//   Reverted to current defaults. TOMBSTONE.
+//
+// Insight: 16 g/iter is still noise-dominated for the search-margin
+// cluster. The A2-v2 history cluster shipped at 64 g/iter; the same
+// statistical power is needed here. Future contributor wanting to
+// retry should use 64+ g/iter (~7-8h compute) and double-confirm at
+// 200g+200g SPRT before shipping.
+//
 // Infrastructure (tunables namespace, set_tunable, UCI Tune_* handler)
 // stays SHIPPED for future re-tuning campaigns.
 
@@ -2299,6 +2326,21 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         Depth r = 0;
         if (depth >= 3 && moveCount > 1 + (isPv ? 1 : 0) && (!isCapture || cutNode)) {
             r = lmr_base(depth, moveCount);
+            // NOTE: 2026-05-16 v32 tried `if (depth >= 18 && r > 0) --r;`
+            // to fix the v18-LMR-1.87 LTC asymmetry. Result was the
+            // OPPOSITE of the hypothesis:
+            //   bullet TC 5+0.05, 200g: +41.9 +/- 39.7 ELO  (LOS 98.1%)
+            //   LTC    TC 20+0.2, 100g: -49.0 +/- 54.2 ELO  (LOS 3.8%)
+            // Softening LMR at deep depths *helps* bullet (which reaches
+            // depth >= 18 in late-midgame quiet positions and benefits
+            // from wider search there) but *hurts* LTC (which has more
+            // genuinely-deep nodes that should be pruned harder for time
+            // efficiency). Net: same TC asymmetry, opposite sign. The
+            // LTC negative is too large to combine with bullet positive,
+            // so REJECT. Future contributor investigating LTC asymmetry
+            // should try the OPPOSITE intervention: tighten LMR at depth
+            // >= 18 (i.e. `if (depth >= 18) ++r;`). The data says LTC
+            // currently under-prunes at deep nodes.
             if (!improving)        ++r;
             // NOTE: round 9 added `if (opponentWorsening) ++r;` here.
             // Result: -33 ELO at 200 games. RFP and futility both work
