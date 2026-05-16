@@ -70,8 +70,13 @@ private:
     Move    ttMove;
     Move    killer0;
     Move    killer1;
-    Move    prevMv,  prevMv2;
-    Piece   prevPc,  prevPc2;
+    // 2026-05-16 default-init: previously these were left uninitialized
+    // in the qsearch MovePicker constructor (latent garbage). Now safe
+    // for score_evasions to read contHist1 in qsearch too (Finding 5 of
+    // the SF-diff audit — landmine if any future code reaches them
+    // without parent-ply info).
+    Move    prevMv  = Move::none(), prevMv2 = Move::none();
+    Piece   prevPc  = NO_PIECE,     prevPc2 = NO_PIECE;
     int     depth;
     Stage   stage;
 

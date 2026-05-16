@@ -76,39 +76,47 @@ int TranspositionTable::hashfull() const {
 }
 
 Value TranspositionTable::value_to_tt(Value v, int ply) {
-    return  v >=  VALUE_MATE_IN_MAX_PLY ? Value(v + ply)
-          : v <= -VALUE_MATE_IN_MAX_PLY ? Value(v - ply)
-                                        : v;
+    // 2026-05-16 EXTENDED: previously only adjusted true mate scores
+    // (|v| >= VALUE_MATE_IN_MAX_PLY). After the ply-aware Syzygy probe fix,
+    // TB-win/loss values live in [VALUE_TB_WIN_IN_MAX_PLY, VALUE_TB_WIN]
+    // which is *below* the mate threshold — so they were stored verbatim
+    // and read back at the wrong ply distance. This silently undid the
+    // probe's ply adjustment whenever a TB hit went through the TT.
+    // Match SF18 `is_win` semantics: any |v| >= VALUE_TB_WIN_IN_MAX_PLY
+    // is decisive and gets the same +/- ply transform.
+    return  v >=  VALUE_TB_WIN_IN_MAX_PLY ? Value(v + ply)
+          : v <= -VALUE_TB_WIN_IN_MAX_PLY ? Value(v - ply)
+                                          : v;
 }
 Value TranspositionTable::value_from_tt(Value v, int ply, int rule50) {
     if (v == VALUE_NONE) return VALUE_NONE;
 
-    // SF18 src/search.cpp:1763-1805: when a stored mate/TB-win score requires
-    // more plies to deliver than the 50-move rule allows, the score is
-    // "potentially false" — the 50-move rule will draw before we get to
-    // execute the mating sequence. In that case, downgrade to a generic
-    // "winning, but not a confirmed mate" value so the search keeps looking
-    // for a fast conversion instead of trusting a stale mate score.
-    //
-    // Pre-2026-05-12 Hypersion ignored rule50, which meant the engine could
-    // commit to a "mate-in-30" line that actually drew by the 50-move rule
-    // in the resulting position. Codex audit #2.
+    // SF18 src/search.cpp:1763-1805: when a stored mate score requires more
+    // plies to deliver than the 50-move rule allows, the score is "potentially
+    // false" — the 50-move rule will draw before we get to execute the mating
+    // sequence. Downgrade to "decisive but uncertain" so search keeps looking.
     //
     // VALUE_MATE - v = the mate distance encoded in the stored score.
-    // 100 - rule50  = plies remaining before the 50-move rule fires
-    //                 (rule50 is a half-move counter).
+    // 100 - rule50  = plies remaining before the 50-move rule fires.
     // If mate distance > rule50 budget → can't actually deliver the mate.
+    //
+    // TB-win/loss scores are also ply-adjusted (matching value_to_tt above),
+    // but the rule50-downgrade applies only to true-mate scores: TB probes
+    // already account for rule50 via Syzygy's useRule50 flag.
 
     if (v >= VALUE_MATE_IN_MAX_PLY) {
         if (VALUE_MATE - v > 100 - rule50)
-            return Value(VALUE_MATE_IN_MAX_PLY - 1);   // "decisive but uncertain"
+            return Value(VALUE_MATE_IN_MAX_PLY - 1);   // mate score, but unreachable in budget
         return Value(v - ply);
     }
     if (v <= -VALUE_MATE_IN_MAX_PLY) {
         if (VALUE_MATE + v > 100 - rule50)
-            return Value(-VALUE_MATE_IN_MAX_PLY + 1);  // "decisive but uncertain"
+            return Value(-VALUE_MATE_IN_MAX_PLY + 1);  // mated score, but unreachable
         return Value(v + ply);
     }
+    // TB-win / TB-loss range: ply-adjust only (rule50 already in TB result).
+    if (v >= VALUE_TB_WIN_IN_MAX_PLY)  return Value(v - ply);
+    if (v <= -VALUE_TB_WIN_IN_MAX_PLY) return Value(v + ply);
     return v;
 }
 

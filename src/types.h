@@ -27,6 +27,13 @@ constexpr Value VALUE_MATE_IN_MAX_PLY  =  VALUE_MATE - MAX_PLY;
 constexpr Value VALUE_MATED_IN_MAX_PLY = -VALUE_MATE + MAX_PLY;
 constexpr Value VALUE_TB_WIN           = VALUE_MATE_IN_MAX_PLY - 1;
 constexpr Value VALUE_TB_LOSS          = -VALUE_TB_WIN;
+// Lower bound of the TB-win/loss range. Mirrors SF18's
+// VALUE_TB_WIN_IN_MAX_PLY / VALUE_TB_LOSS_IN_MAX_PLY: any value with
+// |v| >= VALUE_TB_WIN_IN_MAX_PLY is decisive (TB win/loss or true mate).
+// Used to ply-adjust TB scores through the TT exactly the same way
+// true mate scores are adjusted. Source: SF18 src/types.h::value_to_tt.
+constexpr Value VALUE_TB_WIN_IN_MAX_PLY  =  VALUE_TB_WIN - MAX_PLY;
+constexpr Value VALUE_TB_LOSS_IN_MAX_PLY = -VALUE_TB_WIN_IN_MAX_PLY;
 
 enum Color : std::int8_t { WHITE, BLACK, COLOR_NB = 2 };
 

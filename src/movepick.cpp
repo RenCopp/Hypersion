@@ -197,7 +197,26 @@ void MovePicker::score_evasions() {
             if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
             it->value = int(piece_value_simple(victim)) + (1 << 28);   // captures dominate quiets
         } else {
-            it->value = bhist ? bhist->get(pos.side_to_move(), m) : 0;
+            // 2026-05-16 ADDED: SF18 score_evasions feeds in 1-ply contHist
+            // (counter-move history) alongside butterfly. Hypersion previously
+            // dropped this signal — same flavor of "missed contribution" as
+            // the recent flat-TB and TT-mate-range bugs. The data is already
+            // wired through the MovePicker constructor (contHist[0] is
+            // accessible via the `chist` member). For non-capture evasions
+            // in-check, knowing which moves have historically been good
+            // counters to the checker meaningfully refines ordering.
+            // Source: SF18 src/movepick.cpp:187.
+            int v = bhist ? bhist->get(pos.side_to_move(), m) : 0;
+            // Match search.cpp:2198 safety pattern: contHist lookup is only
+            // valid when prev move/piece are a real played move (not null,
+            // not "none"). Null moves and NO_PIECE index degenerate cells
+            // of contHist that hold no useful signal.
+            if (contHist1 != nullptr && prevPc != NO_PIECE
+                && prevMv != Move::null() && prevMv != Move::none()) {
+                Piece moving = pos.piece_on(m.from_sq());
+                v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq());
+            }
+            it->value = v;
         }
     }
 }

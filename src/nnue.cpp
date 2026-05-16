@@ -909,8 +909,12 @@ struct Network {
         nnue -= nnue * std::abs(pv - pp) / 91180;
 
         // Material scaling matching SF18 evaluate.cpp
+        // 2026-05-16: knight was 776 (SF12-era stale value); SF18 ships 781.
+        // Hypersion's own position.cpp PieceValue[KNIGHT] already = 781,
+        // and the other values in this array (B=825, R=1276, Q=2538) all
+        // match SF18 — only knight was forgotten when SF bumped it.
         int mat = 534 * popcount(pos.pieces(PAWN));
-        static const int mv[] = { 0, 0, 776, 825, 1276, 2538, 0 };
+        static const int mv[] = { 0, 0, 781, 825, 1276, 2538, 0 };
         for (int pt = KNIGHT; pt <= QUEEN; ++pt)
             mat += mv[pt] * (popcount(pos.pieces(WHITE, PieceType(pt)))
                            + popcount(pos.pieces(BLACK, PieceType(pt))));

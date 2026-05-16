@@ -1770,13 +1770,16 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         if (!pos.legal(m)) continue;
 
         // SEE pruning in qsearch: skip captures that lose material.
-        if (!inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY && !pos.see_ge(m, VALUE_ZERO))
+        // 2026-05-16 threshold widened to TB-loss range (was MATE_IN_MAX).
+        // SF18 src/search.cpp:1632 uses `!is_loss(bestValue)` so qsearch
+        // pruning is also gated against TB-loss scores, not just mate-loss.
+        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, VALUE_ZERO))
             continue;
 
         // Capture-futility in qsearch: even capturing a queen wouldn't lift our
         // score to alpha, so don't bother. (Skipped while in check — every
         // evasion must be considered.)
-        if (!inCheck && pos.capture(m) && bestValue > -VALUE_MATE_IN_MAX_PLY) {
+        if (!inCheck && pos.capture(m) && bestValue > VALUE_TB_LOSS_IN_MAX_PLY) {
             Value gain = Value(MaxQsearchGain);
             if (staticEval + gain <= alpha) continue;
         }
@@ -1879,9 +1882,30 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // ---- Syzygy WDL probe ----
     // Cheap mid-search probe: when the position is small enough to be in TBs,
     // Fathom returns the truth and we can short-circuit.
-    if (!isPv && depth >= Syzygy::probe_depth() && Syzygy::is_loaded()) {
+    //
+    // 2026-05-16 ply-adjusted TB score: previously probe_wdl returned a
+    // constant Value(VALUE_TB_WIN - 100) regardless of search ply. Result:
+    // search had no preference for short vs long wins, so once any winning
+    // move was found the engine settled for it instead of pushing toward
+    // mate.  SF (search.cpp:825) uses `VALUE_TB - ss->ply` — value decreases
+    // with depth, so the search naturally prefers shorter wins.
+    //
+    // 2026-05-16 also widened the gate from `!isPv` to `ply > 0`: SF18
+    // (search.cpp:803) probes TB at both PV and non-PV nodes (excluding
+    // only the root). The previous `!isPv` skipped probes along the entire
+    // PV chain — so the principal variation never got TB-win info, which
+    // is exactly the chain that needs to report "mate-in-N" back to root.
+    // Symptom: with Syzygy loaded, KBBK / KBNK mating took 43-49 moves
+    // (vs 19/33 theoretical max) because the PV never saw the TB win.
+    if (ply > 0 && depth >= Syzygy::probe_depth() && Syzygy::is_loaded()) {
         Value tbVal = Syzygy::probe_wdl(pos);
         if (tbVal != VALUE_NONE) {
+            // Replace flat TB-win/loss with ply-adjusted equivalents.
+            // Range: just below mate scores, decreasing 1 cp per ply.
+            if (tbVal >= Value(VALUE_TB_WIN - 200))
+                tbVal = Value(VALUE_TB_WIN - ply);
+            else if (tbVal <= Value(-VALUE_TB_WIN + 200))
+                tbVal = Value(-VALUE_TB_WIN + ply);
             Bound b = tbVal >= VALUE_DRAW ? BOUND_LOWER : BOUND_UPPER;
             if ( b == BOUND_LOWER ? tbVal >= beta : tbVal <= alpha) {
                 tte->save(pos.key(), TT.value_to_tt(tbVal, ply), false, b,
@@ -1985,8 +2009,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // confirm individual heuristics are tested at fishtest with tens of
     // thousands of games against the full engine — single-feature ports
     // to differently-tuned engines often fail.
+    // 2026-05-16 threshold widened to TB-decisive: SF18 src/search.cpp:887
+    // uses `!is_loss(beta) && !is_win(eval)`. The is_loss/is_win pair
+    // covers TB-magnitude scores, not just true mates. Symmetric-conservative
+    // form below matches: skip RFP whenever beta or eval is TB-decisive.
     if (!isPv && !inCheck && depth <= 7
-        && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
+        && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
+        && staticEval < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
         return staticEval;
 
@@ -2032,12 +2061,17 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // CI crosses 0 but trajectory dropped from +50 ELO at game 13 to
     // -34.9 final — late games lost. Conversion test was flat at 4/6.
     // REVERTED back to single-port stack.
+    // 2026-05-16 threshold widened to TB-decisive: SF18 src/search.cpp:894
+    // uses `!is_loss(beta)`. Skip NMP when beta is TB-magnitude in either
+    // direction (the symmetric form is slightly more conservative than SF's
+    // directional but equivalently safe — TB-magnitude beta makes NMP
+    // semantics degenerate).
     if (!isPv && !inCheck && depth >= 3
         && !limits.analyseMode
         && (ss - 1)->currentMove != Move::null()
         && ss->excludedMove == Move::none()
         && staticEval >= beta
-        && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
+        && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && nmpMaterialOk) {
 
         int R = 4 + depth / 3 + std::min(3, int(staticEval - beta) / NMP_EVAL_BETA_DIV);
@@ -2053,8 +2087,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         pos.undo_null_move();
         if (should_stop()) return VALUE_ZERO;
         if (nullValue >= beta) {
-            // Don't return unproven mates — fall back to plain beta.
-            return nullValue >= VALUE_MATE_IN_MAX_PLY ? beta : nullValue;
+            // Don't return unproven decisive scores — fall back to plain beta.
+            // 2026-05-16 EXTENDED: previously only rejected true-mate values.
+            // TB-win values (>= VALUE_TB_WIN_IN_MAX_PLY) also need to be
+            // rejected because NMP didn't actually verify the TB win — it
+            // just got a high score from a reduced-depth search that may
+            // have touched TBs in a subtree. Returning such a score
+            // propagates an unverified TB-win up the tree (and into TT).
+            // Source: SF18 src/search.cpp:907 (`!is_win(nullValue)`).
+            return nullValue >= VALUE_TB_WIN_IN_MAX_PLY ? beta : nullValue;
         }
     }
 
@@ -2070,8 +2111,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // Same fakeout pattern as SE depth++. Lowering threshold adds ~20% more
     // ProbCut attempts at depth 4 but the cost (re-search on probcut hit)
     // doesn't pay back at this calibration.
+    // 2026-05-16 threshold widened to TB-decisive: SF18 src/search.cpp:940
+    // uses `!is_decisive(beta)`. ProbCut compares against beta+margin, so
+    // beta in TB range would push probCutBeta into invalid territory.
     if (!isPv && !inCheck && depth >= 5
-        && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
+        && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && ss->excludedMove == Move::none()) {
         // NOTE: SF18-style dynamic probCutDepth (depth - 5 - (eval-beta)/315)
         // tested 2026-05-12 bundled with NMP changes; LTC cumulative -34.9
@@ -2110,8 +2154,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // - beta)` which subtracts the margin back so the returned
                 // score doesn't overclaim. Pre-2026-05-12 Hypersion returned
                 // v directly — too optimistic, especially when TT stores it.
-                // Only adjust non-decisive scores (mate/TB stays as-is).
-                if (std::abs(v) < VALUE_MATE_IN_MAX_PLY)
+                // 2026-05-16 threshold widened: SF18 src/search.cpp:977
+                // uses `!is_decisive(value)` so TB-win values stay AS-IS
+                // (don't get their margin subtracted, which would underflow
+                // the TB-win range and silently corrupt the score before
+                // TT-write). Critical: without this, TB-win results from
+                // ProbCut feed back into TT as below-TB-win values.
+                if (std::abs(v) < VALUE_TB_WIN_IN_MAX_PLY)
                     return Value(int(v) - int(probCutBeta - beta));
                 return v;
             }
@@ -2133,8 +2182,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             && ttHit && tte->bound() == BOUND_LOWER
             && tte->depth() >= depth - 4
             && ttValue != VALUE_NONE && ttValue >= smallProbCutBeta
-            && std::abs(beta) < VALUE_MATE_IN_MAX_PLY
-            && std::abs(ttValue) < VALUE_MATE_IN_MAX_PLY)
+            // 2026-05-16 thresholds widened to TB-decisive: SF18
+            // src/search.cpp:988 uses `!is_decisive(beta) && !is_decisive(ttData.value)`
+            && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
+            && std::abs(ttValue) < VALUE_TB_WIN_IN_MAX_PLY)
         {
             return smallProbCutBeta;
         }
@@ -2199,7 +2250,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // ---- Move-count pruning at low depth (LMP) ----
         // Skip LMP entirely in analyse mode — late quiet moves can still
         // be the mate-leading move in deep tactical lines.
-        if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY && depth <= 8
+        // 2026-05-16 thresholds widened to TB-decisive (SF18:1051 `!is_loss`).
+        if (!isPv && !inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && depth <= 8
             && !limits.analyseMode
             && moveCount > lmp_threshold(depth, improving)) {
             skipQuiets = true;
@@ -2207,7 +2259,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
 
         // ---- Pruning at low depth ----
         // Skip all shallow-depth pruning in analyse mode for thoroughness.
-        if (!isPv && !inCheck && bestValue > -VALUE_MATE_IN_MAX_PLY
+        if (!isPv && !inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY
             && !limits.analyseMode) {
             if (!isCapture && !givesCheck) {
                 // Futility pruning for quiets.
@@ -2240,10 +2292,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // adds ~5 % more SE attempts at near-leaf nodes which is where the
         // depth amplification matters most for forcing-line discovery.
         Depth extension = 0;
+        // 2026-05-16 threshold widened to TB-decisive: SF18:1130 uses
+        // `!is_decisive(ttData.value)`. SE shouldn't fire when the TT value
+        // is TB-magnitude — singularBeta = ttValue - small offset would
+        // still be in TB range, defeating the singular test.
         if (depth >= 5
             && m == ttMove
             && ss->excludedMove == Move::none()
-            && std::abs(ttValue) < VALUE_MATE_IN_MAX_PLY
+            && std::abs(ttValue) < VALUE_TB_WIN_IN_MAX_PLY
             && (tte->bound() & BOUND_LOWER)
             && tte->depth() >= depth - 3
             && ply > 0
