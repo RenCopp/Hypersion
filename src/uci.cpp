@@ -308,6 +308,10 @@ void cmd_position(std::istringstream& is) {
 // "go ..." — supports depth / movetime / wtime / btime / winc / binc / movestogo / nodes / infinite / ponder / mate / perft
 void cmd_go(std::istringstream& is) {
     SearchLimits lim;
+    // 2026-05-17 audit uci #45: capture wall-clock at cmd_go entry so book
+    // probe + ThreadPool::start() latency is counted against the move
+    // budget (SF18 uci.cpp:204 does the same).
+    lim.goStartTime = now();
     std::string token;
     while (is >> token) {
         if      (token == "depth")     is >> lim.depth;

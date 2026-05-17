@@ -1767,6 +1767,14 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     // eval unconditionally — meaningless during a check.
     if (ply >= MAX_PLY)   return inCheck ? VALUE_DRAW : Eval::evaluate(pos);
 
+    // 2026-05-17 audit #4: same upcoming-repetition alpha-bump as in search().
+    // SF18 search.cpp:1505. Doubly important in qsearch where standpat-only
+    // paths would otherwise miss "I can force a repetition" draws.
+    if (alpha < VALUE_DRAW && pos.upcoming_repetition(ply)) {
+        alpha = value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
+        if (alpha >= beta) return alpha;
+    }
+
 
     ss->inCheck  = inCheck;
 
@@ -1912,6 +1920,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     if (pos.is_draw(ply))
         return value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
 
+    // 2026-05-17 audit #4: if a reversible-move repetition is reachable from
+    // here AND we're losing (alpha < draw), bump alpha to VALUE_DRAW.
+    // Catches "side to move can force perpetual" without actually searching
+    // the repetition branch. SF18 search.cpp:630-635.
+    if (ply > 0 && alpha < VALUE_DRAW && pos.upcoming_repetition(ply)) {
+        alpha = value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
+        if (alpha >= beta) return alpha;
+    }
+
     // 2026-05-17 finding #8: SF18:670-671 updates `selDepth` per call so
     // the reported `info seldepth` reflects the true max ply explored
     // across all branches. Hypersion previously only updated selDepth at
@@ -2021,6 +2038,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // and `!pos.can_castle(ANY_CASTLING)` before probing — Fathom's WDL is
     // only valid when those gates pass. Without these gates Hypersion probed
     // castling/rule50-tainted positions and relied on Fathom returning FAIL.
+    // 2026-05-17 audit #19/#130: TB-result PvNode maxValue / alpha clamp.
+    // Previously when the TB lookup failed to cut off (PvNode wide window or
+    // value strictly inside (alpha, beta)), the TB info was discarded and
+    // search proceeded blind. SF18 (search.cpp:845-851) on PvNode keeps the
+    // TB hint live: LOWER widens alpha (use as a floor), UPPER clamps
+    // bestValue via maxValue at end-of-node. tbAlphaFloor/maxValue are
+    // applied where bestValue exists (around the move loop / before TT write).
+    Value maxValue      = VALUE_INFINITE;
+    Value tbAlphaFloor  = -VALUE_INFINITE;   // PV-LOWER hint, applied to bestValue post-move-loop
     if (ply > 0 && depth >= Syzygy::probe_depth() && Syzygy::is_loaded()
         && pos.rule50_count() == 0
         && !pos.can_castle(WHITE_OO)  && !pos.can_castle(WHITE_OOO)
@@ -2039,6 +2065,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                           std::min<int>(depth + 6, MAX_PLY - 1),
                           Move::none(), VALUE_NONE, TT.generation());
                 return tbVal;
+            }
+            // PvNode no-cutoff: keep the TB info live for end-of-node clamps.
+            if (isPv) {
+                if (b == BOUND_LOWER) {
+                    tbAlphaFloor = tbVal;
+                    if (tbVal > alpha) alpha = tbVal;
+                } else {
+                    maxValue = tbVal;
+                }
             }
         }
     }
@@ -2413,6 +2448,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
     int   moveCount = 0;
+    // 2026-05-17 audit #19/#130: apply TB LOWER-bound hint as initial bestValue
+    // floor so weak quiet moves can't unseat the proven TB-win-value baseline.
+    if (tbAlphaFloor > -VALUE_INFINITE)
+        bestValue = tbAlphaFloor;
     // 2026-05-17 finding #57: bumped from 64 / 32 to 128 / 64 so pathological
     // positions (many promotion-captures + many quiets) don't silently lose
     // history malus updates past index 63 / 31. SF uses ~SEARCHEDLIST_CAPACITY
@@ -2852,6 +2891,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         && std::abs(bestValue) < VALUE_TB_WIN_IN_MAX_PLY
         && std::abs(alpha)     < VALUE_TB_WIN_IN_MAX_PLY)
         bestValue = Value((bestValue * depth + beta) / (depth + 1));
+
+    // 2026-05-17 audit #19/#130: clamp bestValue against TB UPPER-bound hint
+    // BEFORE bound/TT-write so over-estimated tactical fail-highs can't
+    // overwrite the proven TB result. PvNode only — non-PV paths returned
+    // immediately if the cutoff fired.
+    if (isPv && bestValue > maxValue)
+        bestValue = maxValue;
 
     Bound b = bestValue >= beta            ? BOUND_LOWER
             : (isPv && bestMove != Move::none()) ? BOUND_EXACT : BOUND_UPPER;

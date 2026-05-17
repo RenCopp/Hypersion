@@ -151,6 +151,11 @@ public:
     Piece    captured_piece()               const { return st->capturedPiece; }
     int      repetition()                   const { return st->repetition; }
     bool     is_draw(int ply) const;
+    // 2026-05-17 audit #4: SF18 position.cpp:1432 — returns true if a move
+    // exists in this position that draws by repetition (cuckoo table lookup).
+    // Lets search return an early VALUE_DRAW alpha-bump when alpha < 0,
+    // catching forced-repetition draws that would otherwise be missed.
+    bool     upcoming_repetition(int ply) const;
 
     // Attack queries --------------------------------------------------------
     Bitboard attackers_to(Square s)                   const { return attackers_to(s, pieces()); }

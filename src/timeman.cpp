@@ -20,7 +20,11 @@ constexpr int    MIN_MOVE_TIME_MS  = 10;
 }  // namespace
 
 void TimeManager::init(const SearchLimits& limits, Color us, int /*ply*/) {
-    startTime = now();
+    // 2026-05-17 audit uci #45: prefer cmd_go's captured arrival time so
+    // book + setup latency counts against the move budget. Falls back to
+    // now() for callers that don't (yet) populate goStartTime — bench,
+    // tests, etc.
+    startTime = limits.goStartTime > 0 ? limits.goStartTime : now();
 
     // Cap overhead at half of remaining time. Without this, when
     // wtime drops below moveOverhead (~2000 ms default), `remaining`

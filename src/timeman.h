@@ -56,6 +56,15 @@ struct SearchLimits {
     // so a future variant (e.g. aspiration-window adjustments, TT pre-
     // warming, or a different boost magnitude) can reuse the wiring.
     int     ownSearchIndex = 0;
+
+    // 2026-05-17 audit uci #45: SF18 captures the `go` arrival time in
+    // UCIEngine::go() (uci.cpp:204) and threads it through to TimeManager.
+    // Previously Hypersion captured startTime inside TimeManager::init()
+    // — i.e. AFTER cmd_go's book probe + ThreadPool::start() spinup, so
+    // ~5-30 ms of pre-search latency was uncounted at bullet TCs. Now
+    // cmd_go writes goStartTime = now() at the very top, and the
+    // TimeManager uses it as the anchor if nonzero.
+    TimePoint goStartTime = 0;
 };
 
 class TimeManager {

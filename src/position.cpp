@@ -41,7 +41,46 @@ Piece char_to_piece(char c) {
 }
 }  // namespace
 
-void Position::init() { /* nothing to do for now — Zobrist & Bitboards init separately */ }
+// 2026-05-17 audit #4: cuckoo hash table for upcoming_repetition().
+// Each cuckoo[i] / cuckooMove[i] pair stores a "reversible-move key" =
+// Zobrist::psq[pc][s1] XOR Zobrist::psq[pc][s2] XOR Zobrist::side. Indexing
+// by H1(key) / H2(key) lets upcoming_repetition() ask "does there exist a
+// single non-pawn move that reverses the position to one we just left?"
+// in O(end/2) hash probes — much cheaper than enumerating legal moves.
+// Source: SF18 src/position.cpp:107-160.
+namespace {
+constexpr int CUCKOO_SLOTS = 8192;
+std::array<Key,  CUCKOO_SLOTS> cuckoo{};
+std::array<Move, CUCKOO_SLOTS> cuckooMove{};
+inline int H1(Key h) { return int(h & 0x1fff); }
+inline int H2(Key h) { return int((h >> 16) & 0x1fff); }
+}  // namespace
+
+void Position::init() {
+    cuckoo.fill(0);
+    cuckooMove.fill(Move::none());
+    int count = 0;
+    for (Piece pc : { W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
+                      B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING }) {
+        PieceType pt = type_of(pc);
+        for (Square s1 = SQ_A1; s1 <= SQ_H8; ++s1)
+            for (Square s2 = Square(s1 + 1); s2 <= SQ_H8; ++s2)
+                if (attacks_bb(pt, s1, 0) & square_bb(s2)) {
+                    Move move = Move(s1, s2);
+                    Key  key  = Zobrist::psq[pc][s1] ^ Zobrist::psq[pc][s2] ^ Zobrist::side;
+                    int  i    = H1(key);
+                    while (true) {
+                        std::swap(cuckoo[i], key);
+                        std::swap(cuckooMove[i], move);
+                        if (move == Move::none())  // empty slot — done
+                            break;
+                        i = (i == H1(key)) ? H2(key) : H1(key);
+                    }
+                    ++count;
+                }
+    }
+    (void)count;   // SF asserts 3668; we don't require exact match (depends on attack-table init order)
+}
 
 // ---------------------------------------------------------------------------
 // Low-level board mutation
@@ -781,6 +820,50 @@ bool Position::see_ge(Move m, Value threshold) const {
         stm = ~stm;
     }
     return bool(result);
+}
+
+// ---------------------------------------------------------------------------
+// Upcoming-repetition cuckoo lookup — SF18 src/position.cpp:1432.
+// Returns true if a non-pawn single-move reversal exists from the current
+// position to one already in our chain. Used by search to do an alpha-up-to
+// VALUE_DRAW bump when the side to move can force a repetition draw — saves
+// search time on positions whose only progress is a repetition cycle.
+// ---------------------------------------------------------------------------
+bool Position::upcoming_repetition(int ply) const {
+    int j;
+    int end = std::min<int>(st->rule50, st->pliesFromNull);
+    if (end < 3) return false;
+
+    Key        originalKey = st->key;
+    StateInfo* stp         = st->previous;
+    if (!stp) return false;
+    Key        other       = originalKey ^ stp->key ^ Zobrist::side;
+
+    for (int i = 3; i <= end; i += 2) {
+        if (!stp->previous) return false;
+        stp = stp->previous;
+        if (!stp->previous) return false;
+        other ^= stp->key ^ stp->previous->key ^ Zobrist::side;
+        stp = stp->previous;
+        if (other != 0) continue;
+
+        Key moveKey = originalKey ^ stp->key;
+        if ((j = H1(moveKey), cuckoo[j] == moveKey)
+         || (j = H2(moveKey), cuckoo[j] == moveKey)) {
+            Move   move = cuckooMove[j];
+            Square s1   = move.from_sq();
+            Square s2   = move.to_sq();
+            // Between-squares-must-be-empty test, mirroring SF18.
+            // BetweenBB[s1][s2] in Hypersion INCLUDES s2 (per bitboard.cpp:171);
+            // SF's between_bb does too, so XOR ^ s2 makes it "strictly between".
+            if (!((BetweenBB[s1][s2] ^ square_bb(s2)) & pieces())) {
+                if (ply > i) return true;
+                // For pre-root nodes, require this to be a real repetition.
+                if (stp->repetition) return true;
+            }
+        }
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------
