@@ -1760,9 +1760,14 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     if (should_stop()) return VALUE_ZERO;
     if (pos.is_draw(ply))
         return value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
-    if (ply >= MAX_PLY)   return Eval::evaluate(pos);
-
     bool inCheck = pos.checkers();
+    // 2026-05-17 qsearch finding #5: at MAX_PLY, SF18:1538 returns
+    // VALUE_DRAW when in check (no further moves can be searched) and
+    // evaluate(pos) otherwise. Hypersion previously returned the raw
+    // eval unconditionally — meaningless during a check.
+    if (ply >= MAX_PLY)   return inCheck ? VALUE_DRAW : Eval::evaluate(pos);
+
+
     ss->inCheck  = inCheck;
 
     bool ttHit = false;
@@ -1781,9 +1786,16 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     Value staticEval;
     if (inCheck) {
         bestValue = staticEval = -VALUE_INFINITE;
+        ss->staticEval = staticEval;
     } else {
         staticEval = ttHit && tte->eval() != VALUE_NONE ? tte->eval() : Eval::evaluate(pos);
         bestValue  = staticEval;
+        // 2026-05-17 qsearch finding #39: write ss->staticEval BEFORE the
+        // stand-pat short-circuit so the value is set even on fail-high
+        // return. Previously the assignment lived after the `if (>= beta)
+        // return` and was skipped on stand-pat exit, leaving the child's
+        // ss->staticEval as whatever the previous occupant left there.
+        ss->staticEval = staticEval;
         // NOTE: tested SF18 src/search.cpp:1577-1579 qsearch ttValue stand-pat
         //   `if (ttHit && bound matches) bestValue = ttValue`
         // Trajectory:
@@ -1798,7 +1810,6 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         if (bestValue >= beta)  { return bestValue; }
         if (bestValue >  alpha) alpha = bestValue;
     }
-    ss->staticEval = staticEval;
 
     MovePicker mp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0);
     Move bestMove = Move::none();
@@ -1847,9 +1858,26 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     if (inCheck && bestValue == -VALUE_INFINITE)
         return mated_in(ply);
 
-    Bound b = bestValue >= beta ? BOUND_LOWER
-            : (isPv && bestMove != Move::none()) ? BOUND_EXACT : BOUND_UPPER;
-    tte->save(pos.key(), TT.value_to_tt(bestValue, ply), isPv, b, 0,
+    // 2026-05-17 qsearch finding #14/#29: SF18:1706-1707 averages a
+    // non-decisive fail-high bestValue toward beta before TT-storing,
+    // matching the same regress-to-beta smoothing the main search has.
+    // Cuts down TT-write volatility from qsearch capture sequences.
+    if (bestValue >= beta && std::abs(bestValue) < VALUE_TB_WIN_IN_MAX_PLY)
+        bestValue = Value((bestValue + beta) / 2);
+
+    // 2026-05-17 qsearch finding #31: SF18:1727 NEVER writes BOUND_EXACT
+    // from qsearch — the search is incomplete (no quiets, no checks past
+    // depth 0). An EXACT entry would let non-PV revisits TT-cut on a value
+    // proven only inside the capture-only sub-tree. Use only LOWER/UPPER.
+    //
+    // 2026-05-17 qsearch finding #32: preserve sticky ttPv across qsearch
+    // revisits. SF passes `pvHit = ttHit && ttData.is_pv` (already
+    // computed in the local `ttPv`-like form earlier). Hypersion now
+    // computes `qsearch_pvHit` from the same logic so the persistent
+    // PV bit isn't overwritten by `isPv` on every qsearch save.
+    Bound b = bestValue >= beta ? BOUND_LOWER : BOUND_UPPER;
+    bool qsearch_pvHit = isPv || (ttHit && tte->is_pv());
+    tte->save(pos.key(), TT.value_to_tt(bestValue, ply), qsearch_pvHit, b, 0,
               bestMove, staticEval, TT.generation());
     return bestValue;
 }
