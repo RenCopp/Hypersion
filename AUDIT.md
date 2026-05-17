@@ -306,11 +306,32 @@ Commit `3cec85e` was tested as a batch vs `be7adad`:
 CI lower bound +36.7 — well above the +10 SHIP threshold per
 testing/PROTOCOL.md.  Logs at testing/sprt_tier34_stage2_200g_20260517_*.{log,pgn}.
 
-3 items remain genuinely deferred (the structural ones, not magnitudes):
-- qs #19 stalemate-detect (rare; needs special-case handling)
-- #124 alpha-raise-no-cutoff history (would require moving cutoff-internal
-  history updates to post-loop)
-- #126 fail-low prior-capture bonus (needs prior-capture piece tracking)
+### Structural follow-up tombstone (2026-05-17)
+
+After the Tier 3+4 SHIP, I tried to add the three remaining structural
+items as a batch (commit `ec10033`, reverted in `aeb5817`):
+
+- **qs #19** stalemate-detect — `MoveList<LEGAL>` fallback when qsearch
+  ends with `bestMove == none && !inCheck`. Correctness fix.
+- **#124** alpha-raise-no-cutoff history — added a post-loop history
+  bonus block firing when `bestMove != none && bestValue < beta`,
+  using `history_bonus(depth)/2` magnitude.
+- **#126** fail-low prior-capture bonus — companion to #125, awarding
+  captureHist bonus when parent's move was a capture and we fail low.
+
+| Stage | Result | Verdict |
+|---|---|---|
+| Stage 1 triage (30g, TC 5+0.05, conc=6) | +23.2 ± 98.9 ELO, 10W-8L-12D | NOISE (theoretically positive, proceed) |
+| Stage 2a (200g) | +8.7 ± 40.0 ELO, 71W-66L-63D | INCONCLUSIVE |
+| Stage 2b (200g, opening offset 200) | +3.5 ± 38.0 ELO, 63W-61L-76D | INCONCLUSIVE |
+| Combined 400g | **~+6 ± 28 ELO**, 134W-127L-139D | **REJECT** per PROTOCOL.md (≤ +5 with CI ±35) |
+
+Tombstoned. The Tier 3+4 batch already extracts most of the available
+ELO from these audit families — adding more history magnitude on top is
+in the noise. qs #19 specifically is a correctness fix with rare impact;
+future contributors revisiting it should ablate it alone, not bundled.
+
+Logs: testing/sprt_structural_stage2*_20260517_*.{log,pgn}
 
 Hypersion source is now substantially closer to SF18 semantically while
 keeping its intentional architectural divergences (5x eval scale, Fathom
