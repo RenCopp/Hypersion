@@ -48,10 +48,12 @@
 | 136 | search.cpp:2684 | SF:1475-1478 | Corrhist update condition `bestMove != none && !pos.capture` vs SF's bound-direction `(bestValue > staticEval) == bool(bestMove)` | TODO |
 
 ## Already-applied this session (recap)
+- `(next)` — #12, #13, #17, #23, #57, #96, #131 (7 fixes)
+- `96c90d1` — #21, #22, #24, #30, #35, #49, #51, #66, #108, #112, #129, #132 (12 fixes)
 - `c7e06d3` — rm.score TB-WIN clobbering reverted (DTZ tiebreak restored)
 - `8f7dd3d` — Aspiration fail-low/high SF-style bounds
 - `43c9f15` — PersistCorrHist defaults OFF
-- `43838b8` — corrhist startup contamination cleared on disable  
+- `43838b8` — corrhist startup contamination cleared on disable
 - `017239a` — TT cutoff !excludedMove, improving fallback, ttMove depth-floor
 - `3045981` — SEE_GE KING-case, NNUE FC_1 padded
 - `092e4bc` — root TB-WIN display (revised in c7e06d3)

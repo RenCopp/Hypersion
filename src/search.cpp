@@ -1909,7 +1909,23 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // SF-style ttPv: position is "PV" if it's currently being searched as PV,
     // OR if the TT remembers it was once part of a PV. Sticky — encourages
     // less-aggressive pruning on positions that have ever been principal.
+    //
+    // 2026-05-17 finding #12: SF18:709 ALSO writes ttPv into the Stack so it
+    // sticks across the recursive descent (`ss->ttPv = excludedMove ? ss->ttPv
+    // : PvNode || (ttHit && ttData.is_pv)`). Without that write, children
+    // can't inherit / parents can't bestow ttPv (used in finding #131
+    // fail-low parent-bestow at SF18:1460-1461).
     bool  ttPv    = isPv || (ttHit && tte->is_pv());
+    if (ss->excludedMove == Move::none())
+        ss->ttPv = ttPv;
+
+    // 2026-05-17 finding #13: SF18:710 computes `ttCapture` (true when the
+    // TT move is a capture). It's referenced by several downstream SF
+    // heuristics (LMR adjustment, RFP gate). Hypersion currently only uses
+    // it in tombstone-cited LMR experiments; computing it costs ~1 ns/node
+    // and keeps the inventory accurate so future ports don't have to
+    // re-derive it.
+    [[maybe_unused]] bool ttCapture = ttMove != Move::none() && pos.capture(ttMove);
 
     // 2026-05-17 CRITICAL FIX: TT cutoff must NOT fire when we're inside a
     // singular-extension recursion (ss->excludedMove != none). Otherwise the
@@ -1950,7 +1966,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // is exactly the chain that needs to report "mate-in-N" back to root.
     // Symptom: with Syzygy loaded, KBBK / KBNK mating took 43-49 moves
     // (vs 19/33 theoretical max) because the PV never saw the TB win.
-    if (ply > 0 && depth >= Syzygy::probe_depth() && Syzygy::is_loaded()) {
+    // 2026-05-17 finding #17: SF18:809 also requires `pos.rule50_count() == 0`
+    // and `!pos.can_castle(ANY_CASTLING)` before probing — Fathom's WDL is
+    // only valid when those gates pass. Without these gates Hypersion probed
+    // castling/rule50-tainted positions and relied on Fathom returning FAIL.
+    if (ply > 0 && depth >= Syzygy::probe_depth() && Syzygy::is_loaded()
+        && pos.rule50_count() == 0
+        && !pos.can_castle(WHITE_OO)  && !pos.can_castle(WHITE_OOO)
+        && !pos.can_castle(BLACK_OO)  && !pos.can_castle(BLACK_OOO)) {
         Value tbVal = Syzygy::probe_wdl(pos);
         if (tbVal != VALUE_NONE) {
             // Replace flat TB-win/loss with ply-adjusted equivalents.
@@ -1986,6 +2009,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     } else if (ttHit && tte->eval() != VALUE_NONE) {
         rawEval = tte->eval();
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
+        // 2026-05-17 finding #23: SF18:729-732 upgrades the static eval from
+        // the TT-stored search value when it lies in the bound-consistent
+        // direction (LOWER bound ≥ current eval → use ttValue; UPPER bound
+        // ≤ current eval → use ttValue). This tightens the downstream
+        // margin checks (RFP, futility, NMP) when the TT has a value that
+        // strictly improves on the static eval.
+        if (ttValue != VALUE_NONE
+            && (((tte->bound() & BOUND_LOWER) && ttValue > staticEval)
+                || ((tte->bound() & BOUND_UPPER) && ttValue < staticEval)))
+            staticEval = ttValue;
         ss->staticEval = staticEval;
     } else {
         rawEval = Eval::evaluate(pos);
@@ -2329,9 +2362,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
     int   moveCount = 0;
-    Move  quietsTried[64];
+    // 2026-05-17 finding #57: bumped from 64 / 32 to 128 / 64 so pathological
+    // positions (many promotion-captures + many quiets) don't silently lose
+    // history malus updates past index 63 / 31. SF uses ~SEARCHEDLIST_CAPACITY
+    // (similar magnitude); we err on the safe side since these arrays are
+    // stack-allocated and cheap at MAX_MOVES range.
+    Move  quietsTried[128];
     int   quietCount = 0;
-    Move  capturesTried[32];
+    Move  capturesTried[64];
     int   captureCount = 0;
     bool  skipQuiets = false;
 
@@ -2562,6 +2600,17 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
                     statScore += contHist[1]->get(prevPiece2, prevMove2.to_sq(), moving, m.to_sq());
                 r -= statScore / LMR_STATSCORE_DIV;   // A5: pre-tunable was hardcoded 8192
+            } else {
+                // 2026-05-17 finding #96: SF18:1216-1217 gives captures a
+                // statScore too, using captureHistory + a piece-value term
+                // — captures with strong captHist get reduced less. Without
+                // this, all captures get the same r at the same depth,
+                // losing the historical-quality discrimination.
+                PieceType victim = type_of(pos.piece_on(m.to_sq()));
+                if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
+                int statScore = captureHist.get(moving, m.to_sq(), victim)
+                              + int(Eval::PieceValueMG[victim]) * 4;
+                r -= statScore / LMR_STATSCORE_DIV;
             }
             r = std::clamp(r, 0, newDepth - 1);
             // Analyse mode: halve the LMR aggression to find forcing lines
@@ -2727,8 +2776,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             }
         }
 
-        if (!isCapture && quietCount < 64) quietsTried[quietCount++] = m;
-        if ( isCapture && captureCount < 32) capturesTried[captureCount++] = m;
+        if (!isCapture && quietCount < 128) quietsTried[quietCount++] = m;
+        if ( isCapture && captureCount < 64) capturesTried[captureCount++] = m;
     }
 
     if (moveCount == 0) {
@@ -2736,6 +2785,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
              : inCheck                          ? mated_in(ply)
                                                 : VALUE_DRAW;
     }
+
+    // 2026-05-17 finding #131: SF18:1460-1461 bestows ttPv from parent on
+    // fail-low. Lets a "this branch has ever been PV" signal propagate up
+    // even when the current node failed low (so descendants of the same
+    // parent get the sticky less-aggressive pruning treatment).
+    if (bestValue <= alpha && ply >= 1)
+        ss->ttPv = ss->ttPv || (ss - 1)->ttPv;
 
     // 2026-05-17 finding #129: SF18:1407-1408 moderates fail-high bestValue
     // toward beta before TT-storing. Pulls over-shoot fail-high scores back
