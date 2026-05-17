@@ -313,13 +313,18 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 
 Commit `3cec85e` was tested as a batch vs `be7adad`:
 
-| Stage | Result | Verdict |
-|---|---|---|
-| Stage 1 triage (30g, TC 5+0.05, conc=6) | +70.4 ± 99.8 ELO, 12W-6L-12D | PROMISING |
-| Stage 2 confirm (200g, same TC) | **+79.5 ± 42.8 ELO**, 98W-53L-49D | **SHIP** |
+| Stage | TC | Result | Verdict |
+|---|---|---|---|
+| Stage 1 triage (30g, conc=6) | 5+0.05 | +70.4 ± 99.8 ELO, 12W-6L-12D | PROMISING |
+| Stage 2 confirm (200g) | 5+0.05 | **+79.5 ± 42.8 ELO**, 98W-53L-49D | **SHIP** |
+| Stage 3 LTC validation (200g, conc=6) | **60+0.6** | **+68.6 ± 40.1 ELO**, 87W-48L-65D | **NOT TC-SPECIFIC** |
 
-CI lower bound +36.7 — well above the +10 SHIP threshold per
-testing/PROTOCOL.md.  Logs at testing/sprt_tier34_stage2_200g_20260517_*.{log,pgn}.
+CI lower bound at bullet +36.7, at LTC +28.5 — both well above the +10
+SHIP threshold per testing/PROTOCOL.md. Unlike the previous 2026-05-09
+session where bullet-shipped changes had ~10:1 bullet:LTC ratio (+178
+bullet → +17 LTC), this batch transfers ~1:1 (+79.5 bullet → +68.6 LTC).
+The improvements are NOT bullet-specific — they reflect genuine search
+quality gains. Logs at testing/sprt_tier34_*_20260517_*.{log,pgn}.
 
 ### Structural follow-up tombstone (2026-05-17)
 
