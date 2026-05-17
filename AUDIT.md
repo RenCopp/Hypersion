@@ -293,13 +293,24 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
      would need: (a) starting position randomization, (b) Chess960
      castling generation refit, (c) FEN parser changes. Out-of-scope
      for the SF18-divergence audit; tracked as a separate engine feature.
-**19. rule50≥96 TT-cutoff re-probe** (search #16) — WON'T FIX in this
-     audit cycle. SF18's "graph history workaround" forces a re-probe
-     when the cached TT depth is near 50-move-rule horizon. Hypersion's
-     current behavior (using cached value as-is) can return incorrect
-     scores in pathological 50-move endgames; impact is rare and the
-     SF implementation requires intricate depth-comparison logic. Defer
-     to a dedicated endgame-correctness session.
+**19. rule50≥96 TT-cutoff re-probe** (search #16) — TESTED 2026-05-17,
+     REJECTED. Simple `rule50_count() < 96` gate on TT cutoff: 200g
+     bullet (5+0.05, conc=6) = -3.5 ± 38.3 ELO (62W-64L-74D). The
+     correctness benefit (rare pathological 50-move-rule positions)
+     doesn't outweigh the search-speed loss from disabling cutoffs in
+     all rule50≥96 nodes. SF's full version pairs the gate with a
+     depth-8 ttMove verification probe (lines 782-796); porting that
+     pair would be a follow-up if anyone retries. Logs at
+     testing/sprt_search16_*_20260517_*.{log,pgn}.
+
+**20. Malus split SPSA infrastructure** (#116 follow-up) — DONE.
+     Added `HIST_MALUS_DEPTH2`, `HIST_MALUS_DEPTH1`, `HIST_MALUS_CAP`,
+     `HIST_MALUS_CONST` tunables (UCI `setoption name Tune_HIST_MALUS_*`)
+     and a `history_malus(depth)` helper. Defaults equal the bonus
+     formula so launch behavior is bit-identical. A future SPSA campaign
+     using `testing/spsa.py` with `--params-file` listing these four
+     can move them outward to find the SF-style ~1.6x cap ratio. No
+     campaign run in this session (multi-hour automated work).
 
 ---
 

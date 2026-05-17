@@ -35,6 +35,9 @@ extern int HIST_BONUS_DEPTH1;
 extern int HIST_BONUS_CAP;
 extern int HIST_MAX;
 extern int HIST_BONUS_CONST;
+// Malus split (#116 follow-up, 2026-05-17). Defaults mirror bonus
+// magnitudes so behavior is bit-identical until SPSA moves them.
+extern int HIST_MALUS_DEPTH2, HIST_MALUS_DEPTH1, HIST_MALUS_CAP, HIST_MALUS_CONST;
 }
 
 inline int history_bonus(int depth) {
@@ -42,6 +45,18 @@ inline int history_bonus(int depth) {
                     Search::tunables::HIST_BONUS_DEPTH2 * depth * depth
                     + Search::tunables::HIST_BONUS_DEPTH1 * depth
                     + Search::tunables::HIST_BONUS_CONST);
+}
+
+// 2026-05-17 audit #116 follow-up: separate malus formula. SF18 uses
+// ~1.6x bonus_cap; Hypersion ships with defaults = bonus values so the
+// existing tuning is preserved at launch. SPSA campaign can move
+// HIST_MALUS_* outward to find the right ratio for Hypersion's surrounding
+// margins.
+inline int history_malus(int depth) {
+    return std::min(Search::tunables::HIST_MALUS_CAP,
+                    Search::tunables::HIST_MALUS_DEPTH2 * depth * depth
+                    + Search::tunables::HIST_MALUS_DEPTH1 * depth
+                    + Search::tunables::HIST_MALUS_CONST);
 }
 
 inline void update_history(int& entry, int bonus) {

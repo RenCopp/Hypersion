@@ -95,6 +95,8 @@ extern int RFP_MARGIN_PER_DEPTH, RAZOR_MARGIN_BASE, RAZOR_MARGIN_PER_DEPTH,
 // so behavior is bit-identical at launch and SPSA can move outward.
 extern int HIST_BONUS_DEPTH2, HIST_BONUS_DEPTH1, HIST_BONUS_CAP,
            BFLY_WEIGHT, CONT1_WEIGHT, CONT2_WEIGHT;
+// Malus split (#116 follow-up).
+extern int HIST_MALUS_DEPTH2, HIST_MALUS_DEPTH1, HIST_MALUS_CAP, HIST_MALUS_CONST;
 // Time-mgmt scales (A4 SPSA campaign 2026-05-08+). Stored as percent
 // multipliers (×/100); defaults preserve the previously hardcoded
 // 1.6/1.4/1.2/0.4/0.6/0.85 floats bit-identically.
@@ -151,6 +153,11 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "BFLY_WEIGHT")             BFLY_WEIGHT             = value;
     else if (name == "CONT1_WEIGHT")            CONT1_WEIGHT            = value;
     else if (name == "CONT2_WEIGHT")            CONT2_WEIGHT            = value;
+    // Malus split (#116 follow-up).
+    else if (name == "HIST_MALUS_DEPTH2")       HIST_MALUS_DEPTH2       = value;
+    else if (name == "HIST_MALUS_DEPTH1")       HIST_MALUS_DEPTH1       = value;
+    else if (name == "HIST_MALUS_CAP")          HIST_MALUS_CAP          = value;
+    else if (name == "HIST_MALUS_CONST")        HIST_MALUS_CONST        = value;
     // A4 time-mgmt tunables.
     else if (name == "TM_ENDGAME_BONUS_8")      TM_ENDGAME_BONUS_8      = value;
     else if (name == "TM_ENDGAME_BONUS_12")     TM_ENDGAME_BONUS_12     = value;
@@ -339,6 +346,17 @@ int HIST_BONUS_CAP    = 2065;   // A9 joint: 2059 -> 2065. A2-v2 was: 2000 -> 20
     // v26 trial 2080: +1.7 +/- 36.3 ELO @ 200g (57W-56L-87D, NEW-as-Black
     // 41.9 %). Per protocol REJECT (≤ +5 with CI ±35-36). 30g triage was
     // +58.5 -- classic fakeout. SPSA trend ceiling at 2065.
+// ---- Malus split (#116 follow-up, 2026-05-17) ----
+// SF18 src/search.cpp uses separate bonus / malus formulas with malus
+// ~1.6x bonus_cap. Hypersion's malus currently equals bonus magnitude;
+// the moveCount taper (shipped in 3cec85e) is applied on top.
+// These tunables let a future SPSA campaign move the malus magnitude
+// independently. Defaults match the bonus formula so behavior is
+// bit-identical until SPSA moves them.
+int HIST_MALUS_DEPTH2 = 16;
+int HIST_MALUS_DEPTH1 = 30;
+int HIST_MALUS_CAP    = 2065;
+int HIST_MALUS_CONST  = 16;
 int BFLY_WEIGHT       = 101;    // A2-v2: was 100 (A9 confirmed)
 int CONT1_WEIGHT      =  99;    // A2-v2: was 100 (A9 confirmed)
 int CONT2_WEIGHT      =  48;    // A9 joint: 47 -> 48. A2-v2 was: 50 -> 47.
@@ -2053,6 +2071,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // bench jumped 1.3M -> 5.5M nodes (4x slowdown). Hypersion's other
     // tuning is calibrated around the symmetric `>= depth` gate, so the
     // SF-strict variant needs SPSA re-tuning to ship — reverted to `>=`.
+    // 2026-05-17 audit #16: simple rule50 < 96 gate tested at 200g
+    // bullet (5+0.05): -3.5 +/- 38.3 ELO (62W-64L-74D). The "don't cut
+    // at high rule50" rule is theoretically correct but loses more
+    // overall-search-speed than the rare-correctness-case it rescues.
+    // REJECTED. SF's version pairs the gate with a depth-8 ttMove
+    // verification probe — porting the full pair may behave better but
+    // would need independent SPRT. Tombstoned for now.
     if (!isPv && ss->excludedMove == Move::none() && ttHit && tte->depth() >= depth) {
         if (tte->bound() == BOUND_EXACT
             || (tte->bound() == BOUND_LOWER && ttValue >= beta)
@@ -2887,17 +2912,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Bonus to the fail-high quiet (butterfly + contHist).
                         update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
-                        // 2026-05-17 audit #116: SF18 src/search.cpp:1846-1849
-                        // tapers the per-move malus by moveCount — late-tried
-                        // quiets get less punishment because they were tried
-                        // for a reason (deeper history signal). Hypersion
-                        // ships this WITHOUT SPRT — magnitude derived from
-                        // SF's `actualMalus -= actualMalus * (i - 5) / i`
-                        // for i > 5. Keeps malus = bonus base (full SF18 ratio
-                        // of malus_cap = 1.6 * bonus_cap needs SPSA co-tune
-                        // with HIST_BONUS_CAP).
+                        // 2026-05-17 audit #116: separate malus formula
+                        // (history_malus, SPSA-tunable independent of bonus)
+                        // + moveCount taper from SF18 src/search.cpp:1846-1849.
+                        // Defaults make history_malus == history_bonus so
+                        // current behavior is bit-identical until SPSA moves
+                        // HIST_MALUS_CAP / HIST_MALUS_DEPTH* outward.
+                        int malusBase = history_malus(depth);
                         for (int i = 0; i < quietCount; ++i) {
-                            int malus = bonus;
+                            int malus = malusBase;
                             if (i > 5)
                                 malus -= malus * (i - 5) / i;
                             update_quiet_history(pos, quietsTried[i], -malus,
