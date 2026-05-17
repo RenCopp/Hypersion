@@ -41,7 +41,7 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 | `58a717c` | 2 audit fixes from 5th-pass (movegen CAPTURES underpromotion, zobrist noPawns seed) |
 | `85e9ac4` | Tier 1+2: TB maxValue+upcoming_repetition+cmd_go startTime+zobrist promo-rank zero |
 | `faec2e0` | Tier 1+5: update_quiet_history helper + TT-cut quiet ttMove bonus + LEGAL filter opt |
-| `3cec85e` | Tier 3+4 batch (UNVERIFIED): qs#21 SEE-80, qs#18 contHist, qs#23 per-victim, #85 verify, #116 malus taper, #125 prior-quiet, #136 corrhist bound-dir |
+| `3cec85e` | Tier 3+4 batch (**SHIPPED +79.5±42.8 ELO @ 200g 5+0.05 conc=6, 98W-53L-49D**): qs#21 SEE-80, qs#18 contHist, qs#23 per-victim, #85 verify, #116 malus taper, #125 prior-quiet, #136 corrhist bound-dir |
 
 ---
 
@@ -291,15 +291,25 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 ## Audit complete
 
 5 audit passes covered every .cpp file in `src/`. **57 fixes applied across
-16 commits**. All tiers shipped, including Tier 3 (qsearch tweaks) and
-Tier 4 (SPSA-sensitive). Items in commit 3cec85e are UNVERIFIED — they
-need a 200g SPRT match vs the prior commit `be7adad` before they can
-be considered net-positive. Each item lists its individual revert path
-in the 3cec85e commit message.
+16 commits, all tiers SHIPPED including Tier 3 (qsearch) and Tier 4
+(SPSA-sensitive)**.
 
-3 items remain genuinely deferred and have detailed scope notes:
+### Tier 3+4 SPRT validation (2026-05-17)
+
+Commit `3cec85e` was tested as a batch vs `be7adad`:
+
+| Stage | Result | Verdict |
+|---|---|---|
+| Stage 1 triage (30g, TC 5+0.05, conc=6) | +70.4 ± 99.8 ELO, 12W-6L-12D | PROMISING |
+| Stage 2 confirm (200g, same TC) | **+79.5 ± 42.8 ELO**, 98W-53L-49D | **SHIP** |
+
+CI lower bound +36.7 — well above the +10 SHIP threshold per
+testing/PROTOCOL.md.  Logs at testing/sprt_tier34_stage2_200g_20260517_*.{log,pgn}.
+
+3 items remain genuinely deferred (the structural ones, not magnitudes):
 - qs #19 stalemate-detect (rare; needs special-case handling)
-- #124 alpha-raise-no-cutoff history (structural refactor)
+- #124 alpha-raise-no-cutoff history (would require moving cutoff-internal
+  history updates to post-loop)
 - #126 fail-low prior-capture bonus (needs prior-capture piece tracking)
 
 Hypersion source is now substantially closer to SF18 semantically while
