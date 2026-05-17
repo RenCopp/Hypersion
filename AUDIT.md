@@ -312,14 +312,20 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
      and a `history_malus(depth)` helper. Defaults equal the bonus
      formula so launch behavior is bit-identical until SPSA moves them.
 
-**21. SPSA campaign for malus split** (#116 magnitude tune) — RUNNING
-     2026-05-17 (200 iters × 4 games × nodes=50000, conc=4). Params:
-     `testing/spsa_params_malus.json` with `HIST_MALUS_CAP` ranging
-     [1500,3500] from default 2065, `HIST_MALUS_DEPTH2` [8,32] from 16,
-     `HIST_MALUS_DEPTH1` [15,60] from 30, `HIST_MALUS_CONST` [0,50]
-     from 16. Output: `testing/spsa_out_malus.json`. After campaign
-     converges, the recommended values will be applied to defaults
-     in src/search.cpp and SPRT-tested vs current HEAD.
+**21. SPSA campaign for malus split** (#116 magnitude tune) — TESTED
+     2026-05-17, REJECTED. SPSA at nodes=50000 conc=4 over 200 iters
+     converged to (DEPTH2=17, DEPTH1=27, CAP=2208, CONST=18), small
+     shift from defaults (16, 30, 2065, 16). Stage 1 triage 30g
+     5+0.05 conc=6: +82.6 ± 121.4 (PROMISING). Stage 2 confirm 200g:
+     **−19.1 ± 40.3 ELO (64W-75L-61D)** → REJECT. Classic SPSA-at-
+     nodes-to-TC non-transfer (the same pattern CLAUDE.md documents
+     for the A4 time-mgmt campaign). Defaults reverted; the four
+     `Tune_HIST_MALUS_*` UCI hooks stay live so a future TC-mode
+     SPSA (testing/spsa.py --tc 5+0.05 instead of --nodes 50000) can
+     retry. SF's 1.6x malus_cap:bonus_cap ratio specifically did NOT
+     transfer — Hypersion's local optimum at the nodes=50000 horizon
+     sits near the bonus cap, not 1.6x above it. Logs:
+     testing/sprt_spsa_malus_*_20260517_*.{log,pgn}.
 
 ---
 

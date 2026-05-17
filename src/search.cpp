@@ -382,9 +382,18 @@ int HIST_BONUS_CAP    = 2065;   // A9 joint: 2059 -> 2065. A2-v2 was: 2000 -> 20
 // SF18 src/search.cpp uses separate bonus / malus formulas with malus
 // ~1.6x bonus_cap. Hypersion's malus currently equals bonus magnitude;
 // the moveCount taper (shipped in 3cec85e) is applied on top.
-// These tunables let a future SPSA campaign move the malus magnitude
-// independently. Defaults match the bonus formula so behavior is
-// bit-identical until SPSA moves them.
+//
+// 2026-05-17 SPSA campaign (200 iters x 4 games x nodes=50000, conc=4)
+// converged to (17, 27, 2208, 18). Stage 1 triage 30g 5+0.05 looked
+// promising (+82.6 +/- 121.4 ELO) but Stage 2 200g confirmed REJECT
+// at -19.1 +/- 40.3 ELO (64W-75L-61D). Classic SPSA-at-fixed-nodes
+// non-transfer to TC-mode play (the same pattern CLAUDE.md documents
+// for the A4 time-mgmt SPSA campaign). Defaults reverted to
+// bonus-formula bit-identical values; the four Tune_HIST_MALUS_*
+// hooks remain so a future TC-mode SPSA (testing/spsa.py --tc 5+0.05
+// instead of --nodes 50000) can retry. SF's 1.6x ratio specifically
+// did NOT transfer — Hypersion's local optimum sits near the bonus
+// cap, not 1.6x above it.
 int HIST_MALUS_DEPTH2 = 16;
 int HIST_MALUS_DEPTH1 = 30;
 int HIST_MALUS_CAP    = 2065;
