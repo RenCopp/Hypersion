@@ -1927,6 +1927,18 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     if (inCheck && bestValue == -VALUE_INFINITE)
         return mated_in(ply);
 
+    // 2026-05-17 audit qs #19: stalemate detection in qsearch.
+    // qsearch only generates captures (or evasions when in check). If no
+    // captures exist, no evasions ran, and we're not in check, the position
+    // might be stalemate — but we'd return staticEval (often non-zero)
+    // instead of VALUE_DRAW. SF18 src/search.cpp:1736-1740 handles this by
+    // checking legal-move count when bestMove is none after a "shouldn't
+    // have any moves" path. We gate the legal-move check on bestMove == none
+    // AND !inCheck so it only fires in the no-captures-tried case (cheap).
+    if (!inCheck && bestMove == Move::none() && ss->excludedMove == Move::none()
+        && MoveList<LEGAL>(pos).size() == 0)
+        return VALUE_DRAW;
+
     // 2026-05-17 qsearch finding #14/#29: SF18:1706-1707 averages a
     // non-decisive fail-high bestValue toward beta before TT-storing,
     // matching the same regress-to-beta smoothing the main search has.
@@ -2935,16 +2947,53 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                                                 : VALUE_DRAW;
     }
 
+    // 2026-05-17 audit #124: alpha-raise-no-cutoff history update.
+    // When bestMove was found but the loop ran to completion without
+    // hitting beta (alpha-raise without fail-high), SF18 src/search.cpp:
+    // 1415-1421 still awards history bonus to bestMove via update_all_stats.
+    // Hypersion's history block at line ~2880 lives INSIDE the `v >= beta`
+    // branch, so this case got zero history signal. Adding a smaller bonus
+    // here (half of fail-high bonus) so alpha-raise still teaches move
+    // ordering — but at lower magnitude than a cutoff would award.
+    // Magnitude SHIPPED WITHOUT SPRT.
+    if (bestMove != Move::none() && bestValue < beta) {
+        int alphaBonus = history_bonus(depth) / 2;
+        bool isCaptureBM = pos.capture(bestMove);
+        if (!isCaptureBM) {
+            // Reward bestMove (smaller magnitude than fail-high path).
+            update_quiet_history(pos, bestMove, alphaBonus,
+                                 prevPiece1, prevMove1, prevPiece2, prevMove2);
+            // Demote the other tried quiets at the same scale (with same taper).
+            for (int i = 0; i < quietCount; ++i) {
+                if (quietsTried[i] == bestMove) continue;
+                int malus = alphaBonus;
+                if (i > 5) malus -= malus * (i - 5) / i;
+                update_quiet_history(pos, quietsTried[i], -malus,
+                                     prevPiece1, prevMove1, prevPiece2, prevMove2);
+            }
+        } else {
+            // Capture bestMove: reward its captureHist slot, demote other captures.
+            Piece moving = pos.piece_on(bestMove.from_sq());
+            PieceType victim = type_of(pos.piece_on(bestMove.to_sq()));
+            if (bestMove.type_of() == MT_EN_PASSANT) victim = PAWN;
+            captureHist.update(moving, bestMove.to_sq(), victim, alphaBonus);
+            for (int i = 0; i < captureCount; ++i) {
+                Move cm = capturesTried[i];
+                if (cm == bestMove) continue;
+                Piece cmp = pos.piece_on(cm.from_sq());
+                PieceType cv = type_of(pos.piece_on(cm.to_sq()));
+                if (cm.type_of() == MT_EN_PASSANT) cv = PAWN;
+                captureHist.update(cmp, cm.to_sq(), cv, -alphaBonus);
+            }
+        }
+    }
+
     // 2026-05-17 audit #125: fail-low prior-opponent-quiet bonus.
     // When this node fails low and the parent's move (at ss-1) was a quiet,
     // award it a positive butterfly + contHist signal — the parent's move
     // is "doing well" from the opponent's perspective, so it should be
     // ordered higher when reached from the same parent position later.
-    // SF18 src/search.cpp:1424-1445. Magnitude SHIPPED WITHOUT SPRT.
-    // SF18's #124 (alpha-raise-no-cutoff history update) and #126 (prior-
-    // capture fail-low bonus) require deeper structural changes — moving
-    // the cutoff-internal history updates to post-loop, and tracking the
-    // piece-captured-by-prior-move. Both still deferred.
+    // SF18 src/search.cpp:1424-1445.
     if (bestValue <= alpha && bestMove == Move::none() && ply > 0
         && prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none()
         && !pos.captured_piece()) {
@@ -2955,6 +3004,24 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
             contHist[0]->update(prevPiece2, prevMove2.to_sq(),
                                 prevPiece1, prevMove1.to_sq(), priorBonus);
+    }
+
+    // 2026-05-17 audit #126: fail-low prior-capture bonus.
+    // Companion to #125. When the parent's move was a CAPTURE and we
+    // fail low here, the opponent's capture was a good move (it left us
+    // worse off than expected). Reward it in captureHist so it's ordered
+    // earlier when reached from the same parent position later.
+    // SF18 src/search.cpp:1448-1453. pos.captured_piece() returns the piece
+    // captured by the move that LANDED on the current state — i.e. parent's
+    // move (since we have undone our own moves before reaching this code).
+    if (bestValue <= alpha && bestMove == Move::none() && ply > 0
+        && prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none()
+        && pos.captured_piece()) {
+        PieceType priorVictim = type_of(pos.captured_piece());
+        // SF18 uses a fixed bonus of 1012 (their bonus scale). Hypersion uses
+        // history_bonus(depth) / 2 to stay calibrated with surrounding magnitudes.
+        captureHist.update(prevPiece1, prevMove1.to_sq(), priorVictim,
+                           history_bonus(depth) / 2);
     }
 
     // 2026-05-17 finding #131: SF18:1460-1461 bestows ttPv from parent on
