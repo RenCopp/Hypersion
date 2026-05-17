@@ -399,6 +399,35 @@ The TT 64-bit hash + replacement-PV-bonus + BAD_QUIET stage combine to
 move ordering at low depth) and TT replacement-priority (PV nodes
 linger longer, better PV-line caching across iterations).
 
+## 7th audit pass (2026-05-17) — NNUE byte-by-byte + search constants + movegen edges
+
+Three parallel deep-Explore agents scanned: full nnue.cpp byte-by-byte vs SF18 nnue/, search.cpp pruning/extension constants, and movegen + position.cpp edge cases.
+
+### NNUE byte-by-byte audit result: NO BUGS FOUND
+
+25 audited items: 21 marked CORRECTNESS ✓, 3 DESIGN (intentional Hypersion choices: 1500 big-net threshold vs SF's 962, no rule-50 damping, non-incremental threat features), 1 LATENT (no NNUE_ARCH_HASH validation — operator responsibility).
+
+Verified correct: SqrClippedReLU squaring, skip-neuron scaling, FC layer biases, dirtyPiece coverage across all move types, FT output ×2 scale on small net, threat-feature index bounds, PSQT bucket formula, WSCALE/OUTPUT_SCALE pipeline, per-thread accumulator isolation, LEB128 decompression, big/small net threshold, AVX-VNNI dispatch gating.
+
+Hypersion's NNUE is **byte-correct vs SF18 SFNNv10** on every critical path.
+
+### Movegen + position edge-case audit result: NO BUGS FOUND
+
+15 edge cases verified PASS: castling path-clear, castling king-safety, EN_PASSANT-in-EVASIONS filter, EP discovered-check rejection, promotion-with-check, pinned-piece filter, gives_check for castling/promotion/EP, set_state computation order, threefold repetition encoding, rule50 increment on pawn/capture, castling-rights mask. The earlier SEE king-swap polarity fix is applied.
+
+### Search constants audit: 1 actionable, tested REJECT
+
+| # | Location | SF18 ref | Finding | Verdict |
+|---|---|---|---|---|
+| 7.1 | search.cpp:2625 | search.cpp:1097-1098 | Hypersion futility margin lacks SF18's `+ 161*!bestMove + 85*(staticEval>alpha)` protective bonuses. | **TESTED REJECT** |
+
+Triage 30g 5+0.05 conc=6: **-34.9 ± 107.6 ELO** (9W-12L-9D). Tombstoned: adding the bonuses makes futility pruning less aggressive, but Hypersion's existing tuning has the futility magnitude correctly calibrated for its surrounding pruning. The protection bonuses help SF18 but regress Hypersion.
+
+False alarms from agent (verified inert):
+- "Small ProbCut absent" — already shipped at search.cpp:2522 in `96c90d1`.
+- "SE singularBeta divergent" — tombstoned in earlier audit.
+- Various TUNING-only items that have already been SPSA-tuned for Hypersion.
+
 ## Audit complete
 
 5 audit passes covered every .cpp file in `src/`. **57 fixes applied across

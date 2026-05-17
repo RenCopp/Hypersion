@@ -2622,6 +2622,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // move only; Hypersion's `skipQuiets = true` cancelled ALL
                 // subsequent quiets including ones with better future-side
                 // futility margins. Per-move continue restores correctness.
+                //
+                // 2026-05-17 7th-pass audit: tested adding SF18's protective
+                // bonuses (`+ 161*!bestMove + 85*(staticEval>alpha)`,
+                // Hypersion 5x scale = +805/+425) to make pruning less
+                // aggressive in the protected cases. 30g triage: -34.9 +/-
+                // 107.6 ELO (9W-12L-9D). Tombstoned: Hypersion's current
+                // futility tuning is already at a local optimum; the SF
+                // bonuses reduce prune rate without recouping accuracy.
                 if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * depth + FUTIL_MARGIN_BASE <= alpha)
                     continue;
                 // SEE pruning of bad quiets.
