@@ -1389,10 +1389,33 @@ void Worker::iterative_deepen(Position& pos) {
 
                     if (should_stop()) break;
 
-                    rm.score = v;
+                    // 2026-05-17 SF-like root TB score preservation:
+                    // When the root probe identified this move as TB-decisive
+                    // winning (tbRank > 0), do not downgrade the score to a
+                    // depth-limited NNUE eval. The probe is ground truth from
+                    // Fathom; search at finite depth often returns a smaller
+                    // NNUE value because mate-in-N is too deep to find.
+                    // Without this guard, the displayed root score reverts to
+                    // NNUE cp ~200 for KBNK-from-start even with Syzygy on
+                    // (compared to SF showing TB-WIN cp 20000). Aspiration
+                    // window and time-management also see the larger value
+                    // so the engine treats the position as decisive, matching
+                    // SF behavior.
+                    Value vAdj = v;
+                    if (rm.tbRank > 0 && v < VALUE_TB_WIN_IN_MAX_PLY
+                                      && v > -VALUE_TB_WIN_IN_MAX_PLY) {
+                        // Probe is ground truth; treat the searched value as
+                        // TB-WIN for both rm.score persistence and
+                        // bestThisIter tracking. Aspiration window, time
+                        // management, and the displayed UCI score then all
+                        // see the decisive value (matching SF's cp 20000
+                        // behavior on TB-decisive root positions).
+                        vAdj = Value(VALUE_TB_WIN - 100);
+                    }
+                    rm.score = vAdj;
                     rm.selDepth = std::max(rm.selDepth, selDepth);
-                    if (v > bestThisIter) {
-                        bestThisIter = v;
+                    if (vAdj > bestThisIter) {
+                        bestThisIter = vAdj;
                         update_pv(iterPV, rm.pv0, childPv);
                         rm.pv = iterPV;
                         if (v > alpha) alpha = v;
