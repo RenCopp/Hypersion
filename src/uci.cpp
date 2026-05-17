@@ -461,7 +461,21 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_MatchOpponent"))   parse_bool(Options.matchOpponent);
     else if (eq("UCI_GameRated"))       parse_bool(Options.gameRated);
     else if (eq("UCI_GameTournament"))  parse_bool(Options.gameTournament);
-    else if (eq("PersistCorrHist"))     parse_bool(Options.persistCorrHist);
+    else if (eq("PersistCorrHist")) {
+        bool old_val = Options.persistCorrHist;
+        parse_bool(Options.persistCorrHist);
+        // 2026-05-17 determinism fix: when persistence is turned OFF, also
+        // wipe the in-memory corr-history tables. The engine loads
+        // hypersion_corrhist.bin at startup (before any setoption arrives),
+        // so disabling persistence later would leave the stale loaded data
+        // biasing search — a non-deterministic state across runs.
+        // Now `setoption name PersistCorrHist value false` produces a clean
+        // search state, matching what users expect for SPRT / debug runs.
+        if (old_val && !Options.persistCorrHist) {
+            Search::Threads.wait_all();
+            Search::Threads.clear_all();
+        }
+    }
     else if (eq("CorrHistFile"))        Options.corrHistFile = value;
     else if (eq("UCI_Opponent"))   {
         // python-chess sends: "<title> <rating> <player_type> <name>"
