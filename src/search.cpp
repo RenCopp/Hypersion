@@ -1389,33 +1389,28 @@ void Worker::iterative_deepen(Position& pos) {
 
                     if (should_stop()) break;
 
-                    // 2026-05-17 SF-like root TB score preservation:
-                    // When the root probe identified this move as TB-decisive
-                    // winning (tbRank > 0), do not downgrade the score to a
-                    // depth-limited NNUE eval. The probe is ground truth from
-                    // Fathom; search at finite depth often returns a smaller
-                    // NNUE value because mate-in-N is too deep to find.
-                    // Without this guard, the displayed root score reverts to
-                    // NNUE cp ~200 for KBNK-from-start even with Syzygy on
-                    // (compared to SF showing TB-WIN cp 20000). Aspiration
-                    // window and time-management also see the larger value
-                    // so the engine treats the position as decisive, matching
-                    // SF behavior.
-                    Value vAdj = v;
-                    if (rm.tbRank > 0 && v < VALUE_TB_WIN_IN_MAX_PLY
-                                      && v > -VALUE_TB_WIN_IN_MAX_PLY) {
-                        // Probe is ground truth; treat the searched value as
-                        // TB-WIN for both rm.score persistence and
-                        // bestThisIter tracking. Aspiration window, time
-                        // management, and the displayed UCI score then all
-                        // see the decisive value (matching SF's cp 20000
-                        // behavior on TB-decisive root positions).
-                        vAdj = Value(VALUE_TB_WIN - 100);
-                    }
-                    rm.score = vAdj;
+                    // 2026-05-17 CRITICAL FIX (replaces an earlier incorrect
+                    // attempt): the searched value `v` MUST be stored in
+                    // rm.score so the NNUE-eval-based tiebreak among
+                    // DTZ-tied root moves still works. Previously this
+                    // code overwrote `v` with VALUE_TB_WIN - 100 for all
+                    // tb-decisive moves, collapsing the tiebreak —
+                    // bishop-shuffles and king-moves ended up with the
+                    // same rm.score and stable_sort fell back to movegen
+                    // order. User-reported KBBK FEN
+                    // `8/8/3k4/8/8/8/4K3/B6B w` shuffled Ba1↔Bb2
+                    // indefinitely (50-move draw) because Fathom's
+                    // rank=1000 was ignored once the score collapsed.
+                    //
+                    // The display-side TB-WIN reporting (to match SF's
+                    // cp 20000 at root) is now handled separately in
+                    // print_info, which uses the rootMove's tbRank/score
+                    // pair to derive a TB-decisive display value without
+                    // touching the search-side ordering data.
+                    rm.score = v;
                     rm.selDepth = std::max(rm.selDepth, selDepth);
-                    if (vAdj > bestThisIter) {
-                        bestThisIter = vAdj;
+                    if (v > bestThisIter) {
+                        bestThisIter = v;
                         update_pv(iterPV, rm.pv0, childPv);
                         rm.pv = iterPV;
                         if (v > alpha) alpha = v;
@@ -1500,8 +1495,21 @@ void Worker::iterative_deepen(Position& pos) {
             std::uint64_t totN = pool ? pool->total_nodes() : nodes.load();
             TimePoint     ms   = tm.elapsed();
             for (int pvIdx = 0; pvIdx < multiPv && pvIdx < int(rootMoves.size()); ++pvIdx)
-                print_info(d, selDepth, rootMoves[pvIdx].score, totN, ms, rootMoves[pvIdx].pv,
+            {
+                // 2026-05-17 display-only TB-WIN override: when the root
+                // probe identified this move as TB-decisive winning, show
+                // a TB-WIN-range score to the GUI (matching SF18's
+                // cp 20000 at root for tb-decisive positions). The
+                // searched value `score` is kept intact for ordering
+                // purposes; only the displayed score is upgraded.
+                Value displayScore = rootMoves[pvIdx].score;
+                if (rootMoves[pvIdx].tbRank > 0
+                    && std::abs(displayScore) < VALUE_TB_WIN_IN_MAX_PLY) {
+                    displayScore = Value(VALUE_TB_WIN - 100);
+                }
+                print_info(d, selDepth, displayScore, totN, ms, rootMoves[pvIdx].pv,
                            pvIdx, multiPv);
+            }
         }
 
         if (should_stop()) break;
