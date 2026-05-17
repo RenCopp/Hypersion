@@ -287,12 +287,15 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
      `MAX_GAME_PLIES = 1024` is more than enough for any practical game
      (longest tournament game ever was ~270 plies). Dynamic allocation
      would require lifetime audit of every caller — no measurable benefit.
-**18. UCI_Chess960** (uci [25]) — WON'T FIX as-is. The option is declared
-     for GUI compat (lichess-bot etc. send `setoption name UCI_Chess960
-     value false` for standard chess). True Chess960 implementation
-     would need: (a) starting position randomization, (b) Chess960
-     castling generation refit, (c) FEN parser changes. Out-of-scope
-     for the SF18-divergence audit; tracked as a separate engine feature.
+**18. UCI_Chess960** (uci [25]) — DONE c241285. Hypersion already had
+     the working pieces (FEN parser accepts X-FEN, movegen + do_move
+     handle arbitrary rook squares, parse_uci_move accepts king-takes-
+     rook input); commit c241285 added the missing OUTPUT half: `Position
+     ::is_chess960()` detector, `fen()` Shredder-format output,
+     `move_uci(Move, const Position&)` king-takes-rook castling output,
+     and UCI_Chess960 option no-op-but-acknowledge. Verified: FEN
+     round-trips correctly for both standard (KQkq) and Chess960 (HFhf
+     etc.) castling rights; standard perft unchanged.
 **19. rule50≥96 TT-cutoff re-probe** (search #16) — TESTED 2026-05-17,
      REJECTED. Simple `rule50_count() < 96` gate on TT cutoff: 200g
      bullet (5+0.05, conc=6) = -3.5 ± 38.3 ELO (62W-64L-74D). The
@@ -303,14 +306,20 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
      pair would be a follow-up if anyone retries. Logs at
      testing/sprt_search16_*_20260517_*.{log,pgn}.
 
-**20. Malus split SPSA infrastructure** (#116 follow-up) — DONE.
+**20. Malus split SPSA infrastructure** (#116 follow-up) — DONE 62d4442.
      Added `HIST_MALUS_DEPTH2`, `HIST_MALUS_DEPTH1`, `HIST_MALUS_CAP`,
      `HIST_MALUS_CONST` tunables (UCI `setoption name Tune_HIST_MALUS_*`)
      and a `history_malus(depth)` helper. Defaults equal the bonus
-     formula so launch behavior is bit-identical. A future SPSA campaign
-     using `testing/spsa.py` with `--params-file` listing these four
-     can move them outward to find the SF-style ~1.6x cap ratio. No
-     campaign run in this session (multi-hour automated work).
+     formula so launch behavior is bit-identical until SPSA moves them.
+
+**21. SPSA campaign for malus split** (#116 magnitude tune) — RUNNING
+     2026-05-17 (200 iters × 4 games × nodes=50000, conc=4). Params:
+     `testing/spsa_params_malus.json` with `HIST_MALUS_CAP` ranging
+     [1500,3500] from default 2065, `HIST_MALUS_DEPTH2` [8,32] from 16,
+     `HIST_MALUS_DEPTH1` [15,60] from 30, `HIST_MALUS_CONST` [0,50]
+     from 16. Output: `testing/spsa_out_malus.json`. After campaign
+     converges, the recommended values will be applied to defaults
+     in src/search.cpp and SPRT-tested vs current HEAD.
 
 ---
 
