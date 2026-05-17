@@ -13,14 +13,19 @@ namespace hypersion {
 
 namespace {
 
-// Emit the four promotion variants for a pawn that just landed on `to`.
-// In CAPTURES mode the queen comes first (best capture); in QUIETS we emit
-// only the under-promotions (knight/bishop/rook).
-template<GenType T>
+// Emit promotion variants for a pawn that just landed on `to`.
+// 2026-05-17 movegen audit: SF18 (movegen.cpp:108-124) splits promotions by
+// capture-vs-push: in CAPTURES mode capture-promotions emit Q+R+B+N (rare
+// but tactical — e.g. knight-capture-promotion delivering smothered mate),
+// while push-promotions emit Q only. Previously Hypersion emitted Q only
+// for ALL promotions in CAPTURES mode, losing capture-underpromotions in
+// qsearch. The `Enemy` template parameter distinguishes the two cases.
+template<GenType T, bool Enemy>
 ExtMove* make_promotions(ExtMove* moveList, Square from, Square to) {
-    if constexpr (T == CAPTURES || T == EVASIONS || T == NON_EVASIONS || T == LEGAL)
+    constexpr bool all = (T == EVASIONS || T == NON_EVASIONS || T == LEGAL);
+    if constexpr (T == CAPTURES || all)
         *moveList++ = Move::make(from, to, MT_PROMOTION, QUEEN);
-    if constexpr (T == QUIETS   || T == EVASIONS || T == NON_EVASIONS || T == LEGAL) {
+    if constexpr ((T == CAPTURES && Enemy) || (T == QUIETS && !Enemy) || all) {
         *moveList++ = Move::make(from, to, MT_PROMOTION, ROOK);
         *moveList++ = Move::make(from, to, MT_PROMOTION, BISHOP);
         *moveList++ = Move::make(from, to, MT_PROMOTION, KNIGHT);
@@ -65,9 +70,10 @@ ExtMove* generate_pawn_moves(const Position& pos, ExtMove* moveList, Bitboard ta
         Bitboard b3 = shift<Up     >(pawnsOn7) & emptySquares;
         if constexpr (T == EVASIONS) b3 &= target;
 
-        while (b1) { Square to = pop_lsb(b1); moveList = make_promotions<T>(moveList, Square(to - UpRight), to); }
-        while (b2) { Square to = pop_lsb(b2); moveList = make_promotions<T>(moveList, Square(to - UpLeft ), to); }
-        while (b3) { Square to = pop_lsb(b3); moveList = make_promotions<T>(moveList, Square(to - Up     ), to); }
+        // b1, b2 are capture-promotions (Enemy=true); b3 is push-promotion (Enemy=false).
+        while (b1) { Square to = pop_lsb(b1); moveList = make_promotions<T, true >(moveList, Square(to - UpRight), to); }
+        while (b2) { Square to = pop_lsb(b2); moveList = make_promotions<T, true >(moveList, Square(to - UpLeft ), to); }
+        while (b3) { Square to = pop_lsb(b3); moveList = make_promotions<T, false>(moveList, Square(to - Up     ), to); }
     }
 
     // ---- Standard captures (incl. en passant) ----

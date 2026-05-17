@@ -216,7 +216,14 @@ Position& Position::set(const std::string& fenStr, StateInfo* si) {
 // incrementally.
 // ---------------------------------------------------------------------------
 void Position::set_state() {
-    st->key = st->pawnKey = st->materialKey = st->minorKey = 0;
+    // 2026-05-17 zobrist audit finding: SF18 uses Zobrist::noPawns as the
+    // pawnKey seed (position.cpp:346) so that a no-pawn position gets a
+    // unique nonzero pawnKey instead of colliding with pawnKey=0 (the
+    // initial state). Affects pawnCorrHist hash distribution slightly —
+    // existing PersistCorrHist files become invalid (which is fine; default
+    // is OFF and the file gets rebuilt on first ucinewgame).
+    st->key = st->materialKey = st->minorKey = 0;
+    st->pawnKey = Zobrist::noPawns;
     st->nonPawnKey[WHITE] = st->nonPawnKey[BLACK] = 0;
     st->nonPawnMaterial[WHITE] = st->nonPawnMaterial[BLACK] = 0;
     st->capturedPiece = NO_PIECE;
