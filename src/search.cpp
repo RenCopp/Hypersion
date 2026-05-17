@@ -1433,7 +1433,12 @@ void Worker::iterative_deepen(Position& pos) {
                         print_info(d, selDepth, bestThisIter,
                                    pool ? pool->total_nodes() : nodes.load(),
                                    tm.elapsed(), iterPV, 0, multiPv, /*flag=*/1);
-                    windowBeta  = (windowAlpha + windowBeta) / 2;
+                    // 2026-05-17 SF18 fail-low: new beta = OLD alpha (not
+                    // midpoint). The re-search then has window
+                    // [bestThisIter - delta, oldAlpha] which is what SF18
+                    // does at src/search.cpp:402-403. Midpoint produced a
+                    // wider window than SF, wasting re-search nodes.
+                    windowBeta  = windowAlpha;
                     windowAlpha = std::max<int>(bestThisIter - delta, -VALUE_INFINITE);
                     delta += delta / 4 + ASP_GROWTH_ADD;   // A7: pre-tunable was hardcoded 5
                 } else if (bestThisIter >= windowBeta && windowBeta != VALUE_INFINITE) {
@@ -1442,6 +1447,10 @@ void Worker::iterative_deepen(Position& pos) {
                         print_info(d, selDepth, bestThisIter,
                                    pool ? pool->total_nodes() : nodes.load(),
                                    tm.elapsed(), iterPV, 0, multiPv, /*flag=*/2);
+                    // 2026-05-17 SF18 fail-high: also RAISE alpha so the
+                    // re-search doesn't waste effort exploring scores far
+                    // below the new beta. SF18 src/search.cpp:410.
+                    windowAlpha = std::max<int>(windowBeta - delta, windowAlpha);
                     windowBeta = std::min<int>(bestThisIter + delta, VALUE_INFINITE);
                     delta += delta / 4 + ASP_GROWTH_ADD;   // A7: pre-tunable was hardcoded 5
                 } else {
