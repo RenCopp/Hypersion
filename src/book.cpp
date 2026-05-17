@@ -159,79 +159,19 @@ std::mt19937& book_prng() {
 }
 }  // namespace
 
-// ─── Cross-session opening variety (ported from Kirin V8) ──────────────
-// Track the last N first-moves the bot played from the starting position
-// across sessions. When probing from startpos, EXCLUDE recently-played
-// first moves so the bot doesn't repeat e2e4 game after game.
+// ─── Cross-session opening variety — REMOVED (was ported from Kirin V8) ─
+// Previous implementation tracked the last N first-moves from startpos in
+// hypersion_recent_openings.txt to exclude them on subsequent runs. The
+// filter was disabled 2026-05-15 (caused thin candidate sets at startpos
+// → early book exit → engine spent search time on book moves) and the
+// associated functions (recent_first_moves / save_recent /
+// remember_first_move / move_to_uci) sat as dead code under
+// [[maybe_unused]] guards.
 //
-// State file lives next to the executable. Idea + algorithm credit:
-// Kirin V8 (C:\Engine\Kirin V8\kirin_engine.py OpeningBook).
-namespace {
-
-constexpr int OPENING_HISTORY_MAX = 16;
-const char*   OPENING_HISTORY_FILE = "hypersion_recent_openings.txt";
-
-std::vector<std::string>& recent_first_moves() {
-    static std::vector<std::string> recent;
-    static bool loaded = false;
-    if (!loaded) {
-        loaded = true;
-        std::ifstream f(OPENING_HISTORY_FILE);
-        std::string line;
-        while (std::getline(f, line)) {
-            // strip whitespace
-            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back())))
-                line.pop_back();
-            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front())))
-                line.erase(line.begin());
-            if (!line.empty() && line.size() <= 5)
-                recent.push_back(line);
-        }
-        if (recent.size() > OPENING_HISTORY_MAX)
-            recent.erase(recent.begin(),
-                         recent.begin() + (recent.size() - OPENING_HISTORY_MAX));
-    }
-    return recent;
-}
-
-void save_recent() {
-    auto& recent = recent_first_moves();
-    std::ofstream f(OPENING_HISTORY_FILE, std::ios::trunc);
-    if (!f) return;
-    for (const auto& m : recent) f << m << '\n';
-}
-
-[[maybe_unused]] void remember_first_move(const std::string& mvUci) {
-    auto& recent = recent_first_moves();
-    // Move to-front: remove if already present, then append.
-    auto it = std::find(recent.begin(), recent.end(), mvUci);
-    if (it != recent.end()) recent.erase(it);
-    recent.push_back(mvUci);
-    if (recent.size() > OPENING_HISTORY_MAX)
-        recent.erase(recent.begin(),
-                     recent.begin() + (recent.size() - OPENING_HISTORY_MAX));
-    save_recent();
-}
-
-// Convert our Move to a polyglot-compatible UCI string for the recent-list
-// (so we don't need an external move-formatter dependency).
-[[maybe_unused]] std::string move_to_uci(const Move m) {
-    if (m == Move::none()) return "";
-    std::string s;
-    Square from = m.from_sq();
-    Square to   = m.to_sq();
-    s += char('a' + int(file_of(from)));
-    s += char('1' + int(rank_of(from)));
-    s += char('a' + int(file_of(to)));
-    s += char('1' + int(rank_of(to)));
-    if (m.type_of() == MT_PROMOTION) {
-        constexpr char promoChar[] = " pnbrqk";
-        s += promoChar[m.promotion_type()];
-    }
-    return s;
-}
-
-}  // namespace
+// 2026-05-17 audit uci #99/#100: removed entirely — the file
+// hypersion_recent_openings.txt is no longer read or written; nothing
+// references the functions; the file may already exist next to user
+// executables but will be ignored from this commit on.
 
 Move probe(const Position& pos, bool pickBest) {
     if (!g_open || g_entries.empty()) return Move::none();
@@ -274,21 +214,8 @@ Move probe(const Position& pos, bool pickBest) {
     }
     if (cands.empty()) return Move::none();
 
-    // ─── Cross-session opening variety (Kirin V8 port) — DISABLED ─────
-    // 2026-05-15: user reported the engine was "staying longer in the
-    // opening" after a bot restart — the variety filter was excluding
-    // most candidate book moves at startpos, leaving the book with thin
-    // / empty result sets that forced an early book exit. The engine
-    // then spent search time on what used to be book moves.
-    //
-    // Tombstoning the filter: book::probe now uses the full weighted-
-    // candidate set without the recent-first-moves exclusion. The
-    // recent-openings file (hypersion_recent_openings.txt) is no longer
-    // read or written.
-    //
-    // To re-enable: change ENABLE_OPENING_VARIETY to true.
-    constexpr bool ENABLE_OPENING_VARIETY = false;
-
+    // Cross-session opening variety (Kirin V8 port) was removed entirely
+    // on 2026-05-17 (was disabled 2026-05-15 — see book::namespace banner).
     double total = 0;
     for (auto& c : cands) total += c.w;
     std::uniform_real_distribution<double> dist(0.0, total);
@@ -298,13 +225,6 @@ Move probe(const Position& pos, bool pickBest) {
     for (auto& c : cands) {
         acc += c.w;
         if (acc >= pick) { chosen = c.m; break; }
-    }
-
-    // Remember first-move at startpos for the cross-session variety filter.
-    // Disabled along with the filter (see comment above).
-    if constexpr (ENABLE_OPENING_VARIETY) {
-        // (Compile-time-dead since ENABLE_OPENING_VARIETY = false.)
-        // Was: if (isStartpos) remember_first_move(move_to_uci(chosen));
     }
     return chosen;
 }

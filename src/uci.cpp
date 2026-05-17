@@ -50,6 +50,12 @@ struct {
     std::string bookFile = "Perfect2023.bin";
     std::string evalFile      = "nn-c288c895ea92.nnue";   // SF18 big default
     std::string evalFileSmall = "nn-37f18f62d772.nnue";   // SF18 small default
+    // 2026-05-17 audit uci #22: previously the EvalUseSmallOnly UCI option
+    // had no backing field in Options — `setoption name EvalUseSmallOnly
+    // value true` wrote only to nnue.cpp's namespace-static g_small_only_flag.
+    // Now mirrored here so all UCI options live in one struct and tools that
+    // inspect Options state see consistent values.
+    bool evalUseSmallOnly = false;
     std::string syzygyPath = "<empty>";
     // Opponent-aware strength matching. When matchOpponent=true and the GUI
     // sends UCI_Opponent (lichess-bot does this automatically), Hypersion
@@ -450,8 +456,8 @@ void cmd_setopt(std::istringstream& is) {
         }
     }
     else if (eq("EvalUseSmallOnly")) {
-        bool v = (value == "true" || value == "1" || value == "on");
-        NNUE::set_small_only(v);
+        parse_bool(Options.evalUseSmallOnly);
+        NNUE::set_small_only(Options.evalUseSmallOnly);
     }
     else if (eq("SyzygyPath"))     {
         Options.syzygyPath = value;
@@ -721,6 +727,15 @@ void loop(int argc, char** argv) {
             NNUE::load_big  (Options.evalFile);
         if (!Options.evalFileSmall.empty() && Options.evalFileSmall != "<empty>")
             NNUE::load_small(Options.evalFileSmall);
+        // 2026-05-17 audit uci #48: SF18 calls verify_networks() before
+        // entering search; Hypersion silently falls back to classical eval.
+        // Emit a single info string at startup so misconfigured EvalFile /
+        // missing .nnue alongside the exe surfaces immediately instead of
+        // mystifying users with weak play.
+        if (!NNUE::is_loaded())
+            std::cerr << "info string warning: no NNUE network loaded — "
+                         "using classical eval (check EvalFile / EvalFileSmall paths)"
+                      << std::endl;
     }
 
     // Lc0-inspired persistent corr-history load. If the file exists from
