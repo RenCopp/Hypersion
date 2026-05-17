@@ -83,12 +83,21 @@ struct {
     // Empty / false (default) = previous behavior.
     bool gameTournament = false;
     // ── Lc0-inspired persistent correction-history ─────────────────────────
-    // PersistCorrHist=true (default): on engine startup, load corr-history
-    // from CorrHistFile if present; on ucinewgame (before per-game decay),
-    // save to that file. Lets the engine remember which pawn structures had
-    // systematically-wrong static evals from previous games -- a form of
-    // "learn from its mistakes" without needing offline NNUE retrain.
-    bool        persistCorrHist = true;
+    // PersistCorrHist (default OFF as of 2026-05-17): on engine startup,
+    // load corr-history from CorrHistFile if present; on ucinewgame (before
+    // per-game decay), save to that file. Lets the engine remember which
+    // pawn structures had systematically-wrong static evals from previous
+    // games — a form of "learn from its mistakes" without needing offline
+    // NNUE retrain.
+    //
+    // 2026-05-17 changed default to FALSE because the auto-load at startup
+    // imported accumulated history that varied across runs, producing
+    // non-deterministic behavior in endgame conversion (KBBK / KPK / KBNK
+    // would sometimes mate in 20 moves, sometimes shuffle to a 50-move-rule
+    // draw on the same FEN). Validation SPRT at 400g showed only ~+2.6 ELO
+    // sub-noise benefit from the feature anyway. Users who want online
+    // learning can opt in via `setoption name PersistCorrHist value true`.
+    bool        persistCorrHist = false;
     std::string corrHistFile    = "hypersion_corrhist.bin";
 } Options;
 
@@ -228,7 +237,7 @@ void cmd_uci() {
               // the corr-history table is loaded from CorrHistFile on startup
               // and saved on every ucinewgame, so the engine remembers
               // eval corrections across games / sessions. See history.h.
-              << "option name PersistCorrHist type check default true\n"
+              << "option name PersistCorrHist type check default false\n"
               << "option name CorrHistFile type string default hypersion_corrhist.bin\n"
               << "uciok" << std::endl;
 }
