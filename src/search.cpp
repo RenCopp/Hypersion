@@ -1971,7 +1971,18 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
 
     Value rawEval, staticEval;
     if (inCheck) {
-        rawEval = staticEval = ss->staticEval = VALUE_NONE;
+        // 2026-05-17 finding #21: SF18:716-717 propagates (ss-2)->staticEval
+        // through in-check plies so `improving` and downstream margins still
+        // have a meaningful eval after forcing-check sequences.
+        Value carried = (ply >= 2 && (ss - 2)->staticEval != VALUE_NONE)
+                          ? (ss - 2)->staticEval : VALUE_NONE;
+        rawEval = staticEval = ss->staticEval = carried;
+    } else if (ss->excludedMove != Move::none()) {
+        // 2026-05-17 finding #22: SF18:718-719 reuses ss->staticEval inside
+        // singular-extension recursion (excludedMove != none) — same position
+        // key, same eval. Avoids re-running NNUE and keeps signal consistent
+        // with the parent that performed the SE test.
+        rawEval = staticEval = ss->staticEval;
     } else if (ttHit && tte->eval() != VALUE_NONE) {
         rawEval = tte->eval();
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
@@ -1980,6 +1991,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         rawEval = Eval::evaluate(pos);
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
         ss->staticEval = staticEval;
+        // 2026-05-17 finding #24: SF18:736-741 writes the first-visit eval to
+        // TT with BOUND_NONE so subsequent re-visits skip the NNUE forward
+        // pass. Cheap caching of the most expensive eval-side work. We skip
+        // when ttHit (the TT entry exists and we already used tte->eval())
+        // or when in SE recursion (don't overwrite the parent's entry).
+        if (!ttHit && ss->excludedMove == Move::none())
+            tte->save(pos.key(), VALUE_NONE, ttPv, BOUND_NONE,
+                      0, Move::none(), rawEval, TT.generation());
     }
 
     // NOTE: tested SF18 priorReduction hindsight depth bump: parent records
@@ -2075,7 +2094,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
-        return staticEval;
+        // 2026-05-17 finding #30: SF18:888 returns `(2*beta + eval) / 3`
+        // (weighted moderation toward beta), not raw `staticEval`. Raw
+        // staticEval over-claimed the cutoff score, propagating inflated
+        // values into TT on the RFP path.
+        return Value((2 * beta + staticEval) / 3);
 
     // ---- Razoring ----
     // NOTE: tried bumping depth ceiling 4 -> 5; -12.2 +/- 36.6 ELO
@@ -2083,7 +2106,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // depth 5 mis-cuts more often than the savings justify here.
     if (!isPv && !inCheck && depth <= 4
         && staticEval + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * depth <= alpha) {
-        Value v = qsearch(pos, ss, alpha, alpha + 1, /*isPv=*/false);
+        // 2026-05-17 finding #35: SF18:874 razor probe uses the FULL search
+        // window (alpha, beta). Hypersion's null-window `(alpha, alpha+1)`
+        // can return a tighter bound than warranted, biasing the razor
+        // verify-step. Full window matches SF.
+        Value v = qsearch(pos, ss, alpha, beta, /*isPv=*/false);
         if (v <= alpha) return v;
     }
 
@@ -2218,9 +2245,19 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // the TB-win range and silently corrupt the score before
                 // TT-write). Critical: without this, TB-win results from
                 // ProbCut feed back into TT as below-TB-win values.
-                if (std::abs(v) < VALUE_TB_WIN_IN_MAX_PLY)
-                    return Value(int(v) - int(probCutBeta - beta));
-                return v;
+                // 2026-05-17 finding #49: SF18:973-975 writes the ProbCut
+                // result to TT before returning so revisits hit the cache
+                // and skip the inner search entirely. Bound = LOWER (we
+                // proved v >= probCutBeta), depth = `depth - 3` (one less
+                // than the reduced search to stay conservative).
+                Value retVal = (std::abs(v) < VALUE_TB_WIN_IN_MAX_PLY)
+                                 ? Value(int(v) - int(probCutBeta - beta))
+                                 : v;
+                if (ss->excludedMove == Move::none())
+                    tte->save(pos.key(), TT.value_to_tt(retVal, ply), ttPv,
+                              BOUND_LOWER, std::max(0, depth - 3), m,
+                              rawEval, TT.generation());
+                return retVal;
             }
         }
     }
@@ -2237,7 +2274,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     {
         Value smallProbCutBeta = std::min<int>(beta + 2090, VALUE_INFINITE - 1);
         if (!isPv && !inCheck
-            && ttHit && tte->bound() == BOUND_LOWER
+            // 2026-05-17 finding #51: SF18:988 uses `(ttData.bound & BOUND_LOWER)`
+            // which matches BOTH BOUND_LOWER and BOUND_EXACT (the latter has the
+            // LOWER bit set). Hypersion's `==` missed BOUND_EXACT entries,
+            // narrowing the small-ProbCut cutoff opportunity.
+            && ttHit && (tte->bound() & BOUND_LOWER)
             && tte->depth() >= depth - 4
             && ttValue != VALUE_NONE && ttValue >= smallProbCutBeta
             // 2026-05-16 thresholds widened to TB-decisive: SF18
@@ -2321,8 +2362,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             && !limits.analyseMode) {
             if (!isCapture && !givesCheck) {
                 // Futility pruning for quiets.
+                // 2026-05-17 finding #66: SF18:1103 `continue`s the current
+                // move only; Hypersion's `skipQuiets = true` cancelled ALL
+                // subsequent quiets including ones with better future-side
+                // futility margins. Per-move continue restores correctness.
                 if (depth <= 6 && staticEval + FUTIL_MARGIN_PER_DEPTH * depth + FUTIL_MARGIN_BASE <= alpha)
-                    skipQuiets = true;
+                    continue;
                 // SEE pruning of bad quiets.
                 // NOTE: round 13 tried `(depth - opponentWorsening)` here.
                 // Result: -47 ELO at 200 games. Reinforces the round-9
@@ -2551,6 +2596,18 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 adjustedDepth += int(doDeeper) - int(doShallower);
                 v = -search(pos, ss + 1, -alpha - 1, -alpha, adjustedDepth, childPv,
                             /*isPv=*/false, !cutNode);
+                // 2026-05-17 finding #108: SF18:1258-1259 awards a positive
+                // 2-ply continuation-history bonus when the LMR full-depth
+                // re-search succeeded (v > alpha). The fact that a reduced
+                // move survived re-search is a strong signal it deserves
+                // earlier consideration next time.
+                if (v > alpha && !isCapture
+                    && prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none()) {
+                    constexpr int LMR_SURVIVOR_BONUS = 1365;
+                    contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(),  LMR_SURVIVOR_BONUS);
+                    if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
+                        contHist[1]->update(prevPiece2, prevMove2.to_sq(), moving, m.to_sq(), LMR_SURVIVOR_BONUS / 2);
+                }
             }
             // If still better than alpha and we're in a PV node, full window re-search.
             if (!should_stop() && v > alpha && (isPv || v < beta))
@@ -2567,6 +2624,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (v > alpha) {
                 bestMove = m;
                 if (isPv) update_pv(pv, m, childPv);
+                // 2026-05-17 finding #112: SF18:1380-1381 reduces the
+                // remaining-siblings depth by 2 plies once a move raised
+                // alpha (but didn't beta-cut) at moderate depth. Remaining
+                // siblings only need to fail low against the new (higher)
+                // alpha, so less depth is enough — saves nodes.
+                if (depth > 2 && depth < 14 && v < beta
+                    && std::abs(v) < VALUE_TB_WIN_IN_MAX_PLY)
+                    depth -= 2;
                 if (v >= beta) {
                     // SF18 cutoffCnt tally: count this fail-high so that any
                     // sibling-move's child LMR (which reads (ss+1)->cutoffCnt)
@@ -2672,10 +2737,24 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                                                 : VALUE_DRAW;
     }
 
+    // 2026-05-17 finding #129: SF18:1407-1408 moderates fail-high bestValue
+    // toward beta before TT-storing. Pulls over-shoot fail-high scores back
+    // so TT readers don't see inflated lower bounds. Gated on non-decisive
+    // values so TB-win / mate scores still propagate cleanly.
+    if (bestValue >= beta
+        && std::abs(bestValue) < VALUE_TB_WIN_IN_MAX_PLY
+        && std::abs(alpha)     < VALUE_TB_WIN_IN_MAX_PLY)
+        bestValue = Value((bestValue * depth + beta) / (depth + 1));
+
     Bound b = bestValue >= beta            ? BOUND_LOWER
             : (isPv && bestMove != Move::none()) ? BOUND_EXACT : BOUND_UPPER;
-    tte->save(pos.key(), TT.value_to_tt(bestValue, ply), ttPv, b, depth,
-              bestMove, rawEval, TT.generation());
+    // 2026-05-17 finding #132: SF18:1465 guards TT write with !excludedMove.
+    // Inside SE recursion (excludedMove != none) the inner search uses the
+    // same posKey as the outer call; writing here corrupts the entry the
+    // outer node will read after the SE test.
+    if (ss->excludedMove == Move::none())
+        tte->save(pos.key(), TT.value_to_tt(bestValue, ply), ttPv, b, depth,
+                  bestMove, rawEval, TT.generation());
 
     // ---- Correction history update ----
     // When the actual search outcome disagrees with the static eval, nudge the
