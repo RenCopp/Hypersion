@@ -2,7 +2,8 @@
 
 Living document. Catalogs every observed divergence between
 `C:\Engine\Hypersion\src\` and `C:\Engine\stockfish\src\`. Updated as
-findings are applied. Tracks **305 total findings** across 4 audit passes.
+findings are applied. Tracks **335 total findings** across 5 audit passes
+(5th pass: misc.cpp, movegen.cpp, syzygy.cpp, zobrist.cpp — added 2026-05-17).
 
 ## Categories
 - **BUG**: clear semantic divergence; SF-source-backed fix exists
@@ -19,7 +20,7 @@ findings are applied. Tracks **305 total findings** across 4 audit passes.
 
 ---
 
-## Applied this session (42 fixes across 12 commits)
+## Applied this session (44 fixes across 13 commits)
 
 | Commit | Fixes |
 |---|---|
@@ -37,6 +38,7 @@ findings are applied. Tracks **305 total findings** across 4 audit passes.
 | `20f5399` | 5 qsearch fixes (qs#5,#14/#29,#31,#32,#39) |
 | `2c6b69e` | 6 misc fixes (main#8, qs#12, qs#20, uci#9, uci#19, uci#37) |
 | `037745f` | 3 LATENT cleanups (uci#22 backing field, uci#48 nnue-load warning, uci#99/#100 dead book code) |
+| `58a717c` | 2 audit fixes from 5th-pass (movegen CAPTURES underpromotion, zobrist noPawns seed) |
 
 ---
 
@@ -138,6 +140,56 @@ Documented in audit transcripts. Examples: different node-accounting convention 
 
 ---
 
+## 5th audit pass (2026-05-17) — misc / movegen / syzygy / zobrist
+
+### movegen.cpp (10 findings)
+
+| # | Hypersion location | SF18 ref | Summary | Status |
+|---|---|---|---|---|
+| mg #1 | movegen.cpp:20-29 | movegen.cpp:108-124 | make_promotions signature: SF18 uses `<Type, Direction D, bool Enemy>` template, splits Q vs underpromotions by capture-vs-push | DONE 58a717c (added `Enemy` param) |
+| mg #2 | movegen.cpp:21 | movegen.cpp:113 | CAPTURES mode emitted only Q for all promotions (incl. capture-promotions). Lost capture-underpromotions in qsearch (knight-capture-promo for smothered-mate). | DONE 58a717c |
+| mg #3 | movegen.cpp:80-91 | movegen.cpp:188-202 | EP-in-EVASIONS check uses different formulation (`target & (ep-Up)` vs SF's `target & (ep+Up) return early`). Verified equivalent in all reachable positions — both correctly handle direct-pawn-check and discovered-check cases. | LATENT — semantically equivalent, just different code path |
+| mg #4 | movegen.cpp:215-226 | movegen.cpp:293-310 | LEGAL filter calls `pos.legal()` on every move; SF18 only checks for pinned/king/EN_PASSANT moves. | LATENT — perf, not correctness; affects perft + root-move filtering |
+| mg #5 | movegen.cpp:114-156 | movegen.cpp:247-261 | Castling: Hypersion does inline Chess960 validation (min/max + per-square attacker check); SF18 uses pos.castling_impeded() helper. | STYLE — both correct |
+| mg #6 | movegen.h:39 | movegen.h:39-47 | ExtMove: Hypersion uses composition (`Move + int`), SF18 uses inheritance | DESIGN |
+| mg #7 | movegen.cpp:173-175 | movegen.cpp:239-242 | EVASIONS target: Hypersion uses BetweenBB lookup; SF18 calls between_bb() helper | STYLE |
+| mg #8 | movegen.cpp (absent) | movegen.cpp:37-87 | SF18 has AVX-512 splat_pawn_moves SIMD fast-path; Hypersion has no AVX-512 path | DESIGN — Hypersion targets AVX2 per CLAUDE.md |
+| mg #9 | (constexpr branches) | (unified loop) | EP-evasion: Hypersion repeats `pawnsNotOn7 & pawn_attacks_bb(...)` twice in separate constexpr branches | LATENT — redundant compute, no perf impact |
+| mg #10 | movegen.cpp:36-37 | movegen.cpp:131-133 | TRank/Up naming: Hypersion inlines direction; SF18 calls pawn_push(Us) helper | STYLE |
+
+### zobrist.cpp (9 findings)
+
+| # | Hypersion location | SF18 ref | Summary | Status |
+|---|---|---|---|---|
+| zb #1 | zobrist.cpp:11, 23 | position.cpp:51, 136, 346 | `Zobrist::noPawns` initialized but pawnKey starts at 0 (not noPawns). SF18 seeds `st->pawnKey = Zobrist::noPawns` so no-pawn positions get a unique nonzero key. | DONE 58a717c |
+| zb #2 | position.cpp:230 | position.cpp:126-127 | Hypersion doesn't zero-out promotion-rank slots in psq[PAWN][SQ_*8/*1]; SF18 zeroes them. No practical impact (pawns can't legally exist on promotion ranks). | LATENT |
+| zb #3 | position.cpp:243-246 | (incremental) | materialKey computed eagerly via piece-count indexing in set_state; SF18 manages it incrementally only. Same slot semantics. | DESIGN — both correct |
+| zb #4 | zobrist.h | position.h | minorKey tracking (KNIGHT/BISHOP/KING) — SF18 has no minorKey (no corrhist). | DESIGN — Hypersion-specific feature |
+| zb #5 | zobrist.cpp:14 | position.cpp:120 | PRNG seed identical (1070372ULL) | STYLE |
+| zb #6 | zobrist.cpp:7-10 | position.cpp:48-51 | Same psq/enpassant/castling array shapes | STYLE — identical |
+| zb #7 | zobrist.cpp:18-19 | position.cpp:129-130 | EP key gen identical | STYLE |
+| zb #8 | zobrist.cpp:20-21 | position.cpp:132-133 | Castling key gen identical | STYLE |
+| zb #9 | zobrist.h vs inline | (Position::init) | Hypersion: separate `Zobrist::init()`; SF18: inline in Position::init() | STYLE |
+
+### syzygy.cpp (12 findings) — all DESIGN (Fathom vs SF18 native TB probe)
+
+All Hypersion-vs-SF18 differences in syzygy.cpp / syzygy.h are intentional
+DESIGN divergences from the Fathom backend choice. The only "BUG" candidate
+(legacy `probe_root` at line 88 with `rule50 != 0` gate) is documented dead
+code — search.cpp:1041 uses `probe_root_dtz` exclusively, which correctly
+handles rule50 inside. Fathom hang workaround (lines 147-170) is necessary
+and correct (Fathom hangs on KQK/KRK with specific king alignments).
+
+### misc.cpp (19 findings) — all DESIGN (intentional minimalism)
+
+Hypersion's misc.cpp is intentionally minimal (19 lines vs SF18's 528 lines).
+The agent flagged many "linker errors" from missing functions (dbg_*, Logger,
+compiler_info, prefetch, MultiArray, etc.) but Hypersion doesn't call any of
+them — it has its own per-class prefetch methods (TT::prefetch, CorrHist::
+prefetch). No real bugs. All DESIGN divergences from intentional pruning.
+
+---
+
 ## Session verification
 
 | Metric | Pre-session | Final |
@@ -177,3 +229,75 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 15. ~~Verify networks at startup with clear error message (uci [48])~~ — DONE 037745f
 16. ~~Remove dead opening-variety code from book.cpp (uci [99]-[100])~~ — DONE 037745f
 17. ~~EvalUseSmallOnly backing field (uci [22])~~ — DONE 037745f
+18. LEGAL filter perf: skip pos.legal() for non-pinned, non-king, non-EP moves (mg #4) — small refactor, perft-affecting only
+19. zobrist promotion-rank zero-out (zb #2) — no practical impact, low priority
+
+---
+
+## Plan for refactor-needed items (deferred work)
+
+Each item below requires structural changes that need testing under SPRT
+before shipping. Listed roughly by ELO-likelihood × difficulty.
+
+### TIER 1 — clear bugs, plain refactor
+
+**1. `update_quiet_histories` helper factor-out** (unlocks #15, #124, #125, #126)
+- Extract the quiet-move history update logic (butterfly + contHist + low-ply)
+  from search.cpp:2620+ into a `void update_quiet_histories(Position&, Stack*, Move, int bonus)`.
+- Adds 4 fail-low / alpha-raise / fail-high prior-quiet bonuses that SF18 has
+  and Hypersion lacks. ~150 LOC refactor.
+- Expected ELO: small but real, joint signal (+5 to +15 ELO at 200g).
+
+**2. `Position::upcoming_repetition` + early-draw alpha upgrade** (#4)
+- New method using cuckoo-table from SF18 position.cpp:1163. Catches "repetition
+  is reachable within X plies" and lets search return DRAW early when alpha < 0.
+- Maps 1:1 from SF18; ~80 LOC new + 5 LOC call site at search.cpp:1900.
+- Expected ELO: weak unknown (research-only feature in SF), might be neutral.
+
+**3. TB PvNode `maxValue` clamp** (#19, #130)
+- Track maxValue from TB probe; clamp bestValue at end of node. PvNodes only.
+- ~30 LOC, single function. Needed for correct TB return semantics.
+- Expected ELO: tiny (only fires at high-TB nodes), but a correctness fix.
+
+### TIER 2 — UCI / time-management
+
+**4. `isready` blocking semantics** (uci #29)
+- Add `Search::Threads.wait_for_search_finished()` call in `cmd_isready()`.
+- ~5 LOC + a wait API on ThreadPool. Standard UCI requires this.
+- ELO: 0 in self-play; observable in GUI tournaments.
+
+**5. `cmd_go` startTime capture** (uci #45)
+- Capture `now()` at start of cmd_go, pass to TimeManager so book + setup
+  latency is counted against the move clock.
+- ~5 LOC. Affects tight-TC behavior.
+- Expected ELO: small (+2 to +8) at bullet TC.
+
+### TIER 3 — qsearch tweaks (SPRT-required)
+
+**6. qsearch SEE threshold 0 → -80** (qs #21) — SPSA-sensitive
+**7. qsearch contHist in MovePicker** (qs #18) — refactor MovePicker ctor
+**8. qsearch stalemate-detect** (qs #19) — adds movecount tracking
+**9. qsearch per-victim capture-futility** (qs #23)
+
+### TIER 4 — SPSA-sensitive (need co-tune, not a one-line port)
+
+**10. Separate malus formula with moveCount taper** (#116)
+**11. Corrhist bound-direction predicate** (#136)
+**12. ttPv LMR sign verification** (#85)
+
+### TIER 5 — small remaining LATENT (no urgency)
+
+**13. LEGAL filter perf optimization** (mg #4) — perft-affecting, ELO-neutral
+**14. `states[MAX_GAME_PLIES]` dynamic list** (uci [2], [34])
+**15. Promotion-rank zero in psq init** (zb #2) — cosmetic parity with SF18
+**16. EP-evasion code-path unification** (mg #9) — readability only
+
+---
+
+## Audit complete
+
+5 audit passes covered every .cpp file in `src/`. 44 fixes applied across
+13 commits. 16 deferred items have detailed refactor plans above.
+Hypersion source is now substantially closer to SF18 semantically while
+keeping its intentional architectural divergences (5x eval scale,
+Fathom TB backend, corrhist persistence, dual-net switching).
