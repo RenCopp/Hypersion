@@ -1894,7 +1894,20 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // less-aggressive pruning on positions that have ever been principal.
     bool  ttPv    = isPv || (ttHit && tte->is_pv());
 
-    if (!isPv && ttHit && tte->depth() >= depth) {
+    // 2026-05-17 CRITICAL FIX: TT cutoff must NOT fire when we're inside a
+    // singular-extension recursion (ss->excludedMove != none). Otherwise the
+    // singular search at search.cpp:2337 cuts immediately on the same TT
+    // entry that triggered the SE check, making the singular test
+    // tautologically pass and effectively disabling singular extension.
+    // SF18 src/search.cpp:760 has this gate as `!excludedMove`.
+    //
+    // NOTE: SF18 also has an asymmetric depth comparison
+    //   `ttData.depth > depth - (ttData.value <= beta)`
+    // which is stricter than `>= depth` for fail-high cuts. Tried it and
+    // bench jumped 1.3M -> 5.5M nodes (4x slowdown). Hypersion's other
+    // tuning is calibrated around the symmetric `>= depth` gate, so the
+    // SF-strict variant needs SPSA re-tuning to ship — reverted to `>=`.
+    if (!isPv && ss->excludedMove == Move::none() && ttHit && tte->depth() >= depth) {
         if (tte->bound() == BOUND_EXACT
             || (tte->bound() == BOUND_LOWER && ttValue >= beta)
             || (tte->bound() == BOUND_UPPER && ttValue <= alpha)) {
@@ -1992,7 +2005,12 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         else if (ply >= 4 && (ss - 4)->staticEval != VALUE_NONE)
             improving = staticEval > (ss - 4)->staticEval;
         else
-            improving = true;   // unknown → assume improving, gentler pruning
+            // 2026-05-17 SF18 src/search.cpp:716,750: when in-check propagates
+            // the chain, the broken-chain fallback is `improving = false`.
+            // Hypersion previously defaulted to `true` (gentler pruning) when
+            // both lookbacks were unavailable, causing under-pruning in long
+            // forcing-check sequences. Match SF's conservative default.
+            improving = false;
     }
 
     // SF18 opponentWorsening flag (src/search.cpp:751). Computed but not yet
@@ -2402,6 +2420,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
 
         // ---- Late Move Reductions ----
         Depth newDepth = depth - 1 + extension;
+        // 2026-05-17 SF18 src/search.cpp:1283-1287: when following the
+        // ttMove on a PV node and the TT entry is either decisive or
+        // deep enough, floor newDepth at 1. Prevents dropping straight to
+        // qsearch on a ttMove that has a known mate-line continuation,
+        // which caused mate-finding losses near horizon.
+        if (isPv && m == ttMove
+            && ((ttValue != VALUE_NONE && std::abs(ttValue) >= VALUE_TB_WIN_IN_MAX_PLY
+                 && tte->depth() > 0)
+                || tte->depth() > 1))
+            newDepth = std::max<int>(newDepth, 1);
         Depth r = 0;
         if (depth >= 3 && moveCount > 1 + (isPv ? 1 : 0) && (!isCapture || cutNode)) {
             r = lmr_base(depth, moveCount);
