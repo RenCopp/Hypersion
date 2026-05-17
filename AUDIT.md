@@ -276,15 +276,30 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 **13c. Fail-low prior-capture bonus** (#126) — STILL TODO (requires
       tracking the piece captured by the prior move)
 
-### TIER 5 — small remaining LATENT (no urgency) — DONE / DEFERRED
+### TIER 5 — small remaining LATENT (no urgency) — DONE / WON'T FIX
 
 **14. LEGAL filter perf optimization** (mg #4) — DONE faec2e0
 **15. Promotion-rank zero in psq init** (zb #2) — DONE 85e9ac4
-**16. `states[MAX_GAME_PLIES]` dynamic list** (uci [2], [34]) — deferred,
-     no measurable impact, would require lifetime audit of all callers
-**17. EP-evasion code-path unification** (mg #9) — deferred, cosmetic only
-**18. UCI_Chess960** (uci [25]) — kept as silent-absorb for lichess-bot
-     GUI compat; implementing full Chess960 is a separate project
+**16. EP-evasion code-path unification** (mg #9) — DONE 23c86ec (unified
+     the two `if constexpr` branches into one shared body gated by an
+     `epValid` bool; perft validated)
+**17. `states[MAX_GAME_PLIES]` dynamic list** (uci [2], [34]) — WON'T FIX.
+     `MAX_GAME_PLIES = 1024` is more than enough for any practical game
+     (longest tournament game ever was ~270 plies). Dynamic allocation
+     would require lifetime audit of every caller — no measurable benefit.
+**18. UCI_Chess960** (uci [25]) — WON'T FIX as-is. The option is declared
+     for GUI compat (lichess-bot etc. send `setoption name UCI_Chess960
+     value false` for standard chess). True Chess960 implementation
+     would need: (a) starting position randomization, (b) Chess960
+     castling generation refit, (c) FEN parser changes. Out-of-scope
+     for the SF18-divergence audit; tracked as a separate engine feature.
+**19. rule50≥96 TT-cutoff re-probe** (search #16) — WON'T FIX in this
+     audit cycle. SF18's "graph history workaround" forces a re-probe
+     when the cached TT depth is near 50-move-rule horizon. Hypersion's
+     current behavior (using cached value as-is) can return incorrect
+     scores in pathological 50-move endgames; impact is rare and the
+     SF implementation requires intricate depth-comparison logic. Defer
+     to a dedicated endgame-correctness session.
 
 ---
 

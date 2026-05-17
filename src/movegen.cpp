@@ -84,13 +84,15 @@ ExtMove* generate_pawn_moves(const Position& pos, ExtMove* moveList, Bitboard ta
         while (b2) { Square to = pop_lsb(b2); *moveList++ = Move(Square(to - UpLeft ), to); }
 
         if (Square ep = pos.ep_square(); ep != SQ_NONE) {
-            // EVASIONS: only valid if our pawn captures the checker (which is the ep'd pawn).
+            // 2026-05-17 audit mg #9: unified the previous two constexpr
+            // branches that computed the same `pawnsNotOn7 & pawn_attacks_bb`
+            // pair. EVASIONS adds the gate "the captured pawn must be the
+            // checker we're trying to resolve" — i.e., `ep - Up` (where the
+            // doubly-pushed pawn now sits) must lie in our blocking target.
+            bool epValid = true;
             if constexpr (T == EVASIONS)
-                if (target & square_bb(Square(ep - Up))) {
-                    Bitboard b = pawnsNotOn7 & pawn_attacks_bb(Them, ep);
-                    while (b) *moveList++ = Move::make(pop_lsb(b), ep, MT_EN_PASSANT);
-                }
-            if constexpr (T != EVASIONS) {
+                epValid = bool(target & square_bb(Square(ep - Up)));
+            if (epValid) {
                 Bitboard b = pawnsNotOn7 & pawn_attacks_bb(Them, ep);
                 while (b) *moveList++ = Move::make(pop_lsb(b), ep, MT_EN_PASSANT);
             }
