@@ -35,6 +35,12 @@ constexpr Value VALUE_TB_LOSS          = -VALUE_TB_WIN;
 constexpr Value VALUE_TB_WIN_IN_MAX_PLY  =  VALUE_TB_WIN - MAX_PLY;
 constexpr Value VALUE_TB_LOSS_IN_MAX_PLY = -VALUE_TB_WIN_IN_MAX_PLY;
 
+// 2026-05-17 audit #6.4: defensive utility for TT-read sanity checks
+// (mirrors SF18 src/types.h::is_valid). VALUE_NONE is a sentinel used
+// for "no entry yet" and "out-of-band placeholder" cases; callers that
+// pass it through arithmetic without checking get nonsense.
+constexpr bool is_valid(Value v) noexcept { return v != VALUE_NONE; }
+
 enum Color : std::int8_t { WHITE, BLACK, COLOR_NB = 2 };
 
 enum PieceType : std::int8_t {

@@ -71,7 +71,12 @@ public:
     // the time the recursive search calls probe().
     void prefetch(Key key) const {
         if (!table) return;
-        auto* p = &table[(std::uint64_t(std::uint32_t(key)) * std::uint64_t(clusterCount)) >> 32];
+        // 2026-05-17 audit #6.1: SF18 uses `mul_hi64(key, clusterCount)`
+        // (128-bit mul, upper 64 bits) to distribute the full 64-bit key
+        // entropy over the cluster array. Previously Hypersion truncated
+        // to lower 32 bits, wasting half the key entropy.
+        using u128 = __uint128_t;
+        auto* p = &table[(u128(key) * u128(clusterCount)) >> 64];
         __builtin_prefetch(p);
     }
 

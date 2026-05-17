@@ -31,8 +31,11 @@ void TranspositionTable::clear() {
 }
 
 TTEntry* TranspositionTable::probe(Key key, bool& found) const {
-    // Stockfish's mulhi indexing: hi 32 bits of (key * clusterCount).
-    Cluster& c = table[(std::uint64_t(std::uint32_t(key)) * std::uint64_t(clusterCount)) >> 32];
+    // 2026-05-17 audit #6.1: full 64-bit key * clusterCount via __int128
+    // (matches SF18 src/misc.h::mul_hi64). Previously truncated to lower
+    // 32 bits, wasting upper-32 entropy.
+    using u128 = __uint128_t;
+    Cluster& c = table[(u128(key) * u128(clusterCount)) >> 64];
 
     std::uint16_t key16 = std::uint16_t(key);
 
@@ -133,9 +136,19 @@ void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value e, i
     bool prev_pv = (k16 == key16) && ((depth8 & 0x80) != 0);
     bool save_pv = pv || prev_pv;
 
+    // 2026-05-17 audit #6.2: SF18 tt.cpp:101 adds `+ 2 * pv` to the
+    // replacement-priority check, so PV-flagged entries effectively need
+    // 2 plies less to overwrite. Also adds an aging check so older
+    // generation entries can be replaced even at shallower depth.
+    // Aging here is approximated: a non-current-generation entry counts
+    // as "fair game" for replacement at equal-or-greater depth.
+    int  newDepth = int(d) & 0x7F;
+    int  oldDepth = int(depth8 & 0x7F);
+    bool oldStale = (genBound8 & 0xFC) != (std::uint8_t(gen) & 0xFC);
     if (b == BOUND_EXACT
         || k16 != key16
-        || (int(d) & 0x7F) - 4 > int(depth8 & 0x7F) - 4) {
+        || newDepth + 2 * int(save_pv) > oldDepth - 4
+        || oldStale) {
         key16     = k16;
         // Pack: bit 7 = ttPv, bits 6..0 = depth (clamped to 127)
         depth8    = std::uint8_t((int(d) & 0x7F) | (save_pv ? 0x80 : 0));

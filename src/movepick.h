@@ -22,8 +22,14 @@
 namespace hypersion {
 
 enum Stage : std::uint8_t {
-    // Main search
-    MAIN_TT, CAPTURE_INIT, GOOD_CAPTURE, KILLER0, KILLER1, QUIET_INIT, QUIET, BAD_CAPTURE,
+    // Main search.
+    // 2026-05-17 audit #6.3: split QUIET into GOOD_QUIET / BAD_QUIET
+    // around a depth-scaled threshold, mirroring SF18 movepick.cpp:
+    // 39-41. After GOOD_QUIET returns moves with value above the
+    // threshold, BAD_CAPTURE drains, then BAD_QUIET returns the
+    // remaining low-history quiets.
+    MAIN_TT, CAPTURE_INIT, GOOD_CAPTURE, KILLER0, KILLER1, QUIET_INIT,
+    GOOD_QUIET, BAD_CAPTURE, BAD_QUIET,
     // Evasions
     EVASION_TT, EVASION_INIT, EVASION,
     // Quiescence

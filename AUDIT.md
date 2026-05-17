@@ -329,6 +329,76 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 
 ---
 
+## 6th audit pass (2026-05-17) — deep dive on remaining files
+
+Five parallel explore agents scanned nnue.cpp, history.h/movepick.cpp,
+tt.cpp/tt.h, timeman/evaluate, and Makefile+headers. ~80 candidate
+findings raised; after manual verification against actual source,
+**4 actionable real divergences** identified (rest were either DESIGN
+divergences, items already in AUDIT.md, or agent over-flagging).
+
+### Real divergences from 6th pass
+
+| # | Location | SF18 ref | Finding | Verdict |
+|---|---|---|---|---|
+| 6.1 | tt.h:74, tt.cpp:35 | tt.cpp:247 + misc.h:295 | TT cluster index uses lower 32 bits of key only: `uint32_t(key) * clusterCount >> 32`. SF18 uses full 128-bit mul: `mul_hi64(key, clusterCount)`. Hypersion discards upper 32 bits of key entropy. | **REAL** — trivial 1-line fix, low risk |
+| 6.2 | tt.cpp:136-138 | tt.cpp:101 | TTEntry::save replacement condition: SF18 adds `+ 2 * pv` PV bonus AND `|| relative_age(generation8)` to the "should replace" predicate. Hypersion has only `depth-4 > existing-4`. | **REAL** — TUNING, low risk |
+| 6.3 | movepick.h:24-31 + .cpp:246+ | movepick.cpp:39, 41, 254 | SF18 splits quiets into GOOD_QUIET / BAD_QUIET stages with `partial_insertion_sort(cur, endCur, -3560 * depth)` threshold. Hypersion returns all quiets sorted together via `std::sort()`. | **REAL** — SPRT-required, may regress |
+| 6.4 | (everywhere) | types.h | SF18 has `constexpr bool is_valid(Value v)` utility for defensive TT-read sanity checks. Hypersion inlines the equivalent `v != VALUE_NONE` check everywhere. | LATENT — readability only |
+
+### False alarms (agent over-flagging, verified inert)
+
+- NNUE clamp_max recompute — `const __m256i vclamp32` is set OUTSIDE the per-pair loop (line 800), not recomputed.
+- minorCorrHist / nonPawnCorrHist missing — search.h:178 documents these were TESTED in 2026-05-12 at -34.9 ELO LTC, reverted. Tables stay declared as dead code for future single-port discipline.
+- "Hypersion advantages" (goStartTime, overhead cap, PSQT validation) — already shipped or documented elsewhere.
+- ContinuationHistory 3x oversized — agent miscounted dimensions; verify shows [12][64][12][64] is correct 2-deep nesting.
+
+### Confirmed DESIGN divergences (won't fix)
+
+- ButterflyHistory size [2][64][64] vs SF's [2][65536] — Hypersion uses from/to indexing not move.raw(), saves 8x memory at the cost of theoretical signal loss (untested).
+- 2-deep ContinuationHistory vs SF's 6-deep — tombstoned negative.
+- LowPlyHistory absent — tombstoned -70 ELO @ 30g.
+- PawnHistory absent — tombstoned -22 to -49 ELO.
+- ExtMove composition vs SF inheritance — both correct.
+- TT API: probe-returns-pointer vs SF TTData/TTWriter split — design style.
+
+---
+
+## Plan for 6th-pass actionable items
+
+**Strategy**: ship 6.1 + 6.2 + 6.4 as a low-risk batch (all small, theoretical-positive, no behavior change for 6.4). SPRT validate. Then attempt 6.3 (BAD_QUIET) separately as a higher-variance experiment.
+
+### Batch A (low-risk, ship together)
+1. **6.1 TT 64-bit hash**: change `uint64_t(uint32_t(key)) * uint64_t(clusterCount) >> 32` to a 128-bit mul (via `__int128` or `_mulx_u64`). Affects 2 lines (tt.h:74 prefetch, tt.cpp:35 probe).
+2. **6.2 TT save PV bonus + age**: add `+ 2*pv` and an aging check to the replacement predicate.
+3. **6.4 is_valid helper**: add `constexpr bool is_valid(Value v) noexcept { return v != VALUE_NONE; }` in types.h. No behavior change — cosmetic only.
+
+Expected combined ELO: 0 to +5. Risk: very low.
+
+### Batch B (higher-risk, separate SPRT)
+4. **6.3 MovePicker BAD_QUIET**: add GOOD_QUIET / BAD_QUIET stages with depth-scaled threshold. Replicates SF18's quiet-move ordering split.
+
+### Skip
+- 6.4-style misc items (RayPassBB, SqrClippedReLU, FT hash warning) — speculative, no clear ELO target.
+
+## 6th-pass SPRT validation (2026-05-17)
+
+Shipped Batch A + Batch B together as a single commit. Tested vs `45b3c0f`
+(post-SPSA-revert baseline).
+
+| Stage | TC | Result | Verdict |
+|---|---|---|---|
+| Stage 1 triage (30g, conc=6) | 5+0.05 | +46.6 ± 110.7 ELO, 13W-9L-8D | NOISE (upper edge) |
+| Stage 2 confirm (200g)       | 5+0.05 | **+61.4 ± 40.6 ELO**, 87W-52L-61D | **SHIP** |
+
+CI lower bound +20.8 — comfortably above the +10 SHIP threshold per
+PROTOCOL.md. Logs: testing/sprt_sixth_pass_*_20260517_*.{log,pgn}.
+
+The TT 64-bit hash + replacement-PV-bonus + BAD_QUIET stage combine to
+~+61 ELO at bullet. Most of the gain likely from BAD_QUIET (better
+move ordering at low depth) and TT replacement-priority (PV nodes
+linger longer, better PV-line caching across iterations).
+
 ## Audit complete
 
 5 audit passes covered every .cpp file in `src/`. **57 fixes applied across

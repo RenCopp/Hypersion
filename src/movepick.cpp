@@ -30,6 +30,11 @@ inline Value piece_value_simple(PieceType pt) {
     constexpr Value v[PIECE_TYPE_NB] = { 0, 100, 320, 330, 500, 900, 0, 0 };
     return v[pt];
 }
+// 2026-05-17 audit #6.3: split-quiet threshold (mirrors SF18
+// movepick.cpp:210 `goodQuietThreshold = -14000`). Hypersion's quiet
+// scores have comparable range (butterfly + contHist + threat bonus).
+// Future SPSA-tunable if behaviour regresses.
+constexpr int GOOD_QUIET_THRESHOLD = -14000;
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -314,8 +319,14 @@ top:
                   [](const ExtMove& a, const ExtMove& b) { return a.value > b.value; });
         ++stage;
         [[fallthrough]];
-    case QUIET:
+    case GOOD_QUIET:
+        // 2026-05-17 audit #6.3: only return quiets with score > threshold
+        // here. Below-threshold quiets go to BAD_QUIET after bad captures.
+        // SF18 threshold is -14000 (movepick.cpp:210); Hypersion's quiet
+        // score has similar magnitude (butterfly ±7000 + contHist ±7000 +
+        // threat bonus). UNVERIFIED — SPRT TBD.
         while (cur < endMoves) {
+            if (cur->value <= GOOD_QUIET_THRESHOLD) break;
             Move m = (cur++)->move;
             if (m == ttMove || m == killer0 || m == killer1) continue;
             return m;
@@ -331,6 +342,18 @@ top:
                 if (it->value > best->value) best = it;
             std::swap(*badCur, *best);
             return (badCur++)->move;
+        }
+        ++stage;
+        [[fallthrough]];
+
+    case BAD_QUIET:
+        // The remaining quiets after BAD_CAPTURE: those whose value was
+        // <= GOOD_QUIET_THRESHOLD in GOOD_QUIET (cur is still pointing at
+        // them — std::sort already ordered them). SF18 movepick.cpp:282-286.
+        while (cur < endMoves) {
+            Move m = (cur++)->move;
+            if (m == ttMove || m == killer0 || m == killer1) continue;
+            return m;
         }
         return Move::none();
 
