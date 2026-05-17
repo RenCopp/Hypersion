@@ -865,7 +865,6 @@ struct Network {
             o0[o] = L[0].bias[o] + simd_dot_i8_u8(&L[0].weight[std::size_t(o) * L[0].pi], transformed, l1);
         std::int32_t skip = o0[l2] * (600 * OUTPUT_SCALE) / (127 * (1 << WSCALE));
 
-        int fc1_in = 2 * l2;
         alignas(64) std::uint8_t f1in[128];
         std::memset(f1in, 0, sizeof(f1in));
         for (int i = 0; i < l2; ++i) {
@@ -873,9 +872,18 @@ struct Network {
                               (std::int64_t(o0[i]) * o0[i]) >> 19));
             f1in[l2 + i] = std::uint8_t(std::clamp(o0[i] >> WSCALE, 0, 127));
         }
+        // 2026-05-17 SF-compat: use padded-input width L[1].pi (= 32 for the
+        // big-net FC_1, 64 for the small-net) rather than the unpadded
+        // fc1_in = 2 * l2. SF's SIMD path always reads the full padded width;
+        // the f1in buffer is already memset to 0 above, so the extra bytes
+        // are 0×weight = 0 *as long as* SF's training pipeline emits zero
+        // padding weights (which it does for the official nets, so this is
+        // currently inert). The fix makes the loader robust to future SF
+        // format changes / custom nets where the padding bytes may be non-zero.
+        // Source: SF18 src/nnue/layers/affine_transform.h:223-241.
         alignas(64) std::int32_t o1[64];
         for (int o = 0; o < l3; ++o)
-            o1[o] = L[1].bias[o] + simd_dot_i8_u8(&L[1].weight[std::size_t(o) * L[1].pi], f1in, fc1_in);
+            o1[o] = L[1].bias[o] + simd_dot_i8_u8(&L[1].weight[std::size_t(o) * L[1].pi], f1in, L[1].pi);
 
         alignas(64) std::uint8_t f2in[64];
         std::memset(f2in, 0, sizeof(f2in));

@@ -741,9 +741,23 @@ bool Position::see_ge(Move m, Value threshold) const {
             b = stmAttackers & pieces(pt);
             if (b) break;
         }
+
+        // 2026-05-17 fix: result-flip MUST happen BEFORE the KING-case
+        // dispatch, mirroring SF18 src/position.cpp:1390-1393. The previous
+        // code flipped after, so the KING branch returned the *inverted*
+        // result-polarity. Symptom: any capture whose target is defended
+        // only by the enemy king made `see_ge(m, 0)` return TRUE when SEE
+        // was actually negative (and vice versa), affecting qsearch SEE
+        // pruning, ProbCut, LMP, shallow pruning, MovePicker capture
+        // ordering — all the hot pruning paths. The earlier "pin-aware
+        // SEE = -10 ELO" tombstone at line 731 was measured WITH this bug
+        // active, so the surrounding margins (SEE_QUIET_MARGIN /
+        // SEE_CAPT_MARGIN) may now want re-tuning.
+        result ^= 1;
+
         if (pt == KING) {
             // Capturing with the king is only legal if there are no remaining defenders.
-            return (attackers & pieces(~stm)) ? (result ^ 1) : result;
+            return (attackers & pieces(~stm)) ? bool(result ^ 1) : bool(result);
         }
 
         // Remove this attacker from the occupancy and add any X-ray attackers it unmasked.
@@ -754,8 +768,7 @@ bool Position::see_ge(Move m, Value threshold) const {
             attackers |= attacks_bb<ROOK>(to, occ) & pieces(ROOK, QUEEN);
         attackers &= occ;
 
-        // Backwards minimax.
-        result ^= 1;
+        // Backwards minimax. (result already flipped above; just update swap.)
         swap = PieceValue[pt] - swap;
         if (swap < result) return bool(result);
         stm = ~stm;
