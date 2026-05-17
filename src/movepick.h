@@ -47,11 +47,21 @@ public:
                Piece            prevPiece2= NO_PIECE);
 
     // Quiescence-only constructor (no killers, no quiets).
+    // 2026-05-17 audit qs #18: now accepts contHist + prev-ply info so
+    // evasion-move ordering inside qsearch can use the parent's
+    // continuation history (matching SF18 — qsearch evasions otherwise
+    // get only mainHist + captureHist signal, missing contHist gradient).
     MovePicker(const Position&  p,
                Move             ttm,
                const ButterflyHistory* bh,
                const CaptureHistory*   ch,
-               int              qDepth);
+               int              qDepth,
+               const ContinuationHistory* contHist  = nullptr,
+               Move             prevMove  = Move::none(),
+               Piece            prevPiece = NO_PIECE,
+               const ContinuationHistory* contHist2 = nullptr,
+               Move             prevMove2 = Move::none(),
+               Piece            prevPiece2= NO_PIECE);
 
     Move next_move(bool skipQuiets = false);
 

@@ -64,9 +64,17 @@ MovePicker::MovePicker(const Position& p,
                        Move ttm,
                        const ButterflyHistory* bh,
                        const CaptureHistory*   ch,
-                       int qd)
+                       int qd,
+                       const ContinuationHistory* contHist,
+                       Move pm, Piece pp,
+                       const ContinuationHistory* contHist2_,
+                       Move pm2, Piece pp2)
     : pos(p), bhist(bh), chist(ch),
-      ttMove(ttm), depth(qd) {
+      contHist1(contHist), contHist2(contHist2_),
+      ttMove(ttm),
+      prevMv(pm),  prevMv2(pm2),
+      prevPc(pp),  prevPc2(pp2),
+      depth(qd) {
     // When in check, we must look at every evasion (not just captures), otherwise
     // we'd accept moves that don't resolve the check.
     if (pos.checkers()) {

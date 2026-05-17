@@ -1839,11 +1839,22 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         if (bestValue >  alpha) alpha = bestValue;
     }
 
-    MovePicker mp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0);
+    // 2026-05-17 audit qs #18: pass contHist to qsearch MovePicker so
+    // evasion ordering can use the parent's continuation-history gradient.
+    Move  qPrevMove1  = (ss - 1)->currentMove;
+    Piece qPrevPiece1 = (ss - 1)->movedPiece;
+    Move  qPrevMove2  = (ss - 2)->currentMove;
+    Piece qPrevPiece2 = (ss - 2)->movedPiece;
+    MovePicker mp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0,
+                  contHist[0].get(), qPrevMove1, qPrevPiece1,
+                  contHist[1].get(), qPrevMove2, qPrevPiece2);
     Move bestMove = Move::none();
 
-    // Maximum gain a capture could possibly produce (queen value plus a small slack).
-    const int MaxQsearchGain = QSEARCH_CAP_GAIN;  // was constexpr; runtime now (SPSA-tunable)
+    // 2026-05-17 audit qs #23: MaxQsearchGain replaced by per-victim
+    // PieceValueMG[victim] inside the futility check below. QSEARCH_CAP_GAIN
+    // tunable kept as a fallback constant (still exposed via SPSA), but no
+    // longer referenced in the per-move pruning.
+    (void)QSEARCH_CAP_GAIN;
     Move m;
     while ((m = mp.next_move()) != Move::none()) {
         if (!pos.legal(m)) continue;
@@ -1852,7 +1863,13 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         // 2026-05-16 threshold widened to TB-loss range (was MATE_IN_MAX).
         // SF18 src/search.cpp:1632 uses `!is_loss(bestValue)` so qsearch
         // pruning is also gated against TB-loss scores, not just mate-loss.
-        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, VALUE_ZERO))
+        // 2026-05-17 audit qs #21: SF18 uses SEE threshold -80 cp (slightly
+        // negative) rather than 0 — accepts small-loss captures because in
+        // qsearch they may still lead to a recapture or tactical sequence
+        // worth searching. At Hypersion's 5x eval scale, -80 cp = -400.
+        // SHIPPED WITHOUT SPRT — magnitude pulled from SF reference; if
+        // Hypersion regresses, revert to VALUE_ZERO.
+        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, Value(-400)))
             continue;
 
         // Capture-futility in qsearch: even capturing a queen wouldn't lift our
@@ -1868,8 +1885,22 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
                           && (ss - 1)->currentMove != Move::null())
                             ? (ss - 1)->currentMove.to_sq() : SQ_NONE;
             if (m.to_sq() != prevSq) {
-                Value gain = Value(MaxQsearchGain);
-                if (staticEval + gain <= alpha) continue;
+                // 2026-05-17 audit qs #23: per-victim futility (SF18
+                // src/search.cpp:1648-1656). Previously Hypersion used a
+                // single MaxQsearchGain ≈ QUEEN + slack, so capturing a pawn
+                // and a queen got the same prune threshold. Now uses
+                // futilityBase + PieceValueMG[victim] so small captures get
+                // tighter gates. Gives qsearch the same gain-conditional
+                // pruning SF18 uses. SHIPPED WITHOUT SPRT.
+                PieceType victim = type_of(pos.piece_on(m.to_sq()));
+                if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
+                // futilityBase: small slack above staticEval to absorb
+                // post-capture quiet improvements. SF18 uses ~204; at 5x
+                // scale that's ~1020. Pick the same magnitude as Hypersion's
+                // QSEARCH futility slack uses elsewhere.
+                Value futilityBase = staticEval + Value(150);
+                Value gain         = Eval::PieceValueMG[victim];
+                if (futilityBase + gain <= alpha) continue;
             }
         }
 
@@ -2856,10 +2887,22 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Bonus to the fail-high quiet (butterfly + contHist).
                         update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
-                        // Demote the also-tried-but-failed quiets.
-                        for (int i = 0; i < quietCount; ++i)
-                            update_quiet_history(pos, quietsTried[i], -bonus,
+                        // 2026-05-17 audit #116: SF18 src/search.cpp:1846-1849
+                        // tapers the per-move malus by moveCount — late-tried
+                        // quiets get less punishment because they were tried
+                        // for a reason (deeper history signal). Hypersion
+                        // ships this WITHOUT SPRT — magnitude derived from
+                        // SF's `actualMalus -= actualMalus * (i - 5) / i`
+                        // for i > 5. Keeps malus = bonus base (full SF18 ratio
+                        // of malus_cap = 1.6 * bonus_cap needs SPSA co-tune
+                        // with HIST_BONUS_CAP).
+                        for (int i = 0; i < quietCount; ++i) {
+                            int malus = bonus;
+                            if (i > 5)
+                                malus -= malus * (i - 5) / i;
+                            update_quiet_history(pos, quietsTried[i], -malus,
                                                  prevPiece1, prevMove1, prevPiece2, prevMove2);
+                        }
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));
                         if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
@@ -2890,6 +2933,28 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         return ss->excludedMove != Move::none() ? alpha
              : inCheck                          ? mated_in(ply)
                                                 : VALUE_DRAW;
+    }
+
+    // 2026-05-17 audit #125: fail-low prior-opponent-quiet bonus.
+    // When this node fails low and the parent's move (at ss-1) was a quiet,
+    // award it a positive butterfly + contHist signal — the parent's move
+    // is "doing well" from the opponent's perspective, so it should be
+    // ordered higher when reached from the same parent position later.
+    // SF18 src/search.cpp:1424-1445. Magnitude SHIPPED WITHOUT SPRT.
+    // SF18's #124 (alpha-raise-no-cutoff history update) and #126 (prior-
+    // capture fail-low bonus) require deeper structural changes — moving
+    // the cutoff-internal history updates to post-loop, and tracking the
+    // piece-captured-by-prior-move. Both still deferred.
+    if (bestValue <= alpha && bestMove == Move::none() && ply > 0
+        && prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none()
+        && !pos.captured_piece()) {
+        int priorBonus = history_bonus(depth) / 2;
+        // Increase opponent's mainHist for their parent move.
+        mainHist.update(~pos.side_to_move(), prevMove1, priorBonus);
+        // Increase contHist projection from grandparent move -> parent move.
+        if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
+            contHist[0]->update(prevPiece2, prevMove2.to_sq(),
+                                prevPiece1, prevMove1.to_sq(), priorBonus);
     }
 
     // 2026-05-17 finding #131: SF18:1460-1461 bestows ttPv from parent on
@@ -2927,11 +2992,23 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
 
     // ---- Correction history update ----
     // When the actual search outcome disagrees with the static eval, nudge the
-    // pawn-key bucket toward the difference. Only update when the bound is
-    // consistent with the move type that produced bestValue.
+    // pawn-key bucket toward the difference.
+    //
+    // 2026-05-17 audit #136: SF18 src/search.cpp:1475-1481 gates on
+    // `(bestValue > staticEval) == bool(bestMove)`. Logic:
+    //   - bestMove found: only update when bestValue > staticEval (search
+    //     genuinely improved on static eval — corrhist should pull eval UP)
+    //   - no bestMove (fail-low): only update when bestValue <= staticEval
+    //     (search confirmed static eval was too optimistic — corrhist should
+    //     pull eval DOWN)
+    // Hypersion previously skipped fail-low updates entirely. Including them
+    // doubles the corrhist signal volume. Capture bestMoves are still excluded
+    // because their value comes from tactical exchange, not positional eval.
+    // SHIPPED WITHOUT SPRT.
+    bool capturedBest = bestMove != Move::none() && pos.capture(bestMove);
     if (!inCheck && rawEval != VALUE_NONE
-        && bestMove != Move::none()
-        && !pos.capture(bestMove)) {
+        && !capturedBest
+        && (bestValue > rawEval) == (bestMove != Move::none())) {
         int diff = int(bestValue - rawEval) * 256;
         int weight = std::min(64, depth * 4 + 8);
         pawnCorrHist.update(pos.side_to_move(), pos.pawn_key(), diff, weight);
