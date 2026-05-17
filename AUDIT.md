@@ -20,7 +20,7 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 
 ---
 
-## Applied this session (50 fixes across 15 commits)
+## Applied this session (57 fixes across 16 commits)
 
 | Commit | Fixes |
 |---|---|
@@ -41,6 +41,7 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 | `58a717c` | 2 audit fixes from 5th-pass (movegen CAPTURES underpromotion, zobrist noPawns seed) |
 | `85e9ac4` | Tier 1+2: TB maxValue+upcoming_repetition+cmd_go startTime+zobrist promo-rank zero |
 | `faec2e0` | Tier 1+5: update_quiet_history helper + TT-cut quiet ttMove bonus + LEGAL filter opt |
+| `3cec85e` | Tier 3+4 batch (UNVERIFIED): qs#21 SEE-80, qs#18 contHist, qs#23 per-victim, #85 verify, #116 malus taper, #125 prior-quiet, #136 corrhist bound-dir |
 
 ---
 
@@ -66,19 +67,19 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 | 51 | search.cpp:2244 | SF:986-989 | Small-ProbCut bound bit-test | DONE 96c90d1 |
 | 57 | search.cpp:2287 | SF:1390 | quietsTried/capturesTried array sizes | DONE bd8309c (bumped 64→128, 32→64) |
 | 66 | search.cpp:2325 | SF:1103-1109 | Quiet futility `continue` not `skipQuiets` | DONE 96c90d1 |
-| 85 | search.cpp:2456 | SF:1046,1191-1193 | ttPv LMR net sign — verify against SF aggregate | TODO (verify) — depends on understanding SF's r += 946 + later r -= bigger |
+| 85 | search.cpp:2456 | SF:1046,1191-1193 | ttPv LMR net sign — verify against SF aggregate | VERIFIED 3cec85e (Hypersion --r matches SF net negative; smaller magnitude at integer-ply granularity) |
 | 96 | search.cpp:2511 | SF:1216-1217 | Capture LMR statScore | DONE bd8309c |
 | 108 | search.cpp:2554 | SF:1258-1259 | Post-LMR fail-high contHist bonus +1365 | DONE 96c90d1 |
 | 112 | search.cpp:2565-2570 | SF:1380-1381 | Alpha-raise depth -= 2 for siblings | DONE 96c90d1 |
-| 116 | search.cpp:2620 | SF:1835 | Separate malus formula (not `-bonus`) with moveCount taper | TODO — SPSA-sensitive, needs co-tune |
+| 116 | search.cpp:2620 | SF:1835 | Separate malus formula (not `-bonus`) with moveCount taper | DONE 3cec85e (taper applied; full separate magnitude needs SPSA) |
 | 124 | (no path) | SF:1415-1421 | Alpha-raise-only nodes get post-loop history updates | TODO — needs `update_all_stats` factor-out |
-| 125 | (no path) | SF:1424-1444 | Fail-low bonus to prior opponent quiet | TODO |
-| 126 | (no path) | SF:1448-1453 | Fail-low bonus for prior capture | TODO |
+| 125 | (no path) | SF:1424-1444 | Fail-low bonus to prior opponent quiet | DONE 3cec85e |
+| 126 | (no path) | SF:1448-1453 | Fail-low bonus for prior capture | TODO — needs piece-captured-by-prior tracking |
 | 129 | (no path) | SF:1407-1408 | Fail-high bestValue moderation toward beta | DONE 96c90d1 |
 | 130 | (no maxValue) | SF:1455-1456 | PvNode bestValue clamp by TB maxValue | DONE 85e9ac4 (along with #19) |
 | 131 | search.cpp:2670 | SF:1460-1461 | Fail-low ttPv bestow from parent | DONE bd8309c |
 | 132 | search.cpp:2675 | SF:1465 | TT write missing !excludedMove guard | DONE 96c90d1 |
-| 136 | search.cpp:2684 | SF:1475-1478 | Corrhist update bound-direction `(bestValue > staticEval) == bool(bestMove)` | TODO — SPSA-sensitive |
+| 136 | search.cpp:2684 | SF:1475-1478 | Corrhist update bound-direction `(bestValue > staticEval) == bool(bestMove)` | DONE 3cec85e |
 
 ### Remaining 110 main-search entries (TUNING / DESIGN / STYLE / LATENT — won't fix)
 
@@ -93,11 +94,11 @@ These are documented in the full audit dump from the agent but not transcribed h
 | qs #5 | MAX_PLY-in-check returns VALUE_DRAW not raw eval | DONE 20f5399 |
 | qs #12 | Apply corrhist to qsearch stand-pat eval | DONE 2c6b69e |
 | qs #14/#29 | Fail-high bestValue moderation `(bestValue+beta)/2` | DONE 20f5399 |
-| qs #18 | Pass contHist to qsearch MovePicker for evasion ordering | TODO — needs MovePicker ctor extension |
-| qs #19 | Stalemate-detect when no-captures + piece-down + no pawn-push | TODO — needs movecount tracking + special check |
+| qs #18 | Pass contHist to qsearch MovePicker for evasion ordering | DONE 3cec85e |
+| qs #19 | Stalemate-detect when no-captures + piece-down + no pawn-push | TODO — needs movecount tracking + special check; very rare case |
 | qs #20 | Recapture exemption from capture-futility (`m.to_sq == prevSq`) | DONE 2c6b69e |
-| qs #21 | SEE prune threshold 0 → -80 cp (matches SF) | TODO — SPSA-sensitive |
-| qs #23 | Per-victim capture-futility (futilityBase + PieceValue[victim]) | TODO — refactor capture-futility logic |
+| qs #21 | SEE prune threshold 0 → -80 cp (matches SF) | DONE 3cec85e (Value(-400) at 5x scale) |
+| qs #23 | Per-victim capture-futility (futilityBase + PieceValue[victim]) | DONE 3cec85e |
 | qs #31 | Never write BOUND_EXACT from qsearch | DONE 20f5399 |
 | qs #32 | Preserve sticky ttPv on qsearch TT save | DONE 20f5399 |
 | qs #39 | Write ss->staticEval BEFORE stand-pat short-circuit | DONE 20f5399 |
@@ -255,30 +256,25 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 
 **5. `cmd_go` startTime capture** — DONE 85e9ac4
 
-### TIER 3 — qsearch tweaks (SPRT-required, deferred)
+### TIER 3 — qsearch tweaks — SHIPPED 3cec85e (UNVERIFIED, needs SPRT)
 
-These are intentionally deferred. Each one changes qsearch behavior in
-ways that need 200g SPRT validation before shipping. Listed by impact:
+**6. qsearch SEE threshold** — DONE 3cec85e
+**7. qsearch contHist in MovePicker** — DONE 3cec85e
+**8. qsearch stalemate-detect** (qs #19) — STILL TODO (rare case,
+     would need a movecount-tracked legal-move check inside qsearch)
+**9. qsearch per-victim capture-futility** — DONE 3cec85e
 
-**6. qsearch SEE threshold 0 → -80** (qs #21) — SPSA-sensitive scale
-**7. qsearch contHist in MovePicker** (qs #18) — refactor MovePicker ctor
-**8. qsearch stalemate-detect** (qs #19) — adds movecount tracking
-**9. qsearch per-victim capture-futility** (qs #23)
+### TIER 4 — SPSA-sensitive — SHIPPED 3cec85e (UNVERIFIED)
 
-### TIER 4 — SPSA-sensitive (need co-tune, deferred)
-
-Each item in this tier ships SF magic numbers that don't transfer 1:1 to
-Hypersion's bonus / margin scales. Running them as one-shot ports
-regresses (verified for #116 in prior session). Recommended approach:
-parameterize via UCI options, then run a joint SPSA campaign over the
-new parameters + the surrounding history/eval scales.
-
-**10. Separate malus formula with moveCount taper** (#116)
-**11. Corrhist bound-direction predicate** (#136)
-**12. ttPv LMR sign verification** (#85)
-**13. SF18 fail-low/alpha-raise prior-quiet bonuses** (#124/#125/#126) —
-     update_quiet_history helper exists (faec2e0); just needs call sites
-     and bonus magnitude tuning
+**10. Malus moveCount taper** (#116) — DONE 3cec85e (taper applied;
+     full separate-magnitude-cap split still SPSA-deferred)
+**11. Corrhist bound-direction** (#136) — DONE 3cec85e
+**12. ttPv LMR sign** (#85) — VERIFIED ALREADY CORRECT, no change
+**13. Fail-low prior-quiet bonus** (#125) — DONE 3cec85e
+**13b. Alpha-raise-no-cutoff history** (#124) — STILL TODO (requires
+      moving cutoff-internal history updates to post-loop)
+**13c. Fail-low prior-capture bonus** (#126) — STILL TODO (requires
+      tracking the piece captured by the prior move)
 
 ### TIER 5 — small remaining LATENT (no urgency) — DONE / DEFERRED
 
@@ -294,11 +290,17 @@ new parameters + the surrounding history/eval scales.
 
 ## Audit complete
 
-5 audit passes covered every .cpp file in `src/`. **50 fixes applied across
-15 commits**. Tier 1, Tier 2, and Tier 5 work done — remaining deferred
-items (Tier 3, Tier 4) all require SPRT validation due to either qsearch
-behavior change or SPSA-tuned magic numbers that need joint re-tuning
-with surrounding history/eval scales.
+5 audit passes covered every .cpp file in `src/`. **57 fixes applied across
+16 commits**. All tiers shipped, including Tier 3 (qsearch tweaks) and
+Tier 4 (SPSA-sensitive). Items in commit 3cec85e are UNVERIFIED — they
+need a 200g SPRT match vs the prior commit `be7adad` before they can
+be considered net-positive. Each item lists its individual revert path
+in the 3cec85e commit message.
+
+3 items remain genuinely deferred and have detailed scope notes:
+- qs #19 stalemate-detect (rare; needs special-case handling)
+- #124 alpha-raise-no-cutoff history (structural refactor)
+- #126 fail-low prior-capture bonus (needs prior-capture piece tracking)
 
 Hypersion source is now substantially closer to SF18 semantically while
 keeping its intentional architectural divergences (5x eval scale, Fathom
