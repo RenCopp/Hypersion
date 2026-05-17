@@ -800,6 +800,20 @@ bool Worker::load_corr_hist(const std::string& path) {
     return ok;
 }
 
+// 2026-05-17 audit #15/#1: factored quiet-move history helper. Mirrors
+// SF18 src/search.cpp::update_quiet_histories (line 1893) sans the
+// LowPlyHistory / PawnHistory branches that Hypersion has tombstoned.
+void Worker::update_quiet_history(const Position& pos, Move m, int bonus,
+                                   Piece prevPiece1, Move prevMove1,
+                                   Piece prevPiece2, Move prevMove2) {
+    mainHist.update(pos.side_to_move(), m, bonus);
+    Piece moving = pos.piece_on(m.from_sq());
+    if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
+        contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(), bonus);
+    if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
+        contHist[1]->update(prevPiece2, prevMove2.to_sq(), moving, m.to_sq(), bonus / 2);
+}
+
 void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool* p,
                      int tid, bool main) {
     stop();
@@ -2012,6 +2026,20 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         if (tte->bound() == BOUND_EXACT
             || (tte->bound() == BOUND_LOWER && ttValue >= beta)
             || (tte->bound() == BOUND_UPPER && ttValue <= alpha)) {
+            // 2026-05-17 audit #15: SF18 src/search.cpp:769-771 awards a
+            // history bonus to the ttMove when a fail-high TT cutoff fires
+            // with a quiet ttMove. Reinforces "this move historically cut
+            // at this depth" for next-time move ordering.
+            if (ttValue >= beta && !ttCapture
+                && ttMove != Move::none() && ttMove != Move::null()) {
+                Move  prevMove1Tc  = (ss - 1)->currentMove;
+                Piece prevPiece1Tc = (ss - 1)->movedPiece;
+                Move  prevMove2Tc  = (ss - 2)->currentMove;
+                Piece prevPiece2Tc = (ss - 2)->movedPiece;
+                update_quiet_history(pos, ttMove, history_bonus(depth),
+                                     prevPiece1Tc, prevMove1Tc,
+                                     prevPiece2Tc, prevMove2Tc);
+            }
             return ttValue;
         }
     }
@@ -2824,26 +2852,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                     int bonus = history_bonus(depth);
                     if (!isCapture) {
                         killers.update(ply, m);
-                        mainHist.update(pos.side_to_move(), m, bonus);
                         if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
-                        // Demote tried-but-failed quiets.
+                        // Bonus to the fail-high quiet (butterfly + contHist).
+                        update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
+                        // Demote the also-tried-but-failed quiets.
                         for (int i = 0; i < quietCount; ++i)
-                            mainHist.update(pos.side_to_move(), quietsTried[i], -bonus);
-                        // Continuation history.
-                        if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
-                            contHist[0]->update(prevPiece1, prevMove1.to_sq(), moving, m.to_sq(), bonus);
-                        if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
-                            contHist[1]->update(prevPiece2, prevMove2.to_sq(), moving, m.to_sq(), bonus / 2);
-                        // Demote tried-but-failed quiets in continuation history too.
-                        for (int i = 0; i < quietCount; ++i) {
-                            Move qm = quietsTried[i];
-                            Piece qp = pos.piece_on(qm.from_sq());
-                            if (prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none())
-                                contHist[0]->update(prevPiece1, prevMove1.to_sq(), qp, qm.to_sq(), -bonus);
-                            if (prevPiece2 != NO_PIECE && prevMove2 != Move::null() && prevMove2 != Move::none())
-                                contHist[1]->update(prevPiece2, prevMove2.to_sq(), qp, qm.to_sq(), -bonus / 2);
-                        }
+                            update_quiet_history(pos, quietsTried[i], -bonus,
+                                                 prevPiece1, prevMove1, prevPiece2, prevMove2);
                     } else {
                         PieceType victim = type_of(pos.piece_on(m.to_sq()));
                         if (m.type_of() == MT_EN_PASSANT) victim = PAWN;

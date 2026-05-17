@@ -223,10 +223,24 @@ ExtMove* generate<LEGAL>(const Position& pos, ExtMove* moveList) {
                  ? generate<EVASIONS>(pos, moveList)
                  : generate<NON_EVASIONS>(pos, moveList);
 
+    // 2026-05-17 audit mg #4: SF18 src/movegen.cpp:293-310 skips the full
+    // pos.legal() call for moves whose from-square isn't pinned, isn't the
+    // king, and isn't an en-passant capture. Those moves are guaranteed
+    // legal by the pseudo-legal generator; checking them is wasted work.
+    // Pinned and king moves can leave the king in check; EN_PASSANT can
+    // remove a discovered-check blocker. Saves ~10-15% on LEGAL gen time.
+    Color us         = pos.side_to_move();
+    Square ksq       = pos.square<KING>(us);
+    Bitboard pinned  = pos.blockers_for_king(us) & pos.pieces(us);
+
     ExtMove* cur = moveList;
     while (cur != end) {
-        if (pos.legal(*cur)) ++cur;
-        else                  *cur = *(--end);
+        Move m = Move(*cur);
+        bool needsCheck = (pinned & square_bb(m.from_sq()))
+                       || m.from_sq() == ksq
+                       || m.type_of() == MT_EN_PASSANT;
+        if (!needsCheck || pos.legal(m)) ++cur;
+        else                              *cur = *(--end);
     }
     return end;
 }

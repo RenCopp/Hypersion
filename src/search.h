@@ -125,6 +125,15 @@ private:
     Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool isPv);
     void  iterative_deepen(Position& pos);
     bool  should_stop();
+    // 2026-05-17 audit #15/#1: factored quiet-move history update helper.
+    // Awards `bonus` to a single quiet move's main-history slot AND its
+    // 2-deep contHist projection. The caller is responsible for iterating
+    // over also-tried quiets to demote them (pass them in with -bonus).
+    // Counter-move table and killers are NOT updated here — that's only
+    // appropriate at fail-high, not on every quiet-history touch.
+    void update_quiet_history(const Position& pos, Move m, int bonus,
+                              Piece prevPiece1, Move prevMove1,
+                              Piece prevPiece2, Move prevMove2);
     void  print_info(int depth, int selDepth, Value score, std::uint64_t totalNodes,
                      TimePoint elapsed, const PVLine& pv,
                      int pvIdx = 0, int multiPv = 1, int boundFlag = 0);
