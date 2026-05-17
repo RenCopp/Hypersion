@@ -20,7 +20,7 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 
 ---
 
-## Applied this session (44 fixes across 13 commits)
+## Applied this session (50 fixes across 15 commits)
 
 | Commit | Fixes |
 |---|---|
@@ -39,6 +39,8 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 | `2c6b69e` | 6 misc fixes (main#8, qs#12, qs#20, uci#9, uci#19, uci#37) |
 | `037745f` | 3 LATENT cleanups (uci#22 backing field, uci#48 nnue-load warning, uci#99/#100 dead book code) |
 | `58a717c` | 2 audit fixes from 5th-pass (movegen CAPTURES underpromotion, zobrist noPawns seed) |
+| `85e9ac4` | Tier 1+2: TB maxValue+upcoming_repetition+cmd_go startTime+zobrist promo-rank zero |
+| `faec2e0` | Tier 1+5: update_quiet_history helper + TT-cut quiet ttMove bonus + LEGAL filter opt |
 
 ---
 
@@ -46,14 +48,14 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 
 | # | Hypersion line | SF18 ref | Summary | Status |
 |---|---|---|---|---|
-| 4 | (missing) | search.cpp:630-635 | `upcoming_repetition` early-draw alpha upgrade missing | TODO — needs new `Position::upcoming_repetition` method |
+| 4 | (missing) | search.cpp:630-635 | `upcoming_repetition` early-draw alpha upgrade missing | DONE 85e9ac4 (cuckoo table + 2 call sites) |
 | 8 | search.cpp:1900 | SF:670-671 | selDepth per-call update | DONE 2c6b69e |
 | 12 | search.cpp:1895 | SF:709 | `ss->ttPv` stack write | DONE bd8309c |
 | 13 | (no flag) | SF:710 | `ttCapture` computed | DONE bd8309c (currently maybe_unused) |
-| 15 | search.cpp:1933 | SF:766-776 | TT-cut on quiet ttMove → history bonus missing | TODO — needs `update_quiet_histories` factor-out |
+| 15 | search.cpp:1933 | SF:766-776 | TT-cut on quiet ttMove → history bonus missing | DONE faec2e0 (TT-cut quiet ttMove bonus) |
 | 16 | search.cpp ~1893 | SF:780-799 | rule50≥96 TT-cutoff re-probe (graph-history workaround) | TODO — endgame correctness, complex |
 | 17 | search.cpp:1953 | SF:802-810 | Syzygy probe `rule50==0 && !can_castle` gates | DONE bd8309c |
-| 19 | search.cpp:1962-1968 | SF:828-852 | TB PvNode bestValue/maxValue clamp branch | TODO — TB-return refactor |
+| 19 | search.cpp:1962-1968 | SF:828-852 | TB PvNode bestValue/maxValue clamp branch | DONE 85e9ac4 (maxValue + tbAlphaFloor) |
 | 21 | search.cpp:1974 | SF:716-717 | in-check eval propagates `(ss-2)->staticEval` | DONE 96c90d1 |
 | 22 | search.cpp:1973 | SF:718-719 | excludedMove reuses parent's static eval | DONE 96c90d1 |
 | 23 | search.cpp:1975-1983 | SF:729-732 | TT-hit eval upgrade `eval = ttData.value` | DONE bd8309c |
@@ -73,7 +75,7 @@ findings are applied. Tracks **335 total findings** across 5 audit passes
 | 125 | (no path) | SF:1424-1444 | Fail-low bonus to prior opponent quiet | TODO |
 | 126 | (no path) | SF:1448-1453 | Fail-low bonus for prior capture | TODO |
 | 129 | (no path) | SF:1407-1408 | Fail-high bestValue moderation toward beta | DONE 96c90d1 |
-| 130 | (no maxValue) | SF:1455-1456 | PvNode bestValue clamp by TB maxValue | TODO — depends on #19 |
+| 130 | (no maxValue) | SF:1455-1456 | PvNode bestValue clamp by TB maxValue | DONE 85e9ac4 (along with #19) |
 | 131 | search.cpp:2670 | SF:1460-1461 | Fail-low ttPv bestow from parent | DONE bd8309c |
 | 132 | search.cpp:2675 | SF:1465 | TT write missing !excludedMove guard | DONE 96c90d1 |
 | 136 | search.cpp:2684 | SF:1475-1478 | Corrhist update bound-direction `(bestValue > staticEval) == bool(bestMove)` | TODO — SPSA-sensitive |
@@ -115,10 +117,10 @@ Documented in audit transcripts. Examples: different node-accounting convention 
 | uci [19] | uci.cpp:416 | `Clear Hash` also clears thread histories | DONE 2c6b69e |
 | uci [22] | uci.cpp:437 | `EvalUseSmallOnly` has no backing Options field | DONE 037745f |
 | uci [25] | uci.cpp:457 | `UCI_Chess960` declared but castling stays orthodox | LATENT — kept for GUI compat (lichess-bot expects the option) |
-| uci [29] | uci.cpp:245 | `isready` returns immediately without waiting | TODO — needs `wait_for_search_finished` semantics |
+| uci [29] | uci.cpp:245 | `isready` returns immediately without waiting | NOT-A-BUG — SF18 also prints readyok immediately (uci.cpp:137) |
 | uci [34] | uci.cpp:285 | Static `states[]` reused not reallocated | LATENT — same root as [2] |
 | uci [37] | uci.cpp:138 | parse_uci_move case-sensitive | DONE 2c6b69e |
-| uci [45] | uci.cpp:298 | `cmd_go` doesn't capture startTime — book + setup latency uncounted | TODO — small but real, time-management drift |
+| uci [45] | uci.cpp:298 | `cmd_go` doesn't capture startTime — book + setup latency uncounted | DONE 85e9ac4 (lim.goStartTime + TimeManager init uses it) |
 | uci [48] | uci.cpp:369 | No `verify_networks()` step before `go` — silent classical-fallback on bad EvalFile | DONE 037745f (now emits warning) |
 | uci [99] | book.cpp:174 | Dead opening-variety file load on every startup | DONE 037745f (removed entirely) |
 | uci [100] | book.cpp:179 | Same as above (`recent_first_moves` I/O) | DONE 037745f |
@@ -149,7 +151,7 @@ Documented in audit transcripts. Examples: different node-accounting convention 
 | mg #1 | movegen.cpp:20-29 | movegen.cpp:108-124 | make_promotions signature: SF18 uses `<Type, Direction D, bool Enemy>` template, splits Q vs underpromotions by capture-vs-push | DONE 58a717c (added `Enemy` param) |
 | mg #2 | movegen.cpp:21 | movegen.cpp:113 | CAPTURES mode emitted only Q for all promotions (incl. capture-promotions). Lost capture-underpromotions in qsearch (knight-capture-promo for smothered-mate). | DONE 58a717c |
 | mg #3 | movegen.cpp:80-91 | movegen.cpp:188-202 | EP-in-EVASIONS check uses different formulation (`target & (ep-Up)` vs SF's `target & (ep+Up) return early`). Verified equivalent in all reachable positions — both correctly handle direct-pawn-check and discovered-check cases. | LATENT — semantically equivalent, just different code path |
-| mg #4 | movegen.cpp:215-226 | movegen.cpp:293-310 | LEGAL filter calls `pos.legal()` on every move; SF18 only checks for pinned/king/EN_PASSANT moves. | LATENT — perf, not correctness; affects perft + root-move filtering |
+| mg #4 | movegen.cpp:215-226 | movegen.cpp:293-310 | LEGAL filter calls `pos.legal()` on every move; SF18 only checks for pinned/king/EN_PASSANT moves. | DONE faec2e0 (pinned-only filter) |
 | mg #5 | movegen.cpp:114-156 | movegen.cpp:247-261 | Castling: Hypersion does inline Chess960 validation (min/max + per-square attacker check); SF18 uses pos.castling_impeded() helper. | STYLE — both correct |
 | mg #6 | movegen.h:39 | movegen.h:39-47 | ExtMove: Hypersion uses composition (`Move + int`), SF18 uses inheritance | DESIGN |
 | mg #7 | movegen.cpp:173-175 | movegen.cpp:239-242 | EVASIONS target: Hypersion uses BetweenBB lookup; SF18 calls between_bb() helper | STYLE |
@@ -162,7 +164,7 @@ Documented in audit transcripts. Examples: different node-accounting convention 
 | # | Hypersion location | SF18 ref | Summary | Status |
 |---|---|---|---|---|
 | zb #1 | zobrist.cpp:11, 23 | position.cpp:51, 136, 346 | `Zobrist::noPawns` initialized but pawnKey starts at 0 (not noPawns). SF18 seeds `st->pawnKey = Zobrist::noPawns` so no-pawn positions get a unique nonzero key. | DONE 58a717c |
-| zb #2 | position.cpp:230 | position.cpp:126-127 | Hypersion doesn't zero-out promotion-rank slots in psq[PAWN][SQ_*8/*1]; SF18 zeroes them. No practical impact (pawns can't legally exist on promotion ranks). | LATENT |
+| zb #2 | position.cpp:230 | position.cpp:126-127 | Hypersion doesn't zero-out promotion-rank slots in psq[PAWN][SQ_*8/*1]; SF18 zeroes them. No practical impact (pawns can't legally exist on promotion ranks). | DONE 85e9ac4 |
 | zb #3 | position.cpp:243-246 | (incremental) | materialKey computed eagerly via piece-count indexing in set_state; SF18 manages it incrementally only. Same slot semantics. | DESIGN — both correct |
 | zb #4 | zobrist.h | position.h | minorKey tracking (KNIGHT/BISHOP/KING) — SF18 has no minorKey (no corrhist). | DESIGN — Hypersion-specific feature |
 | zb #5 | zobrist.cpp:14 | position.cpp:120 | PRNG seed identical (1070372ULL) | STYLE |
@@ -236,68 +238,69 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 
 ## Plan for refactor-needed items (deferred work)
 
-Each item below requires structural changes that need testing under SPRT
-before shipping. Listed roughly by ELO-likelihood × difficulty.
+### TIER 1 — clear bugs, plain refactor — DONE
 
-### TIER 1 — clear bugs, plain refactor
+**1. `update_quiet_histories` helper factor-out** — DONE faec2e0
+   (helper extracted; #15 TT-quiet bonus added; #124/#125/#126 deferred —
+    those need SPSA-tuned bonus magnitudes co-calibrated with SF's history
+    scales, which Hypersion's 0..2000 cap doesn't share)
 
-**1. `update_quiet_histories` helper factor-out** (unlocks #15, #124, #125, #126)
-- Extract the quiet-move history update logic (butterfly + contHist + low-ply)
-  from search.cpp:2620+ into a `void update_quiet_histories(Position&, Stack*, Move, int bonus)`.
-- Adds 4 fail-low / alpha-raise / fail-high prior-quiet bonuses that SF18 has
-  and Hypersion lacks. ~150 LOC refactor.
-- Expected ELO: small but real, joint signal (+5 to +15 ELO at 200g).
+**2. `Position::upcoming_repetition` + early-draw alpha upgrade** — DONE 85e9ac4
 
-**2. `Position::upcoming_repetition` + early-draw alpha upgrade** (#4)
-- New method using cuckoo-table from SF18 position.cpp:1163. Catches "repetition
-  is reachable within X plies" and lets search return DRAW early when alpha < 0.
-- Maps 1:1 from SF18; ~80 LOC new + 5 LOC call site at search.cpp:1900.
-- Expected ELO: weak unknown (research-only feature in SF), might be neutral.
+**3. TB PvNode `maxValue` clamp** — DONE 85e9ac4
 
-**3. TB PvNode `maxValue` clamp** (#19, #130)
-- Track maxValue from TB probe; clamp bestValue at end of node. PvNodes only.
-- ~30 LOC, single function. Needed for correct TB return semantics.
-- Expected ELO: tiny (only fires at high-TB nodes), but a correctness fix.
+### TIER 2 — UCI / time-management — DONE
 
-### TIER 2 — UCI / time-management
+**4. `isready` blocking semantics** — NOT-A-BUG (SF18 also prints readyok immediately)
 
-**4. `isready` blocking semantics** (uci #29)
-- Add `Search::Threads.wait_for_search_finished()` call in `cmd_isready()`.
-- ~5 LOC + a wait API on ThreadPool. Standard UCI requires this.
-- ELO: 0 in self-play; observable in GUI tournaments.
+**5. `cmd_go` startTime capture** — DONE 85e9ac4
 
-**5. `cmd_go` startTime capture** (uci #45)
-- Capture `now()` at start of cmd_go, pass to TimeManager so book + setup
-  latency is counted against the move clock.
-- ~5 LOC. Affects tight-TC behavior.
-- Expected ELO: small (+2 to +8) at bullet TC.
+### TIER 3 — qsearch tweaks (SPRT-required, deferred)
 
-### TIER 3 — qsearch tweaks (SPRT-required)
+These are intentionally deferred. Each one changes qsearch behavior in
+ways that need 200g SPRT validation before shipping. Listed by impact:
 
-**6. qsearch SEE threshold 0 → -80** (qs #21) — SPSA-sensitive
+**6. qsearch SEE threshold 0 → -80** (qs #21) — SPSA-sensitive scale
 **7. qsearch contHist in MovePicker** (qs #18) — refactor MovePicker ctor
 **8. qsearch stalemate-detect** (qs #19) — adds movecount tracking
 **9. qsearch per-victim capture-futility** (qs #23)
 
-### TIER 4 — SPSA-sensitive (need co-tune, not a one-line port)
+### TIER 4 — SPSA-sensitive (need co-tune, deferred)
+
+Each item in this tier ships SF magic numbers that don't transfer 1:1 to
+Hypersion's bonus / margin scales. Running them as one-shot ports
+regresses (verified for #116 in prior session). Recommended approach:
+parameterize via UCI options, then run a joint SPSA campaign over the
+new parameters + the surrounding history/eval scales.
 
 **10. Separate malus formula with moveCount taper** (#116)
 **11. Corrhist bound-direction predicate** (#136)
 **12. ttPv LMR sign verification** (#85)
+**13. SF18 fail-low/alpha-raise prior-quiet bonuses** (#124/#125/#126) —
+     update_quiet_history helper exists (faec2e0); just needs call sites
+     and bonus magnitude tuning
 
-### TIER 5 — small remaining LATENT (no urgency)
+### TIER 5 — small remaining LATENT (no urgency) — DONE / DEFERRED
 
-**13. LEGAL filter perf optimization** (mg #4) — perft-affecting, ELO-neutral
-**14. `states[MAX_GAME_PLIES]` dynamic list** (uci [2], [34])
-**15. Promotion-rank zero in psq init** (zb #2) — cosmetic parity with SF18
-**16. EP-evasion code-path unification** (mg #9) — readability only
+**14. LEGAL filter perf optimization** (mg #4) — DONE faec2e0
+**15. Promotion-rank zero in psq init** (zb #2) — DONE 85e9ac4
+**16. `states[MAX_GAME_PLIES]` dynamic list** (uci [2], [34]) — deferred,
+     no measurable impact, would require lifetime audit of all callers
+**17. EP-evasion code-path unification** (mg #9) — deferred, cosmetic only
+**18. UCI_Chess960** (uci [25]) — kept as silent-absorb for lichess-bot
+     GUI compat; implementing full Chess960 is a separate project
 
 ---
 
 ## Audit complete
 
-5 audit passes covered every .cpp file in `src/`. 44 fixes applied across
-13 commits. 16 deferred items have detailed refactor plans above.
+5 audit passes covered every .cpp file in `src/`. **50 fixes applied across
+15 commits**. Tier 1, Tier 2, and Tier 5 work done — remaining deferred
+items (Tier 3, Tier 4) all require SPRT validation due to either qsearch
+behavior change or SPSA-tuned magic numbers that need joint re-tuning
+with surrounding history/eval scales.
+
 Hypersion source is now substantially closer to SF18 semantically while
-keeping its intentional architectural divergences (5x eval scale,
-Fathom TB backend, corrhist persistence, dual-net switching).
+keeping its intentional architectural divergences (5x eval scale, Fathom
+TB backend, corrhist persistence, dual-net switching, AVX2-only NNUE
+forward).
