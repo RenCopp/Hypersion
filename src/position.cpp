@@ -925,6 +925,21 @@ std::string Position::fen() const {
     }
     ss << ' ' << (sideToMove == WHITE ? 'w' : 'b') << ' ';
     if (st->castlingRights == 0) ss << '-';
+    else if (is_chess960()) {
+        // 2026-05-17 audit uci [25]: X-FEN/Shredder castling notation —
+        // emit the rook's file directly (uppercase for white, lowercase
+        // for black). Required by GUIs in Chess960 mode so they can
+        // re-parse the FEN without ambiguity about which rook can castle.
+        auto emit = [&](CastlingRights cr, Color c) {
+            if (!(st->castlingRights & cr)) return;
+            char fch = char('A' + int(file_of(castlingRookSquare[cr])));
+            ss << (c == WHITE ? fch : char(std::tolower(static_cast<unsigned char>(fch))));
+        };
+        emit(WHITE_OO,  WHITE);
+        emit(WHITE_OOO, WHITE);
+        emit(BLACK_OO,  BLACK);
+        emit(BLACK_OOO, BLACK);
+    }
     else {
         if (st->castlingRights & WHITE_OO)  ss << 'K';
         if (st->castlingRights & WHITE_OOO) ss << 'Q';

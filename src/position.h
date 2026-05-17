@@ -136,6 +136,20 @@ public:
     // In standard chess this is FILE_H (for OO) or FILE_A (for OOO) on the
     // home rank; in Chess960 it can be any file on the home rank.
     Square   castling_rook_square(CastlingRights cr) const { return castlingRookSquare[cr]; }
+    // 2026-05-17 audit uci [25] Chess960: detect whether any castling rook
+    // sits on a non-standard file. Caller (fen() output, UCI move emit)
+    // uses this to decide between standard `KQkq` and Shredder/X-FEN file
+    // notation, and between king-to-G/C destination vs king-takes-rook.
+    bool     is_chess960() const {
+        for (CastlingRights cr : { WHITE_OO, WHITE_OOO, BLACK_OO, BLACK_OOO })
+            if (st->castlingRights & cr) {
+                Square rs = castlingRookSquare[cr];
+                bool kingSide = (cr == WHITE_OO || cr == BLACK_OO);
+                if (kingSide  && file_of(rs) != FILE_H) return true;
+                if (!kingSide && file_of(rs) != FILE_A) return true;
+            }
+        return false;
+    }
     StateInfo* state()                      const { return st; }   // for NNUE incremental updates
     Bitboard checkers()                     const { return st->checkersBB; }
     Bitboard blockers_for_king(Color c)     const { return st->blockersForKing[c]; }

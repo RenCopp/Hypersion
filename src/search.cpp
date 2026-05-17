@@ -236,6 +236,38 @@ std::string move_uci(Move m) {
     return s;
 }
 
+// 2026-05-17 audit uci [25] Chess960: emit king-takes-rook castling
+// notation when the position is in Chess960 mode. Standard chess
+// positions still get "e1g1" / "e8g8" etc.; Chess960 positions emit
+// "e1h1" (or whatever file the rook sits on) so Chess960-aware GUIs
+// parse it unambiguously.
+std::string move_uci(Move m, const Position& pos) {
+    if (m == Move::none()) return "(none)";
+    if (m == Move::null()) return "0000";
+    Square from = m.from_sq(), to = m.to_sq();
+    if (m.type_of() == MT_CASTLING && pos.is_chess960()) {
+        bool kingSide = file_of(to) == FILE_G;
+        Color us = pos.side_to_move();
+        // The MT_CASTLING move stored king-to-G/C as `to`; for Chess960
+        // output we override `to` with the rook's actual square.
+        // Note: this is BEFORE do_move (move not yet played), so
+        // castlingRookSquare still has the rook's pre-move file.
+        CastlingRights cr = (us == WHITE) ? (kingSide ? WHITE_OO : WHITE_OOO)
+                                          : (kingSide ? BLACK_OO : BLACK_OOO);
+        to = pos.castling_rook_square(cr);
+    }
+    std::string s;
+    s += char('a' + file_of(from));
+    s += char('1' + rank_of(from));
+    s += char('a' + file_of(to));
+    s += char('1' + rank_of(to));
+    if (m.type_of() == MT_PROMOTION) {
+        constexpr char promoChar[] = " pnbrqk";
+        s += promoChar[m.promotion_type()];
+    }
+    return s;
+}
+
 void update_pv(PVLine& parent, Move m, const PVLine& child) {
     parent.moves[0] = m;
     int n = std::min(child.length, PV_BUFFER - 1);
@@ -1776,8 +1808,11 @@ done:
         for (const auto& rm : rootMoves) {
             if (rm.pv0 == bestMove && rm.pv.length >= 2) { ponderMove = rm.pv.moves[1]; break; }
         }
-        std::cout << "bestmove " << move_uci(bestMove);
-        if (ponderMove != Move::none()) std::cout << " ponder " << move_uci(ponderMove);
+        // 2026-05-17 audit uci [25]: Chess960-aware UCI output. For
+        // standard positions move_uci(m, pos) collapses to move_uci(m);
+        // for Chess960 it emits king-takes-rook castling notation.
+        std::cout << "bestmove " << move_uci(bestMove, rootPos);
+        if (ponderMove != Move::none()) std::cout << " ponder " << move_uci(ponderMove, rootPos);
         std::cout << std::endl;
     }
 }

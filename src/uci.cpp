@@ -480,8 +480,16 @@ void cmd_setopt(std::istringstream& is) {
         Syzygy::set_probe_limit(std::clamp(n, 0, 7));
     }
     else if (eq("UCI_Chess960")) {
-        // Accepted for compatibility; Hypersion plays standard rules only.
-        // No action — silently absorb the option so GUIs don't error out.
+        // 2026-05-17 audit uci [25]: Chess960 is now genuinely supported.
+        // Hypersion's FEN parser already accepts X-FEN/Shredder castling
+        // notation, position.cpp's do_move/undo_move handle arbitrary
+        // rook squares, movegen generates castles from any king/rook
+        // starting square, and parse_uci_move + move_uci handle the
+        // king-takes-rook input/output notation. The chess960 mode is
+        // detected from the position (no internal flag needed) — this
+        // UCI option is informational only; GUIs use it to know we'll
+        // accept Chess960 FENs.
+        (void)value;
     }
     else if (eq("Skill Level"))    { parse_int(Options.skillLevel);
                                      Options.skillLevel = std::clamp(Options.skillLevel, 0, 20); }
