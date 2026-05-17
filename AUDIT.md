@@ -19,7 +19,7 @@ findings are applied. Tracks **305 total findings** across 4 audit passes.
 
 ---
 
-## Applied this session (39 fixes across 11 commits)
+## Applied this session (42 fixes across 12 commits)
 
 | Commit | Fixes |
 |---|---|
@@ -36,6 +36,7 @@ findings are applied. Tracks **305 total findings** across 4 audit passes.
 | `bd8309c` | 7 more main-search fixes (#12,#13,#17,#23,#57,#96,#131) |
 | `20f5399` | 5 qsearch fixes (qs#5,#14/#29,#31,#32,#39) |
 | `2c6b69e` | 6 misc fixes (main#8, qs#12, qs#20, uci#9, uci#19, uci#37) |
+| `037745f` | 3 LATENT cleanups (uci#22 backing field, uci#48 nnue-load warning, uci#99/#100 dead book code) |
 
 ---
 
@@ -110,15 +111,15 @@ Documented in audit transcripts. Examples: different node-accounting convention 
 | uci [2] | uci.cpp:27-29 | Fixed `states[MAX_GAME_PLIES]` overflow risk | LATENT — needs dynamic state list |
 | uci [9] | uci.cpp:470 | UCI_Elo clamp [500,3300] (was [500,3200]) | DONE 2c6b69e |
 | uci [19] | uci.cpp:416 | `Clear Hash` also clears thread histories | DONE 2c6b69e |
-| uci [22] | uci.cpp:437 | `EvalUseSmallOnly` has no backing Options field | LATENT — option-state inconsistency |
-| uci [25] | uci.cpp:457 | `UCI_Chess960` declared but castling stays orthodox | LATENT — false advertising |
+| uci [22] | uci.cpp:437 | `EvalUseSmallOnly` has no backing Options field | DONE 037745f |
+| uci [25] | uci.cpp:457 | `UCI_Chess960` declared but castling stays orthodox | LATENT — kept for GUI compat (lichess-bot expects the option) |
 | uci [29] | uci.cpp:245 | `isready` returns immediately without waiting | TODO — needs `wait_for_search_finished` semantics |
 | uci [34] | uci.cpp:285 | Static `states[]` reused not reallocated | LATENT — same root as [2] |
 | uci [37] | uci.cpp:138 | parse_uci_move case-sensitive | DONE 2c6b69e |
 | uci [45] | uci.cpp:298 | `cmd_go` doesn't capture startTime — book + setup latency uncounted | TODO — small but real, time-management drift |
-| uci [48] | uci.cpp:369 | No `verify_networks()` step before `go` — bad EvalFile crashes at search-time | LATENT — bad-config UX |
-| uci [99] | book.cpp:174 | Dead opening-variety file load on every startup | LATENT — perf waste, dead feature |
-| uci [100] | book.cpp:179 | Same as above (`recent_first_moves` I/O) | LATENT |
+| uci [48] | uci.cpp:369 | No `verify_networks()` step before `go` — silent classical-fallback on bad EvalFile | DONE 037745f (now emits warning) |
+| uci [99] | book.cpp:174 | Dead opening-variety file load on every startup | DONE 037745f (removed entirely) |
+| uci [100] | book.cpp:179 | Same as above (`recent_first_moves` I/O) | DONE 037745f |
 | perft [116] | perft.cpp:36 | Move formatter chess960 king-takes-rook | LATENT — Chess960 not supported |
 | main, book, perft various | various | 115+ DESIGN/STYLE differences | not fixing (intentional Hypersion arch) |
 
@@ -172,7 +173,7 @@ Working tree clean; final binary at `C:\Engine\Hypersion\Hypersion.exe` includes
 
 **LATENT cleanups** (no current effect but worth fixing eventually):
 13. Replace `states[MAX_GAME_PLIES]` with dynamic list (uci [2], [34])
-14. Either implement Chess960 properly or remove the option (uci [25])
-15. Verify networks at startup with clear error message (uci [48])
-16. Remove dead opening-variety code from book.cpp (uci [99]-[100])
-17. EvalUseSmallOnly backing field (uci [22])
+14. Chess960 (uci [25]) — kept as silent-absorb option for lichess-bot GUI compat; would need full Chess960 implementation to advertise honestly
+15. ~~Verify networks at startup with clear error message (uci [48])~~ — DONE 037745f
+16. ~~Remove dead opening-variety code from book.cpp (uci [99]-[100])~~ — DONE 037745f
+17. ~~EvalUseSmallOnly backing field (uci [22])~~ — DONE 037745f
