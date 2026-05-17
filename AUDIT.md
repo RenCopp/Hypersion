@@ -48,7 +48,9 @@
 | 136 | search.cpp:2684 | SF:1475-1478 | Corrhist update condition `bestMove != none && !pos.capture` vs SF's bound-direction `(bestValue > staticEval) == bool(bestMove)` | TODO |
 
 ## Already-applied this session (recap)
-- `(next)` — qsearch #5, #14/#29, #31, #32, #39 (5 qsearch fixes)
+- `(next)` — main #8 (selDepth), qs #12 (corrhist), qs #20 (prevSq recapture),
+            uci #9 (Elo clamp), #19 (Clear Hash + histories), #37 (lowercase moves)
+- `20f5399` — qsearch #5, #14/#29, #31, #32, #39 (5 qsearch fixes)
 - `bd8309c` — #12, #13, #17, #23, #57, #96, #131 (7 main-search fixes)
 - `96c90d1` — #21, #22, #24, #30, #35, #49, #51, #66, #108, #112, #129, #132 (12 fixes)
 - `c7e06d3` — rm.score TB-WIN clobbering reverted (DTZ tiebreak restored)

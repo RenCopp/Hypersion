@@ -1788,7 +1788,13 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         bestValue = staticEval = -VALUE_INFINITE;
         ss->staticEval = staticEval;
     } else {
-        staticEval = ttHit && tte->eval() != VALUE_NONE ? tte->eval() : Eval::evaluate(pos);
+        Value raw = ttHit && tte->eval() != VALUE_NONE ? tte->eval() : Eval::evaluate(pos);
+        // 2026-05-17 qsearch finding #12: apply correction history in qsearch
+        // too. Previously the main search corrected the eval but qsearch's
+        // stand-pat used the raw NNUE — so the same position reported
+        // different eval depending on whether main search or qsearch
+        // reached it first. SF18:1573-1579 wraps in `to_corrected_static_eval`.
+        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), raw);
         bestValue  = staticEval;
         // 2026-05-17 qsearch finding #39: write ss->staticEval BEFORE the
         // stand-pat short-circuit so the value is set even on fail-high
@@ -1830,9 +1836,19 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         // Capture-futility in qsearch: even capturing a queen wouldn't lift our
         // score to alpha, so don't bother. (Skipped while in check — every
         // evasion must be considered.)
+        // 2026-05-17 qsearch finding #20: SF18:1641-1657 exempts RECAPTURES
+        // of the piece that just moved (`move.to_sq() == prevSq`) from
+        // futility pruning. A recapture of just-captured material is a
+        // forced trade, not a speculative grab — pruning it loses tactical
+        // accuracy in the most common qsearch scenario.
         if (!inCheck && pos.capture(m) && bestValue > VALUE_TB_LOSS_IN_MAX_PLY) {
-            Value gain = Value(MaxQsearchGain);
-            if (staticEval + gain <= alpha) continue;
+            Square prevSq = ((ss - 1)->currentMove != Move::none()
+                          && (ss - 1)->currentMove != Move::null())
+                            ? (ss - 1)->currentMove.to_sq() : SQ_NONE;
+            if (m.to_sq() != prevSq) {
+                Value gain = Value(MaxQsearchGain);
+                if (staticEval + gain <= alpha) continue;
+            }
         }
 
         StateInfo st;
@@ -1895,6 +1911,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     if (ply >= MAX_PLY)  return Eval::evaluate(pos);
     if (pos.is_draw(ply))
         return value_draw(nodes.load(std::memory_order_relaxed), limits.contempt);
+
+    // 2026-05-17 finding #8: SF18:670-671 updates `selDepth` per call so
+    // the reported `info seldepth` reflects the true max ply explored
+    // across all branches. Hypersion previously only updated selDepth at
+    // qsearch entry — so non-PV branches that descend deep without entering
+    // qsearch (e.g. via reductions getting clamped to 0) under-reported.
+    if (ply + 1 > selDepth) selDepth = ply + 1;
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 

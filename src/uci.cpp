@@ -135,8 +135,13 @@ void reset_position() { statePly = 0; pos.set(StartFEN, &states[statePly++]); }
 // (2026-05-15).
 int g_ownSearchesThisGame = 0;
 
-Move parse_uci_move(const std::string& str, const Position& p) {
-    if (str.length() < 4) return Move::none();
+Move parse_uci_move(const std::string& input, const Position& p) {
+    if (input.length() < 4) return Move::none();
+    // 2026-05-17 finding #37: SF UCIEngine::to_move lowercases the input
+    // before comparing (SF18 uci.cpp:605). Mixed-case input like "E2E4"
+    // is valid per UCI spec; Hypersion previously rejected it.
+    std::string str = input;
+    for (char& c : str) c = char(std::tolower(static_cast<unsigned char>(c)));
     for (Move m : MoveList<LEGAL>(p)) {
         Square from = m.from_sq(), to = m.to_sq();
         std::string s;
@@ -408,7 +413,17 @@ void cmd_setopt(std::istringstream& is) {
                                      Search::Threads.set_size(std::max(1, Options.threads)); }
     else if (eq("MultiPV"))        { parse_int(Options.multiPV); }
     else if (eq("Move Overhead"))  { parse_int(Options.moveOverhead); }
-    else if (eq("Clear Hash"))     { TT.clear(); }
+    else if (eq("Clear Hash"))     {
+        // 2026-05-17 finding #19: SF18's `Clear Hash` calls
+        // `search_clear()` (engine.cpp:99-102) which clears BOTH the TT
+        // and per-thread histories. Hypersion previously cleared only the
+        // TT, leaving stale corrhist / butterfly / contHist data that
+        // would bias subsequent searches with information from the old
+        // game. Now matches SF behaviour.
+        Search::Threads.wait_all();
+        TT.clear();
+        Search::Threads.clear_all();
+    }
     else if (eq("Ponder"))         { parse_bool(Options.ponder); }
     else if (eq("OwnBook"))        { parse_bool(Options.ownBook); }
     else if (eq("BookBestMove"))   { parse_bool(Options.bookBest); }
@@ -462,7 +477,8 @@ void cmd_setopt(std::istringstream& is) {
                                      Options.skillLevel = std::clamp(Options.skillLevel, 0, 20); }
     else if (eq("UCI_LimitStrength")) parse_bool(Options.limitStrength);
     else if (eq("UCI_Elo"))        { parse_int(Options.uciElo);
-                                     Options.uciElo = std::clamp(Options.uciElo, 500, 3200); }
+                                     // 2026-05-17 finding #9: declared max is 3300, was clamping to 3200.
+                                     Options.uciElo = std::clamp(Options.uciElo, 500, 3300); }
     else if (eq("UCI_AnalyseMode")) parse_bool(Options.analyseMode);
     else if (eq("UCI_ShowWDL"))     parse_bool(Options.showWDL);
     else if (eq("Contempt"))       { parse_int(Options.contempt);
