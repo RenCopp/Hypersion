@@ -2258,11 +2258,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     } else if (ttHit && tte->eval() != VALUE_NONE) {
         rawEval = tte->eval();
         // 2026-05-18 Tier 1 (Berserk-style corrhist blend): pawnCorrHist +
-        // contCorrHist1 + contCorrHist2 additive blend. Weights are
-        // Hypersion-internal (pawn=full, cont1=half, cont2=full) and bounded
-        // by CORR_MAX*256 storage cap. SPRT will calibrate; defaults are
-        // structurally similar to Berserk's 31/17/46/8192 ratio
-        // (pawn ≈ cont2 > cont1).
+        // contCorrHist1 + contCorrHist2 additive blend. Tier R1 (adding
+        // minor + nonPawn[W] + nonPawn[B]) tested at -3.5 ELO @ 200g and
+        // tombstoned — Tier 1's 3-source blend already captures the
+        // available signal.
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()

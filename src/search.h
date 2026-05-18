@@ -186,6 +186,15 @@ private:
     // outer; both use ply-1 inner). 2 MB per thread each.
     ContCorrHist contCorrHist1;   // outer = (ss-3)'s piece+to
     ContCorrHist contCorrHist2;   // outer = (ss-2)'s piece+to
+    // 2026-05-18 Tier R1 TOMBSTONE: SF18-style multi-source corrhist
+    // (minor + nonPawn[W] + nonPawn[B]) layered on top of Tier 1's existing
+    // pawn + cont1 + cont2 blend. ADDITIVE not averaged (avoiding the
+    // previously-tombstoned averaged-blend mistake). 200g 5+0.05 conc=2:
+    // -3.5 +/- 38.3 ELO (62W-64L-74D). REJECT — Tier 1 already captured
+    // the available eval-correction signal on Hypersion's network; adding
+    // more sources at equal weight just adds noise. Tables removed from
+    // Worker; git history preserves the implementation for future tuned
+    // retries (would need joint SPSA over per-table weights).
     // 2026-05-18 Tier 2: RubiChess-style threat-square keyed history.
     // Lookup at move-scoring time blends with mainHist signal. ~1 MB/thread.
     ThreatSquareHistory threatHist;
