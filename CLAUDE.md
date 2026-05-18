@@ -40,15 +40,76 @@ Stockfish-style architecture but tuned independently. Author: RenCopp.
 sample size, reason, future-contributor hint. Examples in `src/search.cpp`,
 `src/history.h`, `src/nnue.cpp`.
 
+## STANDING RULES (apply to EVERY edit / refinement / fix / improvement)
+
+These rules are mandatory for every chess-engine task in this repo,
+not optional suggestions. Skipping them is a bug.
+
+### Rule 1 — Engine matches go through cutechess
+All engine-vs-engine matches, SPRT runs, and SPSA campaigns use
+`cutechess-cli.exe` at `C:\Engine\cutechess-bin\cutechess-1.4.0-win64\`.
+Wrappers: `testing/sprt.py` for SPRT, `testing/spsa.py` for SPSA. Do
+NOT spin a different match harness unless you can justify a clear
+better-way reason (e.g., openbench for memory-aggressive tests) AND
+say so explicitly.
+
+### Rule 2 — Reference real engines before changing code
+`C:\Engine\Engines\` holds reference implementations consulted in
+priority order **before** writing any non-trivial edit:
+
+1. **Stockfish** (`C:\Engine\Engines\stockfish\src\`) — primary reference.
+   For any heuristic, constant, or structural change, first locate
+   the SF equivalent and read what it does. Cite the SF source file +
+   line in comments / commit messages.
+2. **Other engines** (zipped at `C:\Engine\Engines\`):
+   `Alexandria-master.zip`, `berserk-main.zip`, `Ethereal-14.00.zip`,
+   `Obsidian-16.0.zip`, `RubiChess-master.zip`. Extract on demand for
+   second-opinion lookups when SF's choice seems unusual or for
+   alternative implementations of the same idea. Cite engine + file
+   when referenced.
+
+This applies to: search heuristics, eval terms, NNUE forward, move
+ordering, time management, pruning gates, history magnitudes — every
+chess-specific code change.
+
+### Rule 3 — Web research for context
+For decisions involving theory or community-known patterns, search
+the web:
+
+- **chessprogramming.org** (Chess Programming Wiki) — definitive
+  reference for terminology, classical algorithms, history of ideas.
+- **Talkchess forum** (`talkchess.com`) — recent engine discussions,
+  SPSA / NNUE / search trends.
+- **CCC / CCRL / Lichess BOS** — rating and tournament context.
+- **Engine release notes + commit logs on GitHub** — what SF / other
+  top engines shipped recently.
+
+Use `WebSearch` / `WebFetch`. Don't rely only on cached training data
+for current engine practice — the field moves fast.
+
+### How to apply the rules
+
+- **Editing search.cpp**: Rule 2 first (find SF equivalent), Rule 3
+  if uncertain (search wiki/forum), Rule 1 for any post-change SPRT.
+- **Tuning constants**: Rule 2 (what does SF use), Rule 3 (any recent
+  SPSA campaigns in the community), Rule 1 (SPSA via `testing/spsa.py`).
+- **Diagnosing a bug**: Rule 2 (does SF have the same code path? does
+  it have a different fix?), Rule 3 (has this been discussed publicly?),
+  Rule 1 (validate fix with SPRT).
+
+---
+
 ## Key local references
 
-- **Stockfish source**: `C:\Engine\stockfish\src\` — full reference impl,
-  read-only. Use Read/Grep here, not WebFetch — much faster.
-- **Stockfish wiki**: `C:\Engine\stockfish\wiki\` — UCI commands,
-  terminology, regression tests.
-- **Stockfish binary**: `C:\Engine\stockfish\stockfish-windows-x86-64-avx2.exe`
+- **Stockfish source**: `C:\Engine\Engines\stockfish\src\` — full
+  reference impl, read-only. Use Read/Grep here, not WebFetch — much
+  faster. **(Rule 2 primary reference)**
+- **Other reference engines**: `C:\Engine\Engines\` — Alexandria,
+  Berserk, Ethereal, Obsidian, RubiChess (zipped; extract on demand).
+- **Stockfish binary**: `C:\Engine\Engines\stockfish\stockfish-windows-x86-64-avx2.exe`
   — used as ground truth for blunder analysis (`testing/vs_stockfish.py`).
 - **cutechess**: `C:\Engine\cutechess-bin\cutechess-1.4.0-win64\cutechess-cli.exe`
+  **(Rule 1 — primary test harness)**
 - **Syzygy 3-4-5**: `C:\Engine\3-4-5 syzygy` — endgame TBs.
 
 ## Useful scripts
