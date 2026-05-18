@@ -72,6 +72,19 @@ This applies to: search heuristics, eval terms, NNUE forward, move
 ordering, time management, pruning gates, history magnitudes — every
 chess-specific code change.
 
+### Rule 2.1 — Always test under shipping NNUE (no classical-only sanity)
+
+Per chess-engine community consensus (Stockfish issues #2981, #3365,
+#4678; chessprogramming.org NNUE page): test patches under the network
+you ship. Don't reach for classical-only as a sanity check — that
+would tune for an eval you don't deploy. The known **NNUE-search
+coupling** means:
+- Static-eval pruning (RFP, NMP margins, futility) ELO is **strongly
+  masked** by NNUE; classical-only ELO would over-estimate impact.
+- Move ordering, LMR move-count gates, time mgmt are **less masked**.
+
+Tombstones in NNUE-on tests are the correct measurement for Hypersion.
+
 ### Rule 3 — Web research for context
 For decisions involving theory or community-known patterns, search
 the web:
