@@ -1,6 +1,32 @@
-# Hypersion comprehensive retuning plan — nodes=500000 SPSA campaign
+# Hypersion comprehensive retuning plan — INVALIDATED 2026-05-18
 
-**Trigger**: Tier 3 v2 SPSA at nodes=500000 shipped at **+284.9 ELO @ 200g**, exactly where Tier 3 v1 at nodes=50000 had tombstoned at -34.9 ELO. The lesson: **every prior tombstone with "SPSA REJECTED" is suspect** because they all used `nodes=50000` (Hypersion's `testing/spsa.py` default). Re-running them at `nodes=500000` may unlock substantial latent ELO.
+## Update — plan abandoned
+
+**Status: ABANDONED.** Tier 3 v2 SPSA at nodes=500000 produced extreme TC-mismatch:
+- Bullet 5+0.05 200g: **+284.9 +/- 53.2 ELO** (148W-13L-39D) — provisional SHIP
+- LTC    60+0.6 200g: **-197.9 +/- 52.2 ELO** (37W-140L-23D) — CATASTROPHIC
+
+**Net 483 ELO TC swing — invalidates the central premise of this plan.**
+nodes=500000 SPSA finds values that optimize for **bullet-depth move
+ordering** but **actively hurt** deep search. The remedy isn't "tune at
+even higher nodes" — the SPSA gradient at any node count above search-
+time depth produces bullet-biased optima.
+
+Real fix paths (not in this plan, future work):
+1. **TC-mode SPSA at target TC** (`--tc 60+0.6 --concurrency 6`):
+   slow (~6-10h per campaign), but exact-gradient match to LTC tests.
+2. **Per-TC parameter tables** + runtime gating (like Tier 2 v2's
+   useThreatHist flag): bullet vs LTC values selected by tm.optimum.
+3. **Accept bullet-only tuning**: ship a "Hypersion-bullet" variant
+   alongside the LTC engine.
+
+Tier 3 v2 has been reverted in `src/search.cpp::tunables`.
+
+---
+
+## Original plan (preserved for reference)
+
+**Original trigger**: Tier 3 v2 SPSA at nodes=500000 shipped at **+284.9 ELO @ 200g**, exactly where Tier 3 v1 at nodes=50000 had tombstoned at -34.9 ELO. The (now-disproven) lesson: **every prior tombstone with "SPSA REJECTED" is suspect** because they all used `nodes=50000` (Hypersion's `testing/spsa.py` default). Re-running them at `nodes=500000` may unlock substantial latent ELO.
 
 CLAUDE.md TC-specificity finding (2026-05-09) is the foundational evidence:
 > SPSA campaigns ran at nodes=50000 (bullet-equivalent depth ~10-12). The local optima found at that depth don't necessarily generalize to the deeper search trees (depth 25+) that LTC produces.
