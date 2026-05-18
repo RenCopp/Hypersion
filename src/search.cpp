@@ -370,6 +370,11 @@ int QSEARCH_CAP_GAIN        = 3221;   // A9 joint: 3259 -> 3221. A3 was: 3300 ->
 // walked because its noise floor masked the gradient. With proper
 // statistical power, the v2 campaign found a small but real
 // improvement region (~1-6 % shifts) worth +28 ELO.
+// 2026-05-18 Tier 3 SPSA v1 at nodes=50000: REJECTED -34.9 +/- 38.7 ELO
+// @ 200g 5+0.05 conc=4. Converged values were 18/26/1990/101/49/-21/21
+// (modest ±5% shifts from defaults). Nodes-to-TC non-transfer pattern.
+// Tier 3 v2 retry at nodes=500000 pending per CLAUDE.md guidance.
+// Defaults restored.
 int HIST_BONUS_DEPTH2 = 16;     // unchanged
 int HIST_BONUS_DEPTH1 = 30;     // A2-v2: was 32 (A9 confirmed)
     // v29 trial 31: 0.0 +/- 39.5 ELO @ 200g (67W-67L-66D) -- exact-zero
