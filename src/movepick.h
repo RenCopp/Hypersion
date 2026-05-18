@@ -50,7 +50,9 @@ public:
                Piece            prevPiece = NO_PIECE,
                const ContinuationHistory* contHist2 = nullptr,
                Move             prevMove2 = Move::none(),
-               Piece            prevPiece2= NO_PIECE);
+               Piece            prevPiece2= NO_PIECE,
+               const ThreatSquareHistory* threatH = nullptr,
+               int              threatSq  = 64);
 
     // Quiescence-only constructor (no killers, no quiets).
     // 2026-05-17 audit qs #18: now accepts contHist + prev-ply info so
@@ -82,6 +84,9 @@ private:
     const CaptureHistory*      chist;
     const ContinuationHistory* contHist1 = nullptr;   // 1-ply back (counter-move)
     const ContinuationHistory* contHist2 = nullptr;   // 2-ply back (follow-up; updated, not read)
+    // 2026-05-18 Tier 2: RubiChess threat-square HH read at score_quiets time.
+    const ThreatSquareHistory* tsHist  = nullptr;
+    int                        tsSq    = 64;
 
     Move    ttMove;
     Move    killer0;

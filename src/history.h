@@ -268,6 +268,45 @@ struct CorrectionHistory {
     }
 };
 
+// 2026-05-18 Tier 2 port (RubiChess threat-square keyed history).
+// SOURCE: RubiChess-master/src/board.cpp:346-378 (updateThreats),
+// search.cpp:128-147 (history lookup/update). RubiChess restructures
+// mainHist to [stm][threatSquare][from][to]; this Hypersion port keeps
+// the existing mainHist intact and adds a SEPARATE threat-keyed table
+// blended at move-scoring time (cleaner port, simpler revert if SPRT
+// rejects).
+//
+// threatSquare = LSB of (pawn attacks on our pieces + minor attacks on
+// our rooks/queens + rook attacks on our queens). 64 = no threats
+// (sentinel). Total 65 outer slots.
+//
+// Indexing: data[stm][threatSq][from][to] (color × 65 × 64 × 64 int16
+// = ~1.06 MB per thread).
+struct ThreatSquareHistory {
+    static constexpr int NTHR_SLOTS = 65;   // 0..63 + 64 sentinel
+    int16_t data[COLOR_NB][NTHR_SLOTS][SQUARE_NB][SQUARE_NB] = {};
+    void clear() { std::memset(data, 0, sizeof(data)); }
+    int get(Color c, int threatSq, Square from, Square to) const {
+        return data[c][threatSq][from][to];
+    }
+    void update(Color c, int threatSq, Move m, int bonus) {
+        const int hmax = Search::tunables::HIST_MAX;
+        int v = bonus;
+        if (v >  hmax) v =  hmax;
+        if (v < -hmax) v = -hmax;
+        int16_t& slot = data[c][threatSq][m.from_sq()][m.to_sq()];
+        int updated = int(slot) + v - int(slot) * std::abs(v) / hmax;
+        if (updated >  hmax) updated =  hmax;
+        if (updated < -hmax) updated = -hmax;
+        slot = int16_t(updated);
+    }
+    void halve() {
+        int16_t* p = &data[0][0][0][0];
+        size_t n = sizeof(data) / sizeof(int16_t);
+        for (size_t i = 0; i < n; ++i) p[i] /= 2;
+    }
+};
+
 // 2026-05-18 Tier 1 port (Berserk-style cont1/cont2 correction history).
 // SOURCE: Berserk-main/src/history.{h,c} — UpdateContCorrection +
 // GetCorrectionScore. Distinct from the previously-rejected materialCorrHist

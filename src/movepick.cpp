@@ -51,9 +51,12 @@ MovePicker::MovePicker(const Position& p,
                        Piece pp,
                        const ContinuationHistory* contH2,
                        Move pm2,
-                       Piece pp2)
+                       Piece pp2,
+                       const ThreatSquareHistory* threatH,
+                       int tsq)
     : pos(p), bhist(bh), chist(ch),
       contHist1(contH), contHist2(contH2),
+      tsHist(threatH),  tsSq(tsq),
       ttMove(ttm),
       killer0(killers ? killers[0] : Move::none()),
       killer1(killers ? killers[1] : Move::none()),
@@ -165,6 +168,13 @@ void MovePicker::score_quiets() {
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
         int v = bhist ? (bhist->get(us, m) * bflyW / 100) : 0;
+        // 2026-05-18 Tier 2: RubiChess threat-square HH blend. Read at half
+        // weight relative to mainHist (mainHist sees ALL move contexts;
+        // threat-square HH is restricted to specific tactical configurations,
+        // so its signal should be weighted accordingly). Conservative
+        // default; SPSA-tunable in future.
+        if (tsHist && tsSq != 64)
+            v += tsHist->get(us, tsSq, m.from_sq(), m.to_sq()) / 2;
         Piece moving = pos.piece_on(m.from_sq());
         PieceType pt = type_of(moving);
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq()) * cont1W / 100;

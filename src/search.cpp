@@ -788,6 +788,7 @@ void Worker::clear() {
     materialCorrHist.clear();
     contCorrHist1.clear();
     contCorrHist2.clear();
+    threatHist.clear();
     for (auto& ch : contHist) ch->clear();
     // Note: TT clearing is the pool's responsibility — done once across all threads.
     // NOTE: 2026-05-12 added minor + nonpawn-W + nonpawn-B correction histories
@@ -855,6 +856,7 @@ bool Worker::load_corr_hist(const std::string& path) {
         materialCorrHist.halve();
         contCorrHist1.halve();
         contCorrHist2.halve();
+        threatHist.halve();
     } else {
         // On any read failure, leave both tables untouched.
         pawnCorrHist.clear();
@@ -2058,6 +2060,30 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     ss->inCheck    = inCheck;
     ss->moveCount  = 0;
     ss->statScore  = 0;       // SF18: cleared at entry, set per-move below.
+
+    // 2026-05-18 Tier 2 (RubiChess threat-square HH): compute the most-
+    // threatening enemy square once per node. Lookup at move-ordering
+    // time blends with mainHist signal; update at cutoff writes back.
+    // Definition: LSB of (pawn-attacks on our pieces excl. our pawns +
+    // minor-attacks on our rooks/queens + rook-attacks on our queens).
+    // Source: RubiChess board.cpp:346-378.
+    {
+        Color us = pos.side_to_move(), them = ~us;
+        Bitboard occ = pos.pieces();
+        Bitboard ourNonPawns = pos.pieces(us) & ~pos.pieces(us, PAWN);
+        Bitboard pawnAtk = (them == WHITE)
+            ? pawn_attacks_bb<WHITE>(pos.pieces(them, PAWN))
+            : pawn_attacks_bb<BLACK>(pos.pieces(them, PAWN));
+        Bitboard threats = pawnAtk & ourNonPawns;
+        Bitboard ourMajors = pos.pieces(us, ROOK) | pos.pieces(us, QUEEN);
+        Bitboard bb = pos.pieces(them, KNIGHT);
+        while (bb) threats |= (PseudoAttacks[KNIGHT][pop_lsb(bb)] & ourMajors);
+        bb = pos.pieces(them, BISHOP);
+        while (bb) threats |= (attacks_bb<BISHOP>(pop_lsb(bb), occ) & ourMajors);
+        bb = pos.pieces(them, ROOK);
+        while (bb) threats |= (attacks_bb<ROOK>(pop_lsb(bb), occ) & pos.pieces(us, QUEEN));
+        ss->threatSq = threats ? int(lsb(threats)) : 64;
+    }
     // SF18: zero (ss+2)->cutoffCnt only — NOT ss->cutoffCnt itself. Our own
     // cutoffCnt accumulates across recursive calls from our parent's move
     // loop, which is precisely what makes the LMR heuristic work: parent
@@ -2620,7 +2646,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     PVLine childPv;
     MovePicker mp(pos, ttMove, &mainHist, &captureHist, killers.killers[ply], depth,
                   contHist[0].get(), prevMove1, prevPiece1,
-                  contHist[1].get(), prevMove2, prevPiece2);
+                  contHist[1].get(), prevMove2, prevPiece2,
+                  &threatHist, ss->threatSq);
 
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
@@ -3013,6 +3040,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Bonus to the fail-high quiet (butterfly + contHist).
                         update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
+                        // 2026-05-18 Tier 2: also update threat-square HH on
+                        // the same cutoff signal. ss->threatSq computed at
+                        // search() entry.
+                        threatHist.update(pos.side_to_move(), ss->threatSq, m, bonus);
+                        // Demote also-tried-quiets in threatHist too.
+                        for (int i = 0; i < quietCount; ++i) {
+                            int malus = bonus;
+                            if (i > 5) malus -= malus * (i - 5) / i;
+                            threatHist.update(pos.side_to_move(), ss->threatSq, quietsTried[i], -malus);
+                        }
                         // 2026-05-17 audit #116: separate malus formula
                         // (history_malus, SPSA-tunable independent of bonus)
                         // + moveCount taper from SF18 src/search.cpp:1846-1849.

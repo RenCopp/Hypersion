@@ -81,6 +81,11 @@ struct Stack {
                                    // 698, 1216-1224, 1834.
     bool  ttPv              = false;
     bool  inCheck           = false;
+    // 2026-05-18 Tier 2: RubiChess-style threat-square keyed history.
+    // Computed once at search() entry from our threat bitboards; passed
+    // to score_quiets via MovePicker, and to history update at cutoff.
+    // 0..63 = a real threat square; 64 = no threats (sentinel slot).
+    int   threatSq          = 64;
 };
 
 // Forward declare for the back-pointer.
@@ -181,6 +186,9 @@ private:
     // outer; both use ply-1 inner). 2 MB per thread each.
     ContCorrHist contCorrHist1;   // outer = (ss-3)'s piece+to
     ContCorrHist contCorrHist2;   // outer = (ss-2)'s piece+to
+    // 2026-05-18 Tier 2: RubiChess-style threat-square keyed history.
+    // Lookup at move-scoring time blends with mainHist signal. ~1 MB/thread.
+    ThreatSquareHistory threatHist;
     // NOTE: 2026-05-12 added minorCorrHist + nonPawnCorrHist[2] with SF18
     // weight blend. LTC 20g cumulative -34.9 ± 111 ELO when bundled with
     // other SF18 ports. Reverted. Tables stay declared as dead code in case
