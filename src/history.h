@@ -268,6 +268,14 @@ struct CorrectionHistory {
     }
 };
 
+// 2026-05-18 Tier R2 SKIPPED: SF18 history infrastructure cluster
+// (LowPlyHistory + PawnHistory + 6-deep contHist). All three components
+// individually tombstoned in Hypersion. The 6-deep contHist leg was
+// retested with SF18's EXACT SPSA-tuned weights and tombstoned at -24.4
+// ELO @ 200g (search.h:217-229). Cluster hypothesis ("3 negatives might
+// equal 1 positive") not data-supported; skipped in favor of higher-
+// confidence retests.
+
 // 2026-05-18 Tier 2 port (RubiChess threat-square keyed history).
 // SOURCE: RubiChess-master/src/board.cpp:346-378 (updateThreats),
 // search.cpp:128-147 (history lookup/update). RubiChess restructures

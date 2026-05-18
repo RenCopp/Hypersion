@@ -198,6 +198,11 @@ private:
     // 2026-05-18 Tier 2: RubiChess-style threat-square keyed history.
     // Lookup at move-scoring time blends with mainHist signal. ~1 MB/thread.
     ThreatSquareHistory threatHist;
+    // 2026-05-18 Tier 2 v2: TC-conditional gate. True only at bullet/blitz
+    // TC (optimum < 500ms). LTC validation showed Tier 2 hurt deep search
+    // -78 ELO; bullet showed +83. Gate set in iterative_deepen after
+    // tm.init(); read by MovePicker + history-update sites.
+    bool useThreatHist = true;
     // NOTE: 2026-05-12 added minorCorrHist + nonPawnCorrHist[2] with SF18
     // weight blend. LTC 20g cumulative -34.9 ± 111 ELO when bundled with
     // other SF18 ports. Reverted. Tables stay declared as dead code in case

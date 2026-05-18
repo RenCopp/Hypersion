@@ -948,6 +948,17 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     selDepth = 0;
     completedDepth = 0;
     stopFlag.store(false);
+
+    // 2026-05-18 Tier 2 v2: TC-conditional threat-square HH gate.
+    // Tier 2's threatHist gives +83 ELO at bullet (5+0.05) but -78 at LTC
+    // (60+0.6) per LTC validation. The threat-bias helps the engine pick
+    // safe moves quickly at low TC where depth is shallow; at deep search
+    // it prevents tactical resources. Gate: use threatHist only when
+    // optimum-time per move is < 500 ms (bullet/blitz range). LTC's
+    // optimum is typically 1500-3000 ms.
+    useThreatHist = (tm.optimum() > 0 && tm.optimum() < 500)
+                 || (limits.movetime > 0 && limits.movetime < 500)
+                 || (limits.nodes > 0 && limits.nodes < 200000);
     // Note: Lynx-style 3/4 history gravity tested and regressed -35 ELO.
     // Hypersion's update_history already does Stockfish-style soft-cap
     // decay (entry += bonus - entry * |bonus| / HISTORY_MAX); adding 3/4
@@ -2637,6 +2648,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // takes `improving`) and per-move pruning margins. Gentler pruning in
     // good positions = fewer false cutoffs at depth.
     improving |= staticEval >= beta;
+    // 2026-05-18 Tier R3 RE-TOMBSTONED: corrhist-based LMR adjust retested
+    // with proper cp-delta divisor (75 instead of original 8192 on cp*256
+    // slot value). Result: -206.7 +/- 125.8 ELO @ 30g (3W-19L-8D). Even
+    // worse than original tombstone. Corrhist LMR adjustment fundamentally
+    // doesn't work in Hypersion — likely conflicts with cutoffCnt + ttPv
+    // LMR adjustments which together already encode "trust the eval more"
+    // signal. Cluster effect — no isolated change to LMR works.
 
     // Counter-move and previous-move bookkeeping for continuation history lookups.
     Move  prevMove1  = (ss - 1)->currentMove;
@@ -2648,10 +2666,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                        : Move::none();
 
     PVLine childPv;
+    // 2026-05-18 Tier 2 v2: TC-gate the threatHist pointer. At LTC we set
+    // useThreatHist = false in iterative_deepen, so MovePicker gets a null
+    // pointer and threat-square HH read in score_quiets is skipped.
     MovePicker mp(pos, ttMove, &mainHist, &captureHist, killers.killers[ply], depth,
                   contHist[0].get(), prevMove1, prevPiece1,
                   contHist[1].get(), prevMove2, prevPiece2,
-                  &threatHist, ss->threatSq);
+                  useThreatHist ? &threatHist : nullptr, ss->threatSq);
 
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
@@ -3045,14 +3066,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                         // Bonus to the fail-high quiet (butterfly + contHist).
                         update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
                         // 2026-05-18 Tier 2: also update threat-square HH on
-                        // the same cutoff signal. ss->threatSq computed at
-                        // search() entry.
-                        threatHist.update(pos.side_to_move(), ss->threatSq, m, bonus);
-                        // Demote also-tried-quiets in threatHist too.
-                        for (int i = 0; i < quietCount; ++i) {
-                            int malus = bonus;
-                            if (i > 5) malus -= malus * (i - 5) / i;
-                            threatHist.update(pos.side_to_move(), ss->threatSq, quietsTried[i], -malus);
+                        // the same cutoff signal. Tier 2 v2: only when
+                        // useThreatHist is set (low-TC bullet mode).
+                        if (useThreatHist) {
+                            threatHist.update(pos.side_to_move(), ss->threatSq, m, bonus);
+                            for (int i = 0; i < quietCount; ++i) {
+                                int malus = bonus;
+                                if (i > 5) malus -= malus * (i - 5) / i;
+                                threatHist.update(pos.side_to_move(), ss->threatSq, quietsTried[i], -malus);
+                            }
                         }
                         // 2026-05-17 audit #116: separate malus formula
                         // (history_malus, SPSA-tunable independent of bonus)
