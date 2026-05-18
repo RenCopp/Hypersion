@@ -268,6 +268,15 @@ struct CorrectionHistory {
     }
 };
 
+// 2026-05-18 v3.2 Phase 2 TOMBSTONE: TC-gated PawnHistory rejected.
+// SOURCE: Obsidian-16.0/src/history.h:23. Tested as bullet-only via
+// Tier 2 v2-style gate. Result @ 200g 5+0.05 conc=2: -52.5 +/- 26.9 ELO
+// (17W-47L-136D, 68% draw rate). The TC-gating hypothesis didn't
+// salvage Hypersion's pawn-history failure pattern (-22 to -95 ELO
+// across 4 weight settings always-on, history.h:150-163). PawnHistory
+// fundamentally disrupts Hypersion's move ordering at any magnitude
+// or TC condition. Implementation removed from Worker.
+
 // 2026-05-18 Tier R2 SKIPPED: SF18 history infrastructure cluster
 // (LowPlyHistory + PawnHistory + 6-deep contHist). All three components
 // individually tombstoned in Hypersion. The 6-deep contHist leg was

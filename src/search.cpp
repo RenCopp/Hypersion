@@ -2671,9 +2671,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                        : Move::none();
 
     PVLine childPv;
-    // 2026-05-18 Tier 2 v2: TC-gate the threatHist pointer. At LTC we set
-    // useThreatHist = false in iterative_deepen, so MovePicker gets a null
-    // pointer and threat-square HH read in score_quiets is skipped.
+    // 2026-05-18 Tier 2 v2: TC-gate threatHist (only enabled when
+    // useThreatHist is set in iterative_deepen for bullet TC).
     MovePicker mp(pos, ttMove, &mainHist, &captureHist, killers.killers[ply], depth,
                   contHist[0].get(), prevMove1, prevPiece1,
                   contHist[1].get(), prevMove2, prevPiece2,
