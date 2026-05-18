@@ -175,6 +175,12 @@ private:
     CorrectionHistory materialCorrHist;   // SF18-style: a second correction
                                           // source keyed by material distribution
                                           // rather than pawn structure.
+    // 2026-05-18 Tier 1: Berserk-style continuation-correction tables.
+    // Two separate tables — both look up by (prev_outer_move, last_inner_move)
+    // but at different ply offsets (cont1 uses ply-3 outer, cont2 uses ply-2
+    // outer; both use ply-1 inner). 2 MB per thread each.
+    ContCorrHist contCorrHist1;   // outer = (ss-3)'s piece+to
+    ContCorrHist contCorrHist2;   // outer = (ss-2)'s piece+to
     // NOTE: 2026-05-12 added minorCorrHist + nonPawnCorrHist[2] with SF18
     // weight blend. LTC 20g cumulative -34.9 ± 111 ELO when bundled with
     // other SF18 ports. Reverted. Tables stay declared as dead code in case

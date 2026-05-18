@@ -217,6 +217,10 @@ struct CorrectionHistory {
         __builtin_prefetch(&data[c][idx(pawnKey)]);
 #endif
     }
+    // Apply correction without rawEval; returns cp adjustment.
+    int corr_cp(Color c, std::uint64_t pawnKey) const {
+        return data[c][idx(pawnKey)] / 256;
+    }
 
     // ── Persistent correction history (Lc0-inspired "learn from mistakes")
     // Save / load the table to/from a binary file. The file format is:
@@ -261,6 +265,48 @@ struct CorrectionHistory {
         for (int c = 0; c < COLOR_NB; ++c)
             for (int i = 0; i < SIZE; ++i)
                 data[c][i] /= 2;
+    }
+};
+
+// 2026-05-18 Tier 1 port (Berserk-style cont1/cont2 correction history).
+// SOURCE: Berserk-main/src/history.{h,c} — UpdateContCorrection +
+// GetCorrectionScore. Distinct from the previously-rejected materialCorrHist
+// averaged blend (-26 ELO @ 200g, tombstoned in src/search.cpp:2273) —
+// that used 14-bit material-key with averaging; this uses 4D continuation-
+// pair indexing with ADDITIVE blend, matching the explicit "try additive
+// with weight" note in the existing tombstone.
+//
+// Indexing: data[outerPiece][outerTo][innerPiece][innerTo] — captures
+// "when piece A from outerTo is followed by piece B going to innerTo,
+// the eval-correction is X". Two lookups per blend (cont1 at distance
+// ply-3 and cont2 at distance ply-2 from current ply).
+//
+// Memory: PIECE_NB × SQUARE_NB × PIECE_NB × SQUARE_NB × sizeof(int16) =
+// 16 × 64 × 16 × 64 × 2 = 2,097,152 bytes ≈ 2 MB per thread.
+struct ContCorrHist {
+    static constexpr int CORR_MAX = 256;          // soft cap on stored adjustment (cp * 256)
+    int16_t data[PIECE_NB][SQUARE_NB][PIECE_NB][SQUARE_NB] = {};
+    void clear() { std::memset(data, 0, sizeof(data)); }
+    int  get(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo) const {
+        return data[outerPc][outerTo][innerPc][innerTo];
+    }
+    void update(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo,
+                int diff, int weight) {
+        int16_t& slot = data[outerPc][outerTo][innerPc][innerTo];
+        // EMA matching pawnCorrHist semantics.
+        int v = (int(slot) * (256 - weight) + diff * weight) / 256;
+        if (v >  CORR_MAX * 256) v =  CORR_MAX * 256;
+        if (v < -CORR_MAX * 256) v = -CORR_MAX * 256;
+        slot = int16_t(v);
+    }
+    // Apply correction (in cp). Returns the cp delta to add to rawEval.
+    int corr_cp(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo) const {
+        return int(data[outerPc][outerTo][innerPc][innerTo]) / 256;
+    }
+    void halve() {
+        int16_t* p = &data[0][0][0][0];
+        size_t n = sizeof(data) / sizeof(int16_t);
+        for (size_t i = 0; i < n; ++i) p[i] /= 2;
     }
 };
 

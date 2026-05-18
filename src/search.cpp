@@ -786,6 +786,8 @@ void Worker::clear() {
     counterMoves.clear();
     pawnCorrHist.clear();
     materialCorrHist.clear();
+    contCorrHist1.clear();
+    contCorrHist2.clear();
     for (auto& ch : contHist) ch->clear();
     // Note: TT clearing is the pool's responsibility — done once across all threads.
     // NOTE: 2026-05-12 added minor + nonpawn-W + nonpawn-B correction histories
@@ -851,6 +853,8 @@ bool Worker::load_corr_hist(const std::string& path) {
         // (from many sessions ago) fades faster than per-game decay alone.
         pawnCorrHist.halve();
         materialCorrHist.halve();
+        contCorrHist1.halve();
+        contCorrHist2.halve();
     } else {
         // On any read failure, leave both tables untouched.
         pawnCorrHist.clear();
@@ -2222,13 +2226,35 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         rawEval = staticEval = ss->staticEval;
     } else if (ttHit && tte->eval() != VALUE_NONE) {
         rawEval = tte->eval();
+        // 2026-05-18 Tier 1 (Berserk-style corrhist blend): pawnCorrHist +
+        // contCorrHist1 + contCorrHist2 additive blend. Weights are
+        // Hypersion-internal (pawn=full, cont1=half, cont2=full) and bounded
+        // by CORR_MAX*256 storage cap. SPRT will calibrate; defaults are
+        // structurally similar to Berserk's 31/17/46/8192 ratio
+        // (pawn ≈ cont2 > cont1).
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
-        // 2026-05-17 finding #23: SF18:729-732 upgrades the static eval from
-        // the TT-stored search value when it lies in the bound-consistent
-        // direction (LOWER bound ≥ current eval → use ttValue; UPPER bound
-        // ≤ current eval → use ttValue). This tightens the downstream
-        // margin checks (RFP, futility, NMP) when the TT has a value that
-        // strictly improves on the static eval.
+        if (ply >= 2 && (ss - 1)->currentMove != Move::none()
+                     && (ss - 1)->currentMove != Move::null()
+                     && (ss - 1)->movedPiece != NO_PIECE) {
+            Piece innerPc = (ss - 1)->movedPiece;
+            Square innerTo = (ss - 1)->currentMove.to_sq();
+            int contAdjustCp = 0;
+            if (ply >= 3 && (ss - 2)->currentMove != Move::none()
+                         && (ss - 2)->currentMove != Move::null()
+                         && (ss - 2)->movedPiece != NO_PIECE) {
+                contAdjustCp += contCorrHist2.corr_cp((ss - 2)->movedPiece,
+                                                     (ss - 2)->currentMove.to_sq(),
+                                                     innerPc, innerTo);
+            }
+            if (ply >= 4 && (ss - 3)->currentMove != Move::none()
+                         && (ss - 3)->currentMove != Move::null()
+                         && (ss - 3)->movedPiece != NO_PIECE) {
+                contAdjustCp += contCorrHist1.corr_cp((ss - 3)->movedPiece,
+                                                     (ss - 3)->currentMove.to_sq(),
+                                                     innerPc, innerTo) / 2;
+            }
+            staticEval = Value(int(staticEval) + contAdjustCp);
+        }
         if (ttValue != VALUE_NONE
             && (((tte->bound() & BOUND_LOWER) && ttValue > staticEval)
                 || ((tte->bound() & BOUND_UPPER) && ttValue < staticEval)))
@@ -2237,6 +2263,29 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     } else {
         rawEval = Eval::evaluate(pos);
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
+        // 2026-05-18 Tier 1: same contCorrHist blend as above branch.
+        if (ply >= 2 && (ss - 1)->currentMove != Move::none()
+                     && (ss - 1)->currentMove != Move::null()
+                     && (ss - 1)->movedPiece != NO_PIECE) {
+            Piece innerPc = (ss - 1)->movedPiece;
+            Square innerTo = (ss - 1)->currentMove.to_sq();
+            int contAdjustCp = 0;
+            if (ply >= 3 && (ss - 2)->currentMove != Move::none()
+                         && (ss - 2)->currentMove != Move::null()
+                         && (ss - 2)->movedPiece != NO_PIECE) {
+                contAdjustCp += contCorrHist2.corr_cp((ss - 2)->movedPiece,
+                                                     (ss - 2)->currentMove.to_sq(),
+                                                     innerPc, innerTo);
+            }
+            if (ply >= 4 && (ss - 3)->currentMove != Move::none()
+                         && (ss - 3)->currentMove != Move::null()
+                         && (ss - 3)->movedPiece != NO_PIECE) {
+                contAdjustCp += contCorrHist1.corr_cp((ss - 3)->movedPiece,
+                                                     (ss - 3)->currentMove.to_sq(),
+                                                     innerPc, innerTo) / 2;
+            }
+            staticEval = Value(int(staticEval) + contAdjustCp);
+        }
         ss->staticEval = staticEval;
         // 2026-05-17 finding #24: SF18:736-741 writes the first-visit eval to
         // TT with BOUND_NONE so subsequent re-visits skip the NNUE forward
@@ -3087,6 +3136,30 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         int diff = int(bestValue - rawEval) * 256;
         int weight = std::min(64, depth * 4 + 8);
         pawnCorrHist.update(pos.side_to_move(), pos.pawn_key(), diff, weight);
+        // 2026-05-18 Tier 1: ALSO update contCorrHist1 + contCorrHist2 on
+        // the same (real - raw) signal. Two table writes per qualifying
+        // search step. Keys mirror the read-side: outer = (ss-2) or
+        // (ss-3)'s piece+to, inner = (ss-1)'s piece+to.
+        if (ply >= 2 && (ss - 1)->currentMove != Move::none()
+                     && (ss - 1)->currentMove != Move::null()
+                     && (ss - 1)->movedPiece != NO_PIECE) {
+            Piece innerPc = (ss - 1)->movedPiece;
+            Square innerTo = (ss - 1)->currentMove.to_sq();
+            if (ply >= 3 && (ss - 2)->currentMove != Move::none()
+                         && (ss - 2)->currentMove != Move::null()
+                         && (ss - 2)->movedPiece != NO_PIECE) {
+                contCorrHist2.update((ss - 2)->movedPiece,
+                                     (ss - 2)->currentMove.to_sq(),
+                                     innerPc, innerTo, diff, weight);
+            }
+            if (ply >= 4 && (ss - 3)->currentMove != Move::none()
+                         && (ss - 3)->currentMove != Move::null()
+                         && (ss - 3)->movedPiece != NO_PIECE) {
+                contCorrHist1.update((ss - 3)->movedPiece,
+                                     (ss - 3)->currentMove.to_sq(),
+                                     innerPc, innerTo, diff, weight);
+            }
+        }
     }
     return bestValue;
 }
