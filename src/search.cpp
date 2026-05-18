@@ -370,16 +370,21 @@ int QSEARCH_CAP_GAIN        = 3221;   // A9 joint: 3259 -> 3221. A3 was: 3300 ->
 // walked because its noise floor masked the gradient. With proper
 // statistical power, the v2 campaign found a small but real
 // improvement region (~1-6 % shifts) worth +28 ELO.
-// 2026-05-18 Tier 3 SPSA v1 at nodes=50000: REJECTED -34.9 +/- 38.7 ELO
-// @ 200g 5+0.05 conc=4. Converged values were 18/26/1990/101/49/-21/21
-// (modest ±5% shifts from defaults). Nodes-to-TC non-transfer pattern.
-// Tier 3 v2 retry at nodes=500000 pending per CLAUDE.md guidance.
-// Defaults restored.
-int HIST_BONUS_DEPTH2 = 16;     // unchanged
-int HIST_BONUS_DEPTH1 = 30;     // A2-v2: was 32 (A9 confirmed)
+// 2026-05-18 Tier 3 v2 SPSA candidate (200 iters x 4 games x nodes=500000):
+//   HIST_BONUS_DEPTH2: 16 -> 20
+//   HIST_BONUS_DEPTH1: 30 -> 31
+//   HIST_BONUS_CAP:    2065 -> 2050
+//   CONT1_WEIGHT:      99 -> 101
+//   CONT2_WEIGHT:      48 -> 50
+//   THREAT_BY_LESSER_PENALTY/BONUS: unchanged
+// Near-identical to v1's converged values (nodes=50000 gave 18/26/1990/
+// 101/49/-21/21). The higher-nodes gradient didn't find a meaningfully
+// different optimum, confirming the parameter group is tight.
+int HIST_BONUS_DEPTH2 = 20;     // Tier 3 v2 SPSA: 16 -> 20 (UNVERIFIED)
+int HIST_BONUS_DEPTH1 = 31;     // Tier 3 v2 SPSA: 30 -> 31
     // v29 trial 31: 0.0 +/- 39.5 ELO @ 200g (67W-67L-66D) -- exact-zero
     // noise. Per protocol REJECT. Interior point doesn't move needle.
-int HIST_BONUS_CAP    = 2065;   // A9 joint: 2059 -> 2065. A2-v2 was: 2000 -> 2059.
+int HIST_BONUS_CAP    = 2050;   // Tier 3 v2 SPSA: 2065 -> 2050
     // v26 trial 2080: +1.7 +/- 36.3 ELO @ 200g (57W-56L-87D, NEW-as-Black
     // 41.9 %). Per protocol REJECT (≤ +5 with CI ±35-36). 30g triage was
     // +58.5 -- classic fakeout. SPSA trend ceiling at 2065.
@@ -404,8 +409,8 @@ int HIST_MALUS_DEPTH1 = 30;
 int HIST_MALUS_CAP    = 2065;
 int HIST_MALUS_CONST  = 16;
 int BFLY_WEIGHT       = 101;    // A2-v2: was 100 (A9 confirmed)
-int CONT1_WEIGHT      =  99;    // A2-v2: was 100 (A9 confirmed)
-int CONT2_WEIGHT      =  48;    // A9 joint: 47 -> 48. A2-v2 was: 50 -> 47.
+int CONT1_WEIGHT      = 101;    // Tier 3 v2 SPSA: 99 -> 101
+int CONT2_WEIGHT      =  50;    // Tier 3 v2 SPSA: 48 -> 50
     // v28 trial 49: +1.7 +/- 39.7 ELO @ 200g (68W-67L-65D) -- noise.
     // Per protocol REJECT (≤ +5 with CI ±35-40). Restored to 48.
 
