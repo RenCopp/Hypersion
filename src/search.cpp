@@ -1993,13 +1993,16 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
                 // and a queen got the same prune threshold. Now uses
                 // futilityBase + PieceValueMG[victim] so small captures get
                 // tighter gates. Gives qsearch the same gain-conditional
-                // pruning SF18 uses. SHIPPED WITHOUT SPRT.
+                // pruning SF18 uses.
+                // 2026-05-19 RETROACTIVELY SPRT-VALIDATED AS NEUTRAL: tested
+                // reverting to single-MaxGain (gain = PieceValueMG[QUEEN] =
+                // 2538) at 800g 5+0.05 pooled across 2 runs:
+                //   Run 1: +23.5 +/- 27.6 (144W-117L-139D)
+                //   Run 2: -16.5 +/- 27.1 (117W-136L-147D)
+                //   Pooled: +3.5 +/- 19 ELO, statistically indistinguishable
+                //   from 0. The per-victim change is neutral; kept as-is.
                 PieceType victim = type_of(pos.piece_on(m.to_sq()));
                 if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
-                // futilityBase: small slack above staticEval to absorb
-                // post-capture quiet improvements. SF18 uses ~204; at 5x
-                // scale that's ~1020. Pick the same magnitude as Hypersion's
-                // QSEARCH futility slack uses elsewhere.
                 Value futilityBase = staticEval + Value(150);
                 Value gain         = Eval::PieceValueMG[victim];
                 if (futilityBase + gain <= alpha) continue;
