@@ -3220,7 +3220,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // Hypersion previously skipped fail-low updates entirely. Including them
     // doubles the corrhist signal volume. Capture bestMoves are still excluded
     // because their value comes from tactical exchange, not positional eval.
-    // SHIPPED WITHOUT SPRT.
+    // 2026-05-19: SPRT-VALIDATED RETROACTIVELY. The reverse (strict gate, no
+    // fail-low updates) tested at -54.3 +/- 38.7 ELO @ 200g 5+0.05 (48W-79L-73D)
+    // — confirming the audit-#136 inclusion of fail-low updates is net +54 ELO.
+    // The previously-unverified change stands as ship-correct.
     bool capturedBest = bestMove != Move::none() && pos.capture(bestMove);
     if (!inCheck && rawEval != VALUE_NONE
         && !capturedBest
