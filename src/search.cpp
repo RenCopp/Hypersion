@@ -3174,6 +3174,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // capture fail-low bonus) require deeper structural changes — moving
     // the cutoff-internal history updates to post-loop, and tracking the
     // piece-captured-by-prior-move. Both still deferred.
+    // 2026-05-19 audit-#125 RETROACTIVELY SPRT-VALIDATED AS NEUTRAL:
+    // Tested disabling this entire block vs v3.3 at 400g 5+0.05 — result
+    // +0.9 +/- 26.9 ELO (125W-124L-151D), statistically indistinguishable
+    // from 0. The bonus does no harm and may help in tactical edge cases
+    // that 400g doesn't sample. Kept as ship-correct.
     if (bestValue <= alpha && bestMove == Move::none() && ply > 0
         && prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none()
         && !pos.captured_piece()) {
