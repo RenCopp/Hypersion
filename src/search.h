@@ -205,6 +205,15 @@ private:
     // -78 ELO; bullet showed +83. Gate set in iterative_deepen after
     // tm.init(); read by MovePicker + history-update sites.
     bool useThreatHist = true;
+    // 2026-05-19 v3.2 TC-gated corrhist read cap (TWAIN — Tight-Wrap At INference).
+    // CORR_MAX = 256 cp storage; at runtime we clamp the READ to a smaller
+    // value at bullet TC where the diagnostic showed 200-400cp upward eval
+    // drift saturating the full cap. Set in iterative_deepen the same way
+    // as useThreatHist (tm.optimum() < 500ms gate). Bullet: 128 cp.
+    // Anything else: 256 cp (= storage cap, no clamp). Tested +48 ELO @ 400g
+    // 5+0.05 with 128cp; -38 ELO @ 100g 10+0.1 with 128cp at LTC (TC-mismatch
+    // confirmed). Default 256 is safe for any non-bullet TC.
+    int corrCap = 256;
     // NOTE: 2026-05-12 added minorCorrHist + nonPawnCorrHist[2] with SF18
     // weight blend. LTC 20g cumulative -34.9 ± 111 ELO when bundled with
     // other SF18 ports. Reverted. Tables stay declared as dead code in case

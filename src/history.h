@@ -226,7 +226,14 @@ struct CounterMoveTable {
 // same pawn structure share a slot. Capped to keep noise bounded.
 struct CorrectionHistory {
     static constexpr int SIZE = 1 << 14;          // 16384 buckets
-    static constexpr int CORR_MAX = 256;          // soft cap on stored adjustment (cp * 256)
+    // 2026-05-19 TC-gated corrhist: storage cap remains 256 cp (compatible
+    // with pre-v3.2 binaries), but READ-time clamping is TC-conditional.
+    // At bullet (tm.optimum() < 500ms) the read cap is 128cp (tested +48 ELO
+    // combined 400g 5+0.05); at longer TCs the read cap stays at 256cp (no
+    // change). Per v3.1 release notes Tier 2 v2: TC-gating is the right
+    // pattern when an effect helps bullet but hurts LTC. See
+    // DIAGNOSTIC_v3.1_LTC.md for the corrhist overestimation hypothesis.
+    static constexpr int CORR_MAX = 256;          // storage cap (cp * 256)
     int data[COLOR_NB][SIZE] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
     int idx(std::uint64_t pawnKey) const { return int(pawnKey & (SIZE - 1)); }
@@ -240,10 +247,31 @@ struct CorrectionHistory {
         if (slot >  CORR_MAX * 256) slot =  CORR_MAX * 256;
         if (slot < -CORR_MAX * 256) slot = -CORR_MAX * 256;
     }
-    // Apply correction to a raw static eval.
+    // 2026-05-19 TC-gated update: clamp the EMA-updated value to a runtime
+    // cap maxCp * 256 (smaller than the constexpr CORR_MAX*256 storage cap).
+    // At bullet TC, callers pass maxCp=128 — both storage and read behave
+    // as if CORR_MAX were 128, matching the SPRT-validated bullet-only port
+    // (+48 ELO @ 400g 5+0.05).
+    void update_capped(Color c, std::uint64_t pawnKey, int diff, int weight, int maxCp) {
+        int& slot = data[c][idx(pawnKey)];
+        slot = (slot * (256 - weight) + diff * weight) / 256;
+        int cap = maxCp * 256;
+        if (slot >  cap) slot =  cap;
+        if (slot < -cap) slot = -cap;
+    }
+    // Apply correction to a raw static eval (full storage cap).
     Value adjust(Color c, std::uint64_t pawnKey, Value rawEval) const {
         if (rawEval == VALUE_NONE) return rawEval;
         int corr = data[c][idx(pawnKey)] / 256;
+        return Value(rawEval + corr);
+    }
+    // Apply correction with a runtime cap (TC-gated). Used in v3.2+: bullet
+    // passes 128 cp, longer TCs pass 256 (== storage cap, no-op).
+    Value adjust_capped(Color c, std::uint64_t pawnKey, Value rawEval, int capCp) const {
+        if (rawEval == VALUE_NONE) return rawEval;
+        int corr = data[c][idx(pawnKey)] / 256;
+        if (corr >  capCp) corr =  capCp;
+        if (corr < -capCp) corr = -capCp;
         return Value(rawEval + corr);
     }
     // Prefetch the corr-history slot. Called right after do_move so the entry
@@ -392,9 +420,31 @@ struct ContCorrHist {
         if (v < -CORR_MAX * 256) v = -CORR_MAX * 256;
         slot = int16_t(v);
     }
+    // 2026-05-19 TC-gated update: clamp EMA-updated value to a runtime cap.
+    // See CorrectionHistory::update_capped() for rationale.
+    // Note: ContCorrHist data is int16_t — so callers should pass maxCp <= 127
+    // (because int16_t range = -32768..+32767, /256 gives effective ±127).
+    void update_capped(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo,
+                       int diff, int weight, int maxCp) {
+        int16_t& slot = data[outerPc][outerTo][innerPc][innerTo];
+        int v = (int(slot) * (256 - weight) + diff * weight) / 256;
+        int cap = maxCp * 256;
+        if (cap > int(CORR_MAX) * 256) cap = int(CORR_MAX) * 256;
+        if (v >  cap) v =  cap;
+        if (v < -cap) v = -cap;
+        slot = int16_t(v);
+    }
     // Apply correction (in cp). Returns the cp delta to add to rawEval.
     int corr_cp(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo) const {
         return int(data[outerPc][outerTo][innerPc][innerTo]) / 256;
+    }
+    // TC-gated read: clamp the cp delta to [-capCp, +capCp] at read time.
+    // See CorrectionHistory::adjust_capped() for rationale.
+    int corr_cp_capped(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo, int capCp) const {
+        int v = int(data[outerPc][outerTo][innerPc][innerTo]) / 256;
+        if (v >  capCp) v =  capCp;
+        if (v < -capCp) v = -capCp;
+        return v;
     }
     void halve() {
         int16_t* p = &data[0][0][0][0];

@@ -964,6 +964,12 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     useThreatHist = (tm.optimum() > 0 && tm.optimum() < 500)
                  || (limits.movetime > 0 && limits.movetime < 500)
                  || (limits.nodes > 0 && limits.nodes < 200000);
+    // 2026-05-19 v3.2: TC-gate corrhist read cap. Same predicate as
+    // useThreatHist (bullet TC) - the diagnostic showed corrhist saturating
+    // at 256cp cap drives eval drift at deep LTC, but the cap helps bullet.
+    // Bullet: tight 128cp read cap (+48 ELO @ 400g 5+0.05).
+    // Any other TC: keep storage cap 256 (no clamping, baseline behavior).
+    corrCap = useThreatHist ? 128 : 256;
     // Note: Lynx-style 3/4 history gravity tested and regressed -35 ELO.
     // Hypersion's update_history already does Stockfish-style soft-cap
     // decay (entry += bonus - entry * |bonus| / HISTORY_MAX); adding 3/4
@@ -1905,7 +1911,7 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         // stand-pat used the raw NNUE — so the same position reported
         // different eval depending on whether main search or qsearch
         // reached it first. SF18:1573-1579 wraps in `to_corrected_static_eval`.
-        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), raw);
+        staticEval = pawnCorrHist.adjust_capped(pos.side_to_move(), pos.pawn_key(), raw, corrCap);
         bestValue  = staticEval;
         // 2026-05-17 qsearch finding #39: write ss->staticEval BEFORE the
         // stand-pat short-circuit so the value is set even on fail-high
@@ -2278,7 +2284,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // minor + nonPawn[W] + nonPawn[B]) tested at -3.5 ELO @ 200g and
         // tombstoned — Tier 1's 3-source blend already captures the
         // available signal.
-        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
+        staticEval = pawnCorrHist.adjust_capped(pos.side_to_move(), pos.pawn_key(), rawEval, corrCap);
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()
                      && (ss - 1)->movedPiece != NO_PIECE) {
@@ -2288,16 +2294,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ply >= 3 && (ss - 2)->currentMove != Move::none()
                          && (ss - 2)->currentMove != Move::null()
                          && (ss - 2)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist2.corr_cp((ss - 2)->movedPiece,
+                contAdjustCp += contCorrHist2.corr_cp_capped((ss - 2)->movedPiece,
                                                      (ss - 2)->currentMove.to_sq(),
-                                                     innerPc, innerTo);
+                                                     innerPc, innerTo, corrCap);
             }
             if (ply >= 4 && (ss - 3)->currentMove != Move::none()
                          && (ss - 3)->currentMove != Move::null()
                          && (ss - 3)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist1.corr_cp((ss - 3)->movedPiece,
+                contAdjustCp += contCorrHist1.corr_cp_capped((ss - 3)->movedPiece,
                                                      (ss - 3)->currentMove.to_sq(),
-                                                     innerPc, innerTo) / 2;
+                                                     innerPc, innerTo, corrCap) / 2;
             }
             staticEval = Value(int(staticEval) + contAdjustCp);
         }
@@ -2321,7 +2327,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // applied at lines 476, 485, 890, 899 in Berserk's search loop.
     } else {
         rawEval = Eval::evaluate(pos);
-        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
+        staticEval = pawnCorrHist.adjust_capped(pos.side_to_move(), pos.pawn_key(), rawEval, corrCap);
         // 2026-05-18 Tier 1: same contCorrHist blend as above branch.
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()
@@ -2332,16 +2338,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ply >= 3 && (ss - 2)->currentMove != Move::none()
                          && (ss - 2)->currentMove != Move::null()
                          && (ss - 2)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist2.corr_cp((ss - 2)->movedPiece,
+                contAdjustCp += contCorrHist2.corr_cp_capped((ss - 2)->movedPiece,
                                                      (ss - 2)->currentMove.to_sq(),
-                                                     innerPc, innerTo);
+                                                     innerPc, innerTo, corrCap);
             }
             if (ply >= 4 && (ss - 3)->currentMove != Move::none()
                          && (ss - 3)->currentMove != Move::null()
                          && (ss - 3)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist1.corr_cp((ss - 3)->movedPiece,
+                contAdjustCp += contCorrHist1.corr_cp_capped((ss - 3)->movedPiece,
                                                      (ss - 3)->currentMove.to_sq(),
-                                                     innerPc, innerTo) / 2;
+                                                     innerPc, innerTo, corrCap) / 2;
             }
             staticEval = Value(int(staticEval) + contAdjustCp);
         }
@@ -3230,11 +3236,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         && (bestValue > rawEval) == (bestMove != Move::none())) {
         int diff = int(bestValue - rawEval) * 256;
         int weight = std::min(64, depth * 4 + 8);
-        pawnCorrHist.update(pos.side_to_move(), pos.pawn_key(), diff, weight);
-        // 2026-05-18 Tier 1: ALSO update contCorrHist1 + contCorrHist2 on
-        // the same (real - raw) signal. Two table writes per qualifying
-        // search step. Keys mirror the read-side: outer = (ss-2) or
-        // (ss-3)'s piece+to, inner = (ss-1)'s piece+to.
+        // 2026-05-19 v3.2: use TC-gated update cap. corrCap=128 at bullet TC
+        // limits storage saturation, matching the SPRT-validated CORR_MAX=128
+        // bullet port (+48 ELO @ 400g). At LTC, corrCap=256 (= storage cap,
+        // no change from baseline v3.1).
+        pawnCorrHist.update_capped(pos.side_to_move(), pos.pawn_key(), diff, weight, corrCap);
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()
                      && (ss - 1)->movedPiece != NO_PIECE) {
@@ -3243,16 +3249,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ply >= 3 && (ss - 2)->currentMove != Move::none()
                          && (ss - 2)->currentMove != Move::null()
                          && (ss - 2)->movedPiece != NO_PIECE) {
-                contCorrHist2.update((ss - 2)->movedPiece,
+                contCorrHist2.update_capped((ss - 2)->movedPiece,
                                      (ss - 2)->currentMove.to_sq(),
-                                     innerPc, innerTo, diff, weight);
+                                     innerPc, innerTo, diff, weight, corrCap);
             }
             if (ply >= 4 && (ss - 3)->currentMove != Move::none()
                          && (ss - 3)->currentMove != Move::null()
                          && (ss - 3)->movedPiece != NO_PIECE) {
-                contCorrHist1.update((ss - 3)->movedPiece,
+                contCorrHist1.update_capped((ss - 3)->movedPiece,
                                      (ss - 3)->currentMove.to_sq(),
-                                     innerPc, innerTo, diff, weight);
+                                     innerPc, innerTo, diff, weight, corrCap);
             }
         }
     }
