@@ -2464,16 +2464,21 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // covers TB-magnitude scores, not just true mates. Symmetric-conservative
     // form below matches: skip RFP whenever beta or eval is TB-decisive.
     //
-    // 2026-05-19 REJECTED port: SF PR #5735/#5748 corrhist-magnitude
-    // futility margin (`margin += |corrVal| / N`). Tested with N=32 at
-    // 400g 5+0.05 vs v3.0: -19.1 +/- 27.5 ELO (119W-141L-140D), CI [-46,
-    // +8]. The /32 divisor added up to ~80 internal-cp at shallow depths,
-    // making RFP excessively conservative (~33% margin increase at d=1).
-    // SF's /174665 of their 131072-scale correctionValue gives ~0.75 cp
-    // max addition — Hypersion's 5x internal scale needs ~/1000 to match
-    // that effect. Untested at that magnitude due to time budget; future
-    // contributor should re-test with N in [500, 2000] range. Source:
-    // https://github.com/official-stockfish/Stockfish/pull/5748
+    // 2026-05-19 REJECTED port (both magnitudes): SF PR #5735/#5748
+    // corrhist-magnitude RFP margin. Tested two divisors at 5+0.05 vs v3.0:
+    //   N=32   (400g):  -19.1 +/- 27.5 ELO (too aggressive)
+    //   N=1024 (800g pooled):
+    //     Run 1 (400g): +10.4 +/- 26.8 (130W-118L-152D)
+    //     Run 2 (400g): -23.5 +/- 28.2 (123W-150L-127D)
+    //     Pooled:        -6.5 +/- 19 ELO (253W-268L-279D), CI [-26, +12]
+    //   Pattern matches several other v3.0-cycle tests: single 400g run
+    //   showed near-ship-threshold positive, but second run with different
+    //   openings produced opposite sign, pooled to ~neutral.
+    //   Conclusion: the SF port's mechanism doesn't transfer to Hypersion's
+    //   eval scale + search-tree distribution at this sample size — either
+    //   the effect is genuinely <+5 ELO (below SPRT 400g detection), or the
+    //   port needs joint tuning with other corrhist-sensitive params.
+    // Source: https://github.com/official-stockfish/Stockfish/pull/5748
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval < VALUE_TB_WIN_IN_MAX_PLY
