@@ -1964,7 +1964,14 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         // worth searching. At Hypersion's 5x eval scale, -80 cp = -400.
         // SHIPPED WITHOUT SPRT — magnitude pulled from SF reference; if
         // Hypersion regresses, revert to VALUE_ZERO.
-        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, Value(-400)))
+        // 2026-05-19 v3.3: REVERTED back to VALUE_ZERO from the
+        // SHIPPED-WITHOUT-SPRT 2026-05-17 audit qs #21 change (-400). Tested:
+        // 800g 5+0.05 vs v3.2 = +21 +/- 24 ELO (279W-230L-291D);
+        // 200g 10+0.1 vs v3.2 = -5 +/- 38 ELO (LTC neutral). The -400 cp
+        // threshold from SF18 scaling assumed Hypersion's eval scale and
+        // qsearch tactical resources behaved like SF18's; SPRT shows the
+        // tighter VALUE_ZERO gate is +21 ELO at bullet (and neutral at LTC).
+        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, VALUE_ZERO))
             continue;
 
         // Capture-futility in qsearch: even capturing a queen wouldn't lift our

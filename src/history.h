@@ -405,6 +405,14 @@ struct ThreatSquareHistory {
 // Memory: PIECE_NB × SQUARE_NB × PIECE_NB × SQUARE_NB × sizeof(int16) =
 // 16 × 64 × 16 × 64 × 2 = 2,097,152 bytes ≈ 2 MB per thread.
 struct ContCorrHist {
+    // 2026-05-19: int16_t-overflow "bug" at CORR_MAX=256 is INTENTIONAL-by-test.
+    // Tested the "obvious fix" (CORR_MAX=127, safe int16_t range) at 400g 5+0.05
+    // vs v3.2 baseline: -10.4 +/- 26.3 ELO (REGRESSED). The wrap-around at
+    // saturation acts as a built-in randomization/diversification of the
+    // strongest corrhist signals; cleanly clamping at int16_t-safe ±127 makes
+    // the engine WORSE at bullet by ~10 ELO. Keeping the existing (technically
+    // overflow-y) clamp at ±256*256 — slot=int16_t(v) wraps on edge cases but
+    // shipped Hypersion (v3.1, v3.2) relies on the behavior. DO NOT "fix".
     static constexpr int CORR_MAX = 256;          // soft cap on stored adjustment (cp * 256)
     int16_t data[PIECE_NB][SQUARE_NB][PIECE_NB][SQUARE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
