@@ -176,6 +176,8 @@ private:
     CaptureHistory   captureHist;
     KillerTable      killers;
     CounterMoveTable counterMoves;
+    // 2026-05-19 T3 REJECT (-5.2 ELO @ 200g): RootHistory struct removed
+    // from Worker; see history.h tombstone for tested mechanism.
     CorrectionHistory pawnCorrHist;
     CorrectionHistory materialCorrHist;   // SF18-style: a second correction
                                           // source keyed by material distribution

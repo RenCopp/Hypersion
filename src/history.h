@@ -84,7 +84,44 @@ struct ButterflyHistory {
     void update(Color c, Move m, int bonus) { update_history(data[c][m.from_sq()][m.to_sq()], bonus); }
 };
 
+// 2026-05-19 T3 REJECT (-5.2 +/- 39.1 ELO @ 200g 5+0.05): tested
+// Alexandria-style root-only history `int data[COLOR_NB][64*64]` updated
+// ONLY at ply==0 on quiet cutoffs (bonus to bestMove, malus to other
+// quiets) and read in score_quiets at root with weight 4x. Result was
+// statistically a noise reject (64W-67L-69D, point -5.2). Classic 30g
+// fakeout pattern: 30g triage returned +70.4 +/- 86.4 ELO (10W-4L-16D)
+// but the gain evaporated at 200g — see CLAUDE.md PROTOCOL.md "30g
+// fakeout pattern" warning. Likely cause: Hypersion's root-iteration
+// already has TT-cached PV ordering across iterations (carried via the
+// hash table), so a separate rootHist table duplicates signal already
+// captured by TT + contHist1 at root. Source consulted:
+// C:\Engine\Engines\Alexandria-master\Alexandria-master\src\threads.h:63
+// (table), history.cpp:69-73 (update), history.cpp:221,232 (read x4),
+// history.cpp:128-129,138 (update sites).
+//   struct RootHistory {
+//     int data[COLOR_NB][SQUARE_NB * SQUARE_NB] = {};
+//     ...same gravity update/read as ButterflyHistory...
+//   };
+
 // Capture history: [piece moved][to-square][captured piece type].
+// 2026-05-19 T4 REJECT (0.0 +/- 38.9 ELO @ 200g 5+0.05, clean rebuild):
+// tested Berserk-style 4D `data[PIECE_NB][SQUARE_NB][2][PIECE_TYPE_NB]`
+// where the new `[defended]` dim is 1 when enemy does NOT attack the
+// destination (clean capture) and 0 when enemy attacks `to` (SEE-vuln).
+// First measurement showed +45.4 +/- 39.7 ELO @ 200g but that was a
+// STALE INCREMENTAL BUILD — adding a struct field changes ABI and some
+// .o files weren't re-linked; clean rebuild (after `make clean`) reversed
+// sign to 0.0 net. CLAUDE.md PROTOCOL.md warns: "Adding new struct fields
+// to eval_params.h (etc.) changes the binary ABI. Incremental make may
+// NOT relink all object files." Same applies to history.h struct edits.
+// Source consulted: C:\Engine\Engines\berserk-main\berserk-main\src\types.h:201,
+// history.c:55-60 (update), history.h:36-43 (read with !threatened mask).
+// Future contributors: do not re-test in isolation — Hypersion's existing
+// 3D captureHist + threat-by-lesser move-ordering already captures the
+// SEE-vulnerability signal that defender-status would add. Joint SPSA
+// re-tune of capture-history magnitudes would be required for a
+// fundamentally different result. ALWAYS `make clean && make -j` before
+// SPRT after struct dimension changes.
 struct CaptureHistory {
     int data[PIECE_NB][SQUARE_NB][PIECE_TYPE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }

@@ -53,6 +53,19 @@ public:
                Piece            prevPiece2= NO_PIECE,
                const ThreatSquareHistory* threatH = nullptr,
                int              threatSq  = 64);
+    // 2026-05-19 T2 REJECT (+1.7 +/- 38.5 ELO @ 200g 5+0.05 — noise/no-ship):
+    // tested Obsidian-style dedicated COUNTERMOVE stage between KILLER1 and
+    // QUIET_INIT, with `counterMove` constructor param threaded from
+    // Worker.counterMoves[prevPiece][prevTo] in search.cpp. Result was
+    // statistically indistinguishable from baseline (64W-63L-73D). Likely
+    // cause: Hypersion's 2-ply contHist (contHist1 + contHist2) read in
+    // score_quiets already captures the counter-move signal — contHist1
+    // IS the 1-ply-back counter-move history. The dedicated stage adds
+    // ordering priority but no new INFORMATION, so it's neutral. SF18
+    // arrived at the same conclusion and removed the explicit counter-move
+    // stage; Obsidian/Berserk still ship it for legacy reasons. Future
+    // contributors: do not re-test in isolation. Source consulted:
+    // C:\Engine\Engines\Obsidian-16.0\Obsidian-16.0\src\movepick.cpp:177-183.
 
     // Quiescence-only constructor (no killers, no quiets).
     // 2026-05-17 audit qs #18: now accepts contHist + prev-ply info so
@@ -87,6 +100,7 @@ private:
     // 2026-05-18 Tier 2: RubiChess threat-square HH read at score_quiets time.
     const ThreatSquareHistory* tsHist  = nullptr;
     int                        tsSq    = 64;
+    // 2026-05-19 T3 REJECT: rootHist member removed; see history.h tombstone.
 
     Move    ttMove;
     Move    killer0;

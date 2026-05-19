@@ -85,6 +85,27 @@ coupling** means:
 
 Tombstones in NNUE-on tests are the correct measurement for Hypersion.
 
+### Rule 2.2 — `make clean && make -j` before SPRT after struct layout changes
+Any edit that changes the dimensions or fields of a struct in a HEADER
+(`src/history.h`, `src/search.h::Worker`, `src/movepick.h::MovePicker`,
+`src/eval_params.h`, etc.) MUST be followed by `make clean && make -j`
+BEFORE running SPRT. Incremental `make -j` does NOT relink all `.o` files
+that reference the struct, producing a binary where some translation
+units use the OLD layout and some use the NEW layout — internally
+inconsistent, often giving spurious +30 to +90 ELO at bullet that
+disappears under clean rebuild.
+
+Verified empirically 2026-05-19: T4 (CaptureHistory dimension `[12][64][7]`
+→ `[12][64][2][7]`) showed +45.4 +/- 39.7 ELO at 200g in incremental
+build, then 0.0 +/- 38.9 ELO at 200g after `make clean`. Same source
+code. Stale build was deterministic across processes (bench at Threads=1
+matched run-to-run) but produced a corrupt-but-internally-consistent
+binary. The bench-determinism test alone CANNOT detect this — only
+clean rebuild can.
+
+Function-body-only changes inside .cpp files (no header struct edits)
+do NOT need `make clean` — incremental is safe there.
+
 ### Rule 3 — Web research for context
 For decisions involving theory or community-known patterns, search
 the web:

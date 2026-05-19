@@ -2306,6 +2306,19 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 || ((tte->bound() & BOUND_UPPER) && ttValue < staticEval)))
             staticEval = ttValue;
         ss->staticEval = staticEval;
+        // 2026-05-19 T1 REJECT (-24.4 +/- 36.8 ELO @ 200g 5+0.05): tested
+        // Berserk-style FMR damping `staticEval = (200 - rule50) * eval /
+        // 200` at both eval-read sites (this branch + the Eval::evaluate
+        // branch). Faithful Berserk port: damp local working `staticEval`
+        // AFTER ss->staticEval store + TT-bound clamp; keep ss->staticEval
+        // undamped so improving comparison stays consistent across plies.
+        // Result: 51W-65L-84D against Hypersion v3.1 baseline. Hypothesis
+        // was eval damping helps avoid draw-traps near 50-move; reality
+        // appears to be that lowering the working eval as fmr climbs makes
+        // RFP/NMP/futility gates less effective at high fmr (less pruning
+        // when search is already deep), costing more than it saves. Source:
+        // C:\Engine\Engines\berserk-main\berserk-main\src\search.c:81-83,
+        // applied at lines 476, 485, 890, 899 in Berserk's search loop.
     } else {
         rawEval = Eval::evaluate(pos);
         staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
@@ -2341,6 +2354,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         if (!ttHit && ss->excludedMove == Move::none())
             tte->save(pos.key(), VALUE_NONE, ttPv, BOUND_NONE,
                       0, Move::none(), rawEval, TT.generation());
+        // 2026-05-19 T1 REJECT (see tombstone in tt-hit branch above):
+        // Berserk FMR damping rejected here also; -24.4 ELO @ 200g.
     }
 
     // NOTE: tested SF18 priorReduction hindsight depth bump: parent records
@@ -2677,6 +2692,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                   contHist[0].get(), prevMove1, prevPiece1,
                   contHist[1].get(), prevMove2, prevPiece2,
                   useThreatHist ? &threatHist : nullptr, ss->threatSq);
+    // 2026-05-19 T2 REJECT: passing `counter` as additional MovePicker
+    // param for COUNTERMOVE stage tested neutral. See movepick.h tombstone.
+    // 2026-05-19 T3 REJECT: rootHist as 6th param (only at ply==0) tested
+    // noise (-5.2 +/- 39.1 ELO @ 200g). See history.h tombstone.
 
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
@@ -2939,6 +2958,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // losing the historical-quality discrimination.
                 PieceType victim = type_of(pos.piece_on(m.to_sq()));
                 if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
+                // 2026-05-19 T4 REJECT: defender-status indexed lookup reverted
+                // (clean rebuild gave 0.0 ELO @ 200g; see history.h tombstone).
                 int statScore = captureHist.get(moving, m.to_sq(), victim)
                               + int(Eval::PieceValueMG[victim]) * 4;
                 r -= statScore / LMR_STATSCORE_DIV;
@@ -3069,6 +3090,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Bonus to the fail-high quiet (butterfly + contHist).
                         update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
+                        // 2026-05-19 T3 REJECT: rootHist update at rootNode
+                        // tested noise (-5.2 +/- 39.1 ELO). See history.h.
                         // 2026-05-18 Tier 2: also update threat-square HH on
                         // the same cutoff signal. Tier 2 v2: only when
                         // useThreatHist is set (low-TC bullet mode).
@@ -3101,6 +3124,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                         // 05-12 at smaller 1.13x (vs prior 1.395x at +5.2
                         // ELO borderline). Bundled with NMP changes; LTC
                         // 20g cumulative -34.9 ± 111. Reverted.
+                        // 2026-05-19 T4 REJECT: defender-status [2] dim
+                        // reverted; clean rebuild gave 0.0 ELO @ 200g.
                         captureHist.update(moving, m.to_sq(), victim, bonus);
                     }
                     for (int i = 0; i < captureCount; ++i) {

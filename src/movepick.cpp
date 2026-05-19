@@ -100,6 +100,8 @@ MovePicker::MovePicker(const Position& p,
 // Scoring
 // ---------------------------------------------------------------------------
 void MovePicker::score_captures() {
+    // 2026-05-19 T4 REJECT: defender-status indexing tested neutral after
+    // clean rebuild (0.0 +/- 38.9 ELO @ 200g). See history.h tombstone.
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
         PieceType victim = type_of(pos.piece_on(m.to_sq()));
@@ -175,6 +177,7 @@ void MovePicker::score_quiets() {
         // default; SPSA-tunable in future.
         if (tsHist && tsSq != 64)
             v += tsHist->get(us, tsSq, m.from_sq(), m.to_sq()) / 2;
+        // 2026-05-19 T3 REJECT: rootHist read at 4x weight removed.
         Piece moving = pos.piece_on(m.from_sq());
         PieceType pt = type_of(moving);
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq()) * cont1W / 100;
@@ -301,6 +304,8 @@ top:
             return killer1;
         [[fallthrough]];
 
+    // 2026-05-19 T2 REJECT: dedicated COUNTERMOVE stage tested neutral
+    // (+1.7 +/- 38.5 ELO @ 200g). See tombstone in movepick.h.
     case QUIET_INIT:
         if (skipQuiets) { stage = BAD_CAPTURE; goto top; }
         cur = endMoves = movesBuf;
