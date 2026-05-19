@@ -33,7 +33,10 @@ inline Value piece_value_simple(PieceType pt) {
 // 2026-05-17 audit #6.3: split-quiet threshold (mirrors SF18
 // movepick.cpp:210 `goodQuietThreshold = -14000`). Hypersion's quiet
 // scores have comparable range (butterfly + contHist + threat bonus).
-// Future SPSA-tunable if behaviour regresses.
+// 2026-05-19 RETROACTIVELY SPRT-VALIDATED AS NEUTRAL: tested disabling
+// the split (threshold = INT_MIN/2, all quiets emit from GOOD_QUIET) at
+// 400g 5+0.05 vs v3.0: +0.9 +/- 26.0 ELO (117W-116L-167D). The split
+// adds no measurable ELO at bullet but matches SF18 structure — kept.
 constexpr int GOOD_QUIET_THRESHOLD = -14000;
 }  // namespace
 
