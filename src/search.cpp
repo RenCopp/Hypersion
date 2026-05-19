@@ -2463,6 +2463,17 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // uses `!is_loss(beta) && !is_win(eval)`. The is_loss/is_win pair
     // covers TB-magnitude scores, not just true mates. Symmetric-conservative
     // form below matches: skip RFP whenever beta or eval is TB-decisive.
+    //
+    // 2026-05-19 REJECTED port: SF PR #5735/#5748 corrhist-magnitude
+    // futility margin (`margin += |corrVal| / N`). Tested with N=32 at
+    // 400g 5+0.05 vs v3.0: -19.1 +/- 27.5 ELO (119W-141L-140D), CI [-46,
+    // +8]. The /32 divisor added up to ~80 internal-cp at shallow depths,
+    // making RFP excessively conservative (~33% margin increase at d=1).
+    // SF's /174665 of their 131072-scale correctionValue gives ~0.75 cp
+    // max addition — Hypersion's 5x internal scale needs ~/1000 to match
+    // that effect. Untested at that magnitude due to time budget; future
+    // contributor should re-test with N in [500, 2000] range. Source:
+    // https://github.com/official-stockfish/Stockfish/pull/5748
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval < VALUE_TB_WIN_IN_MAX_PLY
