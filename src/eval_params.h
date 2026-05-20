@@ -101,7 +101,7 @@ struct Params {
     int BishopOutpostEG       = 17;
 
     // Hanging (R1)
-    int HangingPenaltyMG      = 17;
+    int HangingPenaltyMG      = 17;   // sweep: 10→WAC 187, 17→WAC 191 (peak), 30→WAC 188
     int HangingPenaltyEG      = 149;
 
     // R1 features (R1 tuned)
