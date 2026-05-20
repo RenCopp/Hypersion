@@ -110,15 +110,14 @@ struct Params {
     int LongDiagBishopMG      = 48;
     int MinorBehindPawnMG     = 40;
     // ── Round 48 (2026-05-20) — MinorBehindPawnEG sweep ─────────────────────
-    // Add EG counterpart to MinorBehindPawnMG=40. Hypothesis: minors behind
-    // pawns are useful shelter in MG, possibly negative in EG (active piece
-    // preferred). REJECTED at both signs vs R38+R42 baseline WAC d8 191:
-    //   EG=+5:  WAC 187 (-4)
-    //   EG=-5:  WAC 186 (-5)
-    // Both sides regress, suggesting EG term unwanted. Code stays; default 0
-    // disables. Possible explanation: the same "sheltered" minors are already
-    // captured by other EG terms (PSQT, mobility), and adding an explicit
-    // signal double-counts.
+    // Extended sweep results vs WAC d8 baseline 191:
+    //   EG=-20: 186 (-5)
+    //   EG=-5:  186 (-5)
+    //   EG= 0:  191 (peak, kept)
+    //   EG=+5:  187 (-4)
+    //   EG=+20: 186 (-5)
+    // Peak at 0. The MG-only formulation is correct; an EG term double-
+    // counts with PSQT_EG + mobility_EG.  Truly rejected, no salvage.
     int MinorBehindPawnEG     = 0;
     int PassedKingEnemyDistEG = 50;
     int PassedKingOwnDistEG   = 0;
