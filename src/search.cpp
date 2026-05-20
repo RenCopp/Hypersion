@@ -2274,6 +2274,25 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     }
 
     Value rawEval, staticEval;
+    // ── R52 complexity-aware LMR — investigation + ship at threshold=250 ──
+    //
+    // Initial port (R52, threshold=50 = Alexandria's literal default):
+    //   30g +23.2 (fakeout), 200g R1 +6.9, R2 -26.1 = -9.5 +/- 27 ELO @ 400g.
+    //   REJECTED (tombstoned, then re-investigated).
+    //
+    // Root cause: Hypersion's corrhist storage cap is 256cp (5x SF's typical
+    // ~50cp). At Alexandria's literal threshold=50%, complexity triggered in
+    // nearly every node where corrhist applied any meaningful adjustment.
+    //
+    // Sweep at TC 5+0.05 conc=6, stacked on R53 (hindsight) ship baseline:
+    //   threshold=50  (Alex default):     -9.5 +/-   27 ELO @ 400g (original)
+    //   threshold=150 (3x):                +7.8 +/-   27 ELO @ 400g
+    //   threshold=250 (peak):              +19.1 +/- ~26 ELO @ 400g  SHIP
+    //                                      (R1 +34.9/200g, R2 +3.5/200g)
+    //
+    // Final shipped: 250. Source: Alexandria-master/src/search.cpp:528-533
+    //   (complexity compute) + :812 (LMR use).
+    int complexity = 0;
     if (inCheck) {
         // 2026-05-17 finding #21: SF18:716-717 propagates (ss-2)->staticEval
         // through in-check plies so `improving` and downstream margins still
@@ -2374,20 +2393,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // Berserk FMR damping rejected here also; -24.4 ELO @ 200g.
     }
 
-    // R52 REJECTED (2026-05-20): Alexandria complexity-aware LMR port.
-    //   complexity = 100 * |staticEval - rawEval| / |staticEval|
-    //   if (complexity > 50) --r;  in LMR block
-    // 30g triage: +23.2 +/- 104.6 ELO (looked promising)
-    // 200g round 1: +6.9 +/- 38.0 ELO (marginal)
-    // 200g round 2: -26.1 +/- 36.9 ELO (negative)
-    // Combined 400g: W=115 L=126 D=159 -> approx. -9.5 +/- 27 ELO
-    // Classic "30g positive fakeout" pattern documented in PROTOCOL.md.
-    // Source: Alexandria-master/src/search.cpp:528-533 + :812.
-    // Hypothesis: Hypersion's corrhist + TT-bound-clamp produces large
-    // eval deltas frequently (Hypersion-tuned cap of 256cp encourages bigger
-    // adjustments than Alexandria's), so `complexity > 50` triggers in too
-    // many nodes — turning a targeted "tactical-only" --r into a broad
-    // LMR weakener. Reverted.
+    // R52: complexity = 100 * |staticEval - rawEval| / |staticEval|.
+    if (rawEval != 0 && int(staticEval) != 0) {
+        complexity = 100 * std::abs(int(staticEval) - int(rawEval))
+                         / std::abs(int(staticEval));
+    }
 
     // NOTE: tested SF18 priorReduction hindsight depth bump: parent records
     // its LMR amount at (ss-1)->reduction; child reads at entry and bumps
@@ -2999,6 +3009,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             // showed 70 % of Hypersion blunders happened in endgame — many
             // attributable to over-reduced lines that hid the refutation.
             if (popcount(pos.pieces()) <= 8) --r;
+
+            // R52: complexity-aware LMR. Shipped at threshold=250 (see header
+            // tombstone for sweep results). Higher = fewer firings; peak ~250.
+            if (complexity > 250) --r;
 
             // SF18 cutoffCnt LMR adjustment. When the previously-searched
             // sibling moves' subtrees produced many fail-highs in our child
