@@ -2495,21 +2495,35 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     //   port needs joint tuning with other corrhist-sensitive params.
     // Source: https://github.com/official-stockfish/Stockfish/pull/5748
 
-    // R53 REJECTED (2026-05-20): Alexandria hindsight reduction port.
-    //   if !isPv && !inCheck && depth>=2 && (ss-1)->reduction>=1
-    //      && (ss-1)->staticEval != VALUE_NONE
-    //      && staticEval + (ss-1)->staticEval >= 155 → --depth
-    // 30g triage: 0.0 +/- 109.8 ELO (11-8-11) — dead neutral.
-    // 200g confirm: -36.6 +/- 40.7 ELO (60-81-59) — clear REJECT.
-    // WAC d8 classical-only: 191 -> 185 (-6).
-    // Hypothesis: Hypersion'\''s LMR is already tighter than Alexandria'\''s
-    // (R38 closedness + R45 endgame adj. + cutoffCnt-driven reduction);
-    // the hindsight rule fires in nodes where Hypersion'\''s parent reduction
-    // was already aggressive, compounding to a too-shallow search. Same
-    // class of failure as the previously-rejected SF18 priorReduction
-    // (~line 2392) — Hypersion just doesn'\''t have spare LMR slack for
-    // either direction of hindsight to help.
-    // Source: Alexandria-master/src/search.cpp:553.
+    // ── R53 hindsight reduction — investigation + ship at threshold=900 ───
+    //
+    // Initial port (R53, threshold=155 = Alexandria's literal default):
+    //   30g: 0.0 +/- 109.8 ELO; 200g: -36.6 +/- 40.7 ELO; WAC d8: 191->185.
+    //   REJECTED (tombstoned, then re-investigated).
+    //
+    // Root cause (web research 2026-05-20):  Hypersion's eval scale is ~3.2x
+    // Alexandria's (Alex rfpDepthMargin=75 vs Hyp RFP_MARGIN_PER_DEPTH=240).
+    // Using Alex's literal 155 fired hindsight in ~every non-PV node with
+    // combined eval >= 0.16 pawn — far too broad.
+    //
+    // Sweep at TC 5+0.05 conc=6 vs HEAD post-R53-tombstone:
+    //   threshold=155 (Alex default):       -36.6 +/- 40.7 ELO @ 200g
+    //   threshold=496 (155 * 3.2):           +7.8 +/-   27 ELO @ 400g
+    //   threshold=700:                      +10.4 +/- 39.5 ELO @ 200g
+    //   threshold=900 (peak):               +29.6 +/- 38.8 (R1), -1.7 +/- 39.1 (R2)
+    //                                      => +13.9 +/-   27 ELO @ 400g  SHIP
+    //   threshold=1200:                     -24.4 +/- 39.0 ELO @ 200g
+    //
+    // Final shipped: 900. Source: Alexandria-master/src/search.cpp:553 +
+    //   tune.h:144 (hindsightEval=155 default). Hypersion ships at 900
+    //   (Alex's 155 scaled to Hypersion's eval magnitudes; sweep peak).
+    if (!isPv && !inCheck && ss->excludedMove == Move::none()
+        && depth >= 2
+        && (ss - 1)->reduction >= 1
+        && (ss - 1)->staticEval != VALUE_NONE
+        && int(ss->staticEval) + int((ss - 1)->staticEval) >= 900) {
+        --depth;
+    }
 
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
