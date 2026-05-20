@@ -162,6 +162,45 @@ check. Re-run with the threshold multiplied by Hypersion's ratio (3.0-3.2x
 for SF/Alex/Berserk/Obs/Rubi). The 30g result often INVERTS sign under
 correct scaling.
 
+### Rule 2.4 — Cross-engine port failure-pattern catalog
+
+When a ported heuristic regresses, the first hypothesis after Rule 2.3
+(scale-mismatch) should be one of the patterns below. Each is grounded
+in a documented Hypersion tombstone.
+
+| Pattern | Symptom | Diagnostic check | Example tombstones |
+|---|---|---|---|
+| **A. Scale-mismatch** | Hypersion-eval thresholds copied as literals from source engine | Compare `RFP_MARGIN_PER_DEPTH` (or pawn-value) ratio; multiply thresholds | R52, R53 (both FIXED, +33 ELO) |
+| **B. Feature redundancy** | Hypersion already has an equivalent feature in a different form | grep eval_params.h / movepick.cpp / search.cpp for similar code | R39 ThreatByPawnPush (redundant w/ R16); R43 BishopDefByPawn; R44 RookBehindPasser |
+| **C. Wrong sign / direction** | Port applies +1 where source applies -1 or vice-versa | Re-read source line carefully; both directions may exist in different engines | SF18 priorReduction +1ply rejected (-120 ELO); Alexandria's same-area hindsight -1ply works (+14 ELO) |
+| **D. Wrong formula structure** | Port implements subtractive where source uses multiplicative, or vice versa | Fetch raw source via WebFetch; verify expression shape, not just constants | corrhist-RFP port (subtract corrhist/N; SF actually uses (40 - \|corr\|/131072) multiplier) |
+| **E. Pruning gate damping** | Port reduces or shifts staticEval, weakening downstream gates | Trace which gates read `staticEval` after the change; check RFP/NMP/futility fire-rate | Berserk FMR damping `(200-rule50)/200 · eval` (-24 ELO) |
+| **F. Reduction stacking** | Adding +ply reduction to existing reduction-heavy paths over-prunes | Sum maximum reductions across cutoffCnt/ttCapture/LMR/etc; cap shouldn't exceed depth−2 | SF18 ttCapture +1 ply stacking on cutoffCnt +1..+2 (-17 ELO) |
+| **G. NNUE masking** | Feature shows different sign with NNUE on vs off | Re-test with `sprt.py --no-nnue`; if positive without, NNUE eval distribution is hiding latent value | R51 17-bit corrhist (NNUE on -9.5; NNUE off +3.5; net still negative for shipping) |
+| **H. Local-optimum disruption** | Multiple magnitudes all regress in same band; Hypersion's tuned alt already extracts the signal | sweep ≥4 magnitudes; if all in [-50, +5] band with no peak, feature truly conflicts | PawnHistory 4 weights all rejected; LowPlyHistory+6-deep contHist bundle |
+| **I. Insufficient sample size** | First 200g positive, second 200g negative, pooled neutral | Always re-run a [+5, +50] result; treat as inconclusive until 400-800g | corrhist-RFP /1024 (run 1 +10.4, run 2 −23.5, pooled −6.5) |
+| **J. Interior sweep-point fakeout** | Sweep peak is in [+5, +50] with no clear monotonic trend | 6 of 7 tested showed first-200g positive collapse at 200-400g extension | Multiple v25-v32 SPSA-extracted tunables |
+
+**Diagnostic workflow when a port regresses:**
+
+1. **Scale check (Rule 2.3)**: is the threshold a cp-magnitude literal from
+   another engine?
+2. **Redundancy check (B)**: grep the codebase for similar feature names
+   already in Hypersion. If a similar feature exists with `Round N` comment
+   in `eval_params.h`, the new port likely double-counts.
+3. **Source verification (D)**: WebFetch the EXACT source line; ports done
+   from skill reference notes have higher D-error rate.
+4. **NNUE-off test (G)**: `py testing/sprt.py --new ... --old ... --no-nnue`
+   — if sign flips positive, the latent ELO is masked by NNUE.
+5. **Magnitude sweep (A/H)**: if step 1 doesn't apply, sweep at least 3
+   magnitudes (0.5x, 1x, 2x of literal); if all in [-50, +5] with no peak,
+   the feature truly disrupts Hypersion's local optimum (H).
+6. **Reduction-stacking check (F)**: if the change affects depth/reduction,
+   sum max contributions across cutoffCnt, LMR, ttCapture, etc.; the sum
+   shouldn't exceed `depth - 2`.
+7. **Sample size (I)**: any borderline [+5, +50] @ 200g result MUST be
+   extended to 400-800g before shipping. The "30g fakeout pattern" is real.
+
 ### Rule 3 — Web research for context
 For decisions involving theory or community-known patterns, search
 the web:
