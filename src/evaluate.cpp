@@ -316,6 +316,10 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "ConnectedPasserEG")      p.ConnectedPasserEG      = value;
     else if (name == "ClosednessKnightScale")  p.ClosednessKnightScale  = value;
     else if (name == "ClosednessRookScale")    p.ClosednessRookScale    = value;
+    else if (name == "ThreatByPawnPushMG")     p.ThreatByPawnPushMG     = value;
+    else if (name == "ThreatByPawnPushEG")     p.ThreatByPawnPushEG     = value;
+    else if (name == "KnightDefByPawnMG")      p.KnightDefByPawnMG      = value;
+    else if (name == "KnightDefByPawnEG")      p.KnightDefByPawnEG      = value;
     else return false;
     return true;
 }
@@ -615,6 +619,33 @@ Value evaluate(const Position& pos) {
             // Hanging EG: even more decisive once queens come off — material
             // loss in endgame has no compensating dynamic value.
             eg += sign * hangN * params().HangingPenaltyEG;
+
+            // ---- Round 39: ThreatByPawnPush (Ethereal port) ----
+            // Bonus per square where pushing our pawn would attack an enemy
+            // non-pawn. Captures dynamic tactical potential.
+            // Source: Ethereal evaluate.c:1095-1098, 1145-1148.
+            if (params().ThreatByPawnPushMG != 0 || params().ThreatByPawnPushEG != 0) {
+                Bitboard ourPawns      = pawns[c];
+                Bitboard enemyNonPawn  = pos.pieces(them) & ~pos.pieces(them, PAWN);
+                Bitboard enemyPawnAtks = pawn_attacks_color(them, pawns[them]);
+                // Single push: 1 square forward, not blocked
+                Bitboard singlePush = (c == WHITE)
+                    ? pawn_push<WHITE>(ourPawns) & ~occupied
+                    : pawn_push<BLACK>(ourPawns) & ~occupied;
+                // Double push: from singlePush (which sat on rank 2 for white),
+                // step 1 more, must land on rel-rank 4, not blocked, not attacked by enemy pawns
+                Bitboard relRank4 = (c == WHITE) ? Rank4BB : Rank5BB;
+                Bitboard doublePush = (c == WHITE)
+                    ? pawn_push<WHITE>(singlePush & ~enemyPawnAtks) & ~occupied & relRank4
+                    : pawn_push<BLACK>(singlePush & ~enemyPawnAtks) & ~occupied & relRank4;
+                Bitboard pushTargets = (singlePush | doublePush) & ~enemyPawnAtks;
+                // From those push-target squares, compute the squares those
+                // pawns would attack — these are the threatened squares.
+                Bitboard pushAttacks = pawn_attacks_color(c, pushTargets);
+                int pushThreats = popcount(pushAttacks & enemyNonPawn);
+                mg += sign * pushThreats * params().ThreatByPawnPushMG;
+                eg += sign * pushThreats * params().ThreatByPawnPushEG;
+            }
         }
 
         // ---- King pawn shelter ----
@@ -727,6 +758,19 @@ Value evaluate(const Position& pos) {
             Bitboard pawnFront = (c == WHITE) ? (pawns[c] >> 8) : (pawns[c] << 8);
             int sheltered = popcount(minors & pawnFront);
             mg += sign * sheltered * params().MinorBehindPawnMG;
+        }
+
+        // ---- Round 42: Knight defended by own pawn ----
+        // Bonus per own knight defended by an own pawn. Different from
+        // outpost (which requires specific rank + no enemy contestation):
+        // any knight, anywhere, gets a small safety bonus if pawn-defended.
+        // Default 0 = disabled.
+        if (params().KnightDefByPawnMG != 0 || params().KnightDefByPawnEG != 0) {
+            Bitboard ourKnights     = pos.pieces(c, KNIGHT);
+            Bitboard ourPawnAttacks = pawn_attacks_color(c, pawns[c]);
+            int n = popcount(ourKnights & ourPawnAttacks);
+            mg += sign * n * params().KnightDefByPawnMG;
+            eg += sign * n * params().KnightDefByPawnEG;
         }
 
         // ---- Trapped bishop in corner (Round 2) ----

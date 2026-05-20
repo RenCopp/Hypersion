@@ -477,6 +477,27 @@ struct Params {
     //   line 415-425 (tables), 1189-1216 (evaluateClosedness function).
     int ClosednessKnightScale = 100;
     int ClosednessRookScale   = 100;
+
+    // ── Round 39 (2026-05-20) — ThreatByPawnPush (Ethereal port) ────────────
+    // Bonus per square we can safely push a pawn to that attacks an enemy
+    // non-pawn piece. Source: Ethereal evaluate.c:405 + evaluateThreats:
+    // 1145-1148.
+    // REJECTED at every magnitude tested vs R38-only baseline (WAC d8 189):
+    //   75/160 (Ethereal): 186/198 (-3)
+    //   38/80 (half):      188/198 (-1)
+    //   19/40 (quarter):   186/198 (-3)
+    // Hypothesis: redundant with Hypersion's R16 ThreatByPawn_* family
+    // (already tunes pawn->minor/rook/queen threats at the post-push
+    // position). Implementation kept in evaluate.cpp; default 0 disables.
+    int ThreatByPawnPushMG    = 0;
+    int ThreatByPawnPushEG    = 0;
+
+    // ── Round 42 (2026-05-20) — Knight defended by pawn ──────────────────────
+    // Simple: count own knights defended by own pawns. Captures the
+    // tactical safety value of a knight that's hard to dislodge. Default
+    // 0 = disabled, ramp up after WAC test.
+    int KnightDefByPawnMG     = 25;
+    int KnightDefByPawnEG     = 25;
 };
 
 // Single global instance; mutable. Default-constructed with the values
