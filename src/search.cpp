@@ -2494,6 +2494,23 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     //   the effect is genuinely <+5 ELO (below SPRT 400g detection), or the
     //   port needs joint tuning with other corrhist-sensitive params.
     // Source: https://github.com/official-stockfish/Stockfish/pull/5748
+
+    // R53 REJECTED (2026-05-20): Alexandria hindsight reduction port.
+    //   if !isPv && !inCheck && depth>=2 && (ss-1)->reduction>=1
+    //      && (ss-1)->staticEval != VALUE_NONE
+    //      && staticEval + (ss-1)->staticEval >= 155 → --depth
+    // 30g triage: 0.0 +/- 109.8 ELO (11-8-11) — dead neutral.
+    // 200g confirm: -36.6 +/- 40.7 ELO (60-81-59) — clear REJECT.
+    // WAC d8 classical-only: 191 -> 185 (-6).
+    // Hypothesis: Hypersion'\''s LMR is already tighter than Alexandria'\''s
+    // (R38 closedness + R45 endgame adj. + cutoffCnt-driven reduction);
+    // the hindsight rule fires in nodes where Hypersion'\''s parent reduction
+    // was already aggressive, compounding to a too-shallow search. Same
+    // class of failure as the previously-rejected SF18 priorReduction
+    // (~line 2392) — Hypersion just doesn'\''t have spare LMR slack for
+    // either direction of hindsight to help.
+    // Source: Alexandria-master/src/search.cpp:553.
+
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval < VALUE_TB_WIN_IN_MAX_PLY
