@@ -84,6 +84,24 @@ all at once. Files use < 200 lines each so you can grep them quickly.
 | 2-ply continuation history (half weight) | +34.9 ELO @ 200g |
 | Threat-by-lesser move-ordering bonus | (in shipped code, see movepick.cpp::score_quiets) |
 | Material/endgame time scaling | (in shipped code, see search.cpp:734-738) |
+| **Scale-corrected Alexandria hindsight reduction** | **+13.9 ELO @ 400g (commit 265fe39)** |
+| **Scale-corrected Alexandria complexity-aware LMR** | **+19.1 ELO @ 400g (commit 01cad41)** |
+| **Scale-corrected Obsidian RFP floor** | **+40.1 ELO @ 400g (commit 0de10d2)** |
+
+## The 2026-05-20/21 scale-correction discovery
+
+Three consecutive Alexandria/Obsidian ports rejected at literal thresholds
+landed +73 ELO total after applying **Rule 2.3 scale correction** (see
+`CLAUDE.md`). The pattern:
+
+1. Port Alexandria/Obsidian heuristic verbatim → rejected at −9 to −37 ELO.
+2. Compare RFP-margin-per-depth ratio: Hypersion 240 vs Alex 75 vs Obs 87.
+3. Multiply the literal threshold by the ratio (3.2x / 2.76x).
+4. Re-SPRT; ALL THREE flipped from reject to ship.
+
+**Mandatory first-check when a cross-engine port regresses by −5 to −50 ELO:**
+re-run with the threshold scale-corrected. See `CLAUDE.md` Rule 2.3 (the
+ratio table) and Rule 2.4 (the full 10-pattern failure catalog).
 
 For neutrals/negatives, see source tombstones (grep for `// NOTE: tested`).
 
