@@ -106,6 +106,62 @@ clean rebuild can.
 Function-body-only changes inside .cpp files (no header struct edits)
 do NOT need `make clean` — incremental is safe there.
 
+### Rule 2.3 — Scale-correct any literal threshold/margin from another engine
+
+When porting a heuristic that compares an eval-magnitude value against a
+literal threshold (`eval >= 155`, `complexity > 50`, `staticEval - 75·d`,
+margin constants, etc.), the literal **MUST be scaled** to Hypersion's
+eval magnitude BEFORE the first SPRT. Direct literal copies regress
+because Hypersion runs at a different internal scale than every reference
+engine.
+
+**Hypersion vs reference-engine eval scales** (measured 2026-05-20 via
+`RFP_MARGIN_PER_DEPTH` ratio):
+
+| Reference engine | RFP margin per depth | Ratio to Hypersion |
+|---|---|---|
+| Hypersion | 240 | 1.00x (reference) |
+| Stockfish 18 | 80 | 0.33x — multiply SF literals by 3.0 |
+| Alexandria | 75 | 0.31x — multiply Alex literals by 3.2 |
+| Berserk | 83 | 0.35x — multiply Berserk literals by 2.9 |
+| Obsidian | 87 | 0.36x — multiply Obs literals by 2.75 |
+| RubiChess | ~75 | 0.31x — multiply Rubi literals by 3.2 |
+
+Update these ratios if Hypersion's RFP margin changes.
+
+**What needs scaling vs what does NOT:**
+
+| Quantity | Scale-correct? | Notes |
+|---|---|---|
+| Static-eval thresholds in cp | YES | `eval >= X`, `staticEval - K·d ≥ β`, hindsight thresholds, futility margins |
+| History bonuses / penalties | NO | Hypersion has its own bonus formula; needs separate retune |
+| Reduction amounts (`r += 1`) | NO | Integer ply counts; engine-independent |
+| Depth gates (`depth >= N`) | NO | Ply counts |
+| Ratios / percentages (e.g. `100·|delta|/|eval|`) | SOMETIMES | Formula is scale-invariant but the threshold may not be if a related cap (e.g. corrhist max) differs |
+| Hash table sizes (corrhist, history) | NO directly, but BEWARE | Larger tables interact with corrhist update rate and the NNUE eval distribution; may need joint re-tune |
+
+**Sweep procedure when porting a thresholded heuristic:**
+
+1. Compute scale-corrected starting value: `port_value = ref_value * 3.2`
+   (or appropriate ratio per the table above).
+2. SPRT 200g at the starting value.
+3. If positive: SHIP candidate.
+4. If marginal (in [+5, +10] band): sweep up by 1.4x, 2x.
+5. If negative: sweep down by 0.5x, 0.7x.
+6. Take the peak; ship if ≥ +10 ELO @ 400g cumulative.
+
+**Documented success (2026-05-20):** R52 complexity-aware LMR + R53
+hindsight reduction were both originally rejected at Alexandria's literal
+thresholds (−9.5 and −36.6 ELO respectively). Scale-correcting the
+thresholds unlocked +19.1 and +13.9 ELO respectively at 400g — combined
++33 ELO at bullet TC.  Source: src/search.cpp commits 265fe39 + 01cad41.
+
+**Debugging hint for future negative ports:** if a ported heuristic returns
+between −5 and −50 ELO at 200g, scale-mismatch is the first hypothesis to
+check. Re-run with the threshold multiplied by Hypersion's ratio (3.0-3.2x
+for SF/Alex/Berserk/Obs/Rubi). The 30g result often INVERTS sign under
+correct scaling.
+
 ### Rule 3 — Web research for context
 For decisions involving theory or community-known patterns, search
 the web:
