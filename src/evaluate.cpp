@@ -320,6 +320,12 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "ThreatByPawnPushEG")     p.ThreatByPawnPushEG     = value;
     else if (name == "KnightDefByPawnMG")      p.KnightDefByPawnMG      = value;
     else if (name == "KnightDefByPawnEG")      p.KnightDefByPawnEG      = value;
+    else if (name == "BishopDefByPawnMG")      p.BishopDefByPawnMG      = value;
+    else if (name == "BishopDefByPawnEG")      p.BishopDefByPawnEG      = value;
+    else if (name == "RookBehindPasserMG")     p.RookBehindPasserMG     = value;
+    else if (name == "RookBehindPasserEG")     p.RookBehindPasserEG     = value;
+    else if (name == "KnightPairDefMG")        p.KnightPairDefMG        = value;
+    else if (name == "KnightPairDefEG")        p.KnightPairDefEG        = value;
     else return false;
     return true;
 }
@@ -764,13 +770,40 @@ Value evaluate(const Position& pos) {
         // Bonus per own knight defended by an own pawn. Different from
         // outpost (which requires specific rank + no enemy contestation):
         // any knight, anywhere, gets a small safety bonus if pawn-defended.
-        // Default 0 = disabled.
         if (params().KnightDefByPawnMG != 0 || params().KnightDefByPawnEG != 0) {
             Bitboard ourKnights     = pos.pieces(c, KNIGHT);
             Bitboard ourPawnAttacks = pawn_attacks_color(c, pawns[c]);
             int n = popcount(ourKnights & ourPawnAttacks);
             mg += sign * n * params().KnightDefByPawnMG;
             eg += sign * n * params().KnightDefByPawnEG;
+        }
+
+        // ---- Round 43: Bishop defended by own pawn ----
+        // Symmetric to R42. Bishops gain less than knights from pawn
+        // defense (bishops can retreat along diagonals), so a smaller
+        // bonus is appropriate. Default 0 = disabled.
+        if (params().BishopDefByPawnMG != 0 || params().BishopDefByPawnEG != 0) {
+            Bitboard ourBishops     = pos.pieces(c, BISHOP);
+            Bitboard ourPawnAttacks = pawn_attacks_color(c, pawns[c]);
+            int n = popcount(ourBishops & ourPawnAttacks);
+            mg += sign * n * params().BishopDefByPawnMG;
+            eg += sign * n * params().BishopDefByPawnEG;
+        }
+
+        // ---- Round 45: Knight pair mutual defense ----
+        // Two knights mutually defending (each's attack square contains
+        // the other). Creates a defensive unit no single piece can break.
+        // Default 0 = disabled.
+        if (params().KnightPairDefMG != 0 || params().KnightPairDefEG != 0) {
+            Bitboard ourKnights = pos.pieces(c, KNIGHT);
+            if (popcount(ourKnights) >= 2) {
+                Bitboard allKnightAttacks = 0;
+                Bitboard tmp = ourKnights;
+                while (tmp) allKnightAttacks |= PseudoAttacks[KNIGHT][pop_lsb(tmp)];
+                int defendedKnights = popcount(ourKnights & allKnightAttacks);
+                mg += sign * defendedKnights * params().KnightPairDefMG;
+                eg += sign * defendedKnights * params().KnightPairDefEG;
+            }
         }
 
         // ---- Trapped bishop in corner (Round 2) ----
@@ -952,6 +985,18 @@ Value evaluate(const Position& pos) {
                     int enemyD = distance(ksq[them], pushTo);
                     eg += sign * (enemyD * params().PassedKingEnemyDistEG
                                 - ownD   * params().PassedKingOwnDistEG);
+                }
+
+                // ---- Round 44: Rook behind own passed pawn ----
+                // Strong endgame feature: rook on same file BEHIND the
+                // passer supports promotion and resists blockade.
+                if (params().RookBehindPasserMG != 0 || params().RookBehindPasserEG != 0) {
+                    Bitboard fileBB    = FileBBs[file_of(s)];
+                    Bitboard behindBB  = forward_ranks_bb(them, rank_of(s));
+                    if (pos.pieces(c, ROOK) & fileBB & behindBB) {
+                        mg += sign * params().RookBehindPasserMG;
+                        eg += sign * params().RookBehindPasserEG;
+                    }
                 }
             }
             // Isolated: no friendly pawn on adjacent files.

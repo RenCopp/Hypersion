@@ -113,7 +113,7 @@ struct Params {
     int PassedKingOwnDistEG   = 0;
 
     // R2 features DISABLED (neutral defaults).
-    int TempoMG               = 28;
+    int TempoMG               = 28;   // R46 tested 40/20 and 35/28; both regressed
     int TempoEG               = 28;
     int TrappedBishopMG       = 0;
     int TrappedBishopEG       = 0;
@@ -496,8 +496,39 @@ struct Params {
     // Simple: count own knights defended by own pawns. Captures the
     // tactical safety value of a knight that's hard to dislodge. Default
     // 0 = disabled, ramp up after WAC test.
-    int KnightDefByPawnMG     = 25;
+    int KnightDefByPawnMG     = 25;   // sweep peak: 15→189, 25→191, 35→186 WAC d8
     int KnightDefByPawnEG     = 25;
+
+    // ── Round 43 (2026-05-20) — Bishop defended by own pawn ─────────────────
+    // Symmetric to R42 attempt. REJECTED at all tested magnitudes vs the
+    // R38+R42 baseline (WAC d8 191):
+    //   15/15: 186/198 (-5)
+    //   8/8:   189/198 (-2)
+    //   4/4:   185/198 (-6)
+    // Non-monotonic + consistent regression. Hypothesis: bishops defended
+    // by pawns are usually already captured by mobility (the same diagonal
+    // is open) and bad-bishop (same-colour-pawn) features. Adding a flat
+    // bonus over-rewards. Code kept; default 0 disables.
+    int BishopDefByPawnMG     = 0;
+    int BishopDefByPawnEG     = 0;
+
+    // ── Round 44 (2026-05-20) — Rook behind own passed pawn ─────────────────
+    // Classical textbook feature, but REJECTED at all tested magnitudes:
+    //   15/45: WAC 188 (-3 vs R38+R42 baseline 191)
+    //   5/15:  WAC 185 (-6)
+    // Hypothesis: Hypersion already implicitly captures this via rook
+    // mobility on clear files + passer king-distance bonus. Code kept,
+    // default 0 disabled.
+    int RookBehindPasserMG    = 0;
+    int RookBehindPasserEG    = 0;
+
+    // ── Round 45 (2026-05-20) — Knight pair mutual defense ──────────────────
+    // Tested 5/5/10/25 magnitudes; all neutral or regress vs R38+R42
+    // baseline (WAC 191): 5→189, 10→191(no-op), 25→188. The feature triggers
+    // rarely (knight pairs not common in WAC positions) so magnitude doesn't
+    // shift tactical solves. Code kept, default 0 disabled.
+    int KnightPairDefMG       = 0;
+    int KnightPairDefEG       = 0;
 };
 
 // Single global instance; mutable. Default-constructed with the values
