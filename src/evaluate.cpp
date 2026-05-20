@@ -314,6 +314,8 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "PassedKingOwnDistEG")    p.PassedKingOwnDistEG    = value;
     else if (name == "ConnectedPasserMG")      p.ConnectedPasserMG      = value;
     else if (name == "ConnectedPasserEG")      p.ConnectedPasserEG      = value;
+    else if (name == "ClosednessKnightScale")  p.ClosednessKnightScale  = value;
+    else if (name == "ClosednessRookScale")    p.ClosednessRookScale    = value;
     else return false;
     return true;
 }
@@ -981,6 +983,45 @@ Value evaluate(const Position& pos) {
     // scale by default until tuned.
     if (params().ImbalanceScale != 0) {
         mg += imbalance_score(pos) * params().ImbalanceScale / 100;
+    }
+
+    // ---- Closedness adjustment (Round 38, Ethereal port) ----
+    // Source: Ethereal evaluate.c:415-425 + evaluateClosedness:1189-1216.
+    // Closedness index 0..8 computed from pawn count, rammed pawns (white
+    // pawn directly blocked by black pawn), and open file count. Knights
+    // prefer high closedness; rooks prefer low.
+    if (params().ClosednessKnightScale != 0 || params().ClosednessRookScale != 0) {
+        // Tuned values from Ethereal 14.00 (MG, EG) per closedness index 0..8.
+        static constexpr int CK_MG[9] = {  -7,  -7,  -9,  -5,  -3,  -1,   1, -10,  -7 };
+        static constexpr int CK_EG[9] = {  10,  29,  37,  37,  44,  36,  33,  51,  30 };
+        static constexpr int CR_MG[9] = {  42,  -6,   3,  -5,  -7,  -3,  -6, -17, -34 };
+        static constexpr int CR_EG[9] = {  43,  80,  59,  47,  41,  23,  11,  11, -12 };
+
+        Bitboard whitePawns = pos.pieces(WHITE, PAWN);
+        Bitboard blackPawns = pos.pieces(BLACK, PAWN);
+        Bitboard allPawns   = whitePawns | blackPawns;
+        // Rammed: white pawn directly blocked by black pawn on the square
+        // in front of it. Equivalent to (whitePawns << 8) & blackPawns
+        // shifted back, counted once (symmetric — same count from either side).
+        Bitboard rammed     = whitePawns & (blackPawns >> 8);
+        // Open file count: files with no pawn from either side.
+        int openFileCount = 0;
+        for (int f = 0; f < 8; ++f)
+            if (!(allPawns & FileBBs[f])) ++openFileCount;
+        int closedness = 1 * popcount(allPawns)
+                       + 3 * popcount(rammed)
+                       - 4 * openFileCount;
+        closedness = closedness / 3;
+        if (closedness < 0) closedness = 0;
+        if (closedness > 8) closedness = 8;
+
+        int knightDiff = popcount(pos.pieces(WHITE, KNIGHT)) - popcount(pos.pieces(BLACK, KNIGHT));
+        int rookDiff   = popcount(pos.pieces(WHITE, ROOK))   - popcount(pos.pieces(BLACK, ROOK));
+
+        mg += knightDiff * CK_MG[closedness] * params().ClosednessKnightScale / 100;
+        eg += knightDiff * CK_EG[closedness] * params().ClosednessKnightScale / 100;
+        mg += rookDiff   * CR_MG[closedness] * params().ClosednessRookScale   / 100;
+        eg += rookDiff   * CR_EG[closedness] * params().ClosednessRookScale   / 100;
     }
 
     // ---- King safety: scale attack units through SafetyMargin curve. ----

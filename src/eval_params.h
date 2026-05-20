@@ -464,6 +464,19 @@ struct Params {
     // tuned material weights (R13 PieceValue scalars + R10 PSQT scalars).
     // Disabled.
     int ImbalanceScale        = 0;
+
+    // ── Round 38 (2026-05-19) — Closedness piece adjustment (Ethereal port) ─
+    // Knights prefer closed positions (more pawns blocked, fewer files
+    // open); rooks prefer open positions. Closedness index 0..8 is computed
+    // from popcount(pawns) + 3*popcount(rammed) - 4*openFileCount, then
+    // clamp(/3, 0, 8). The two tables ClosednessKnight{MG,EG}[9] and
+    // ClosednessRook{MG,EG}[9] are constexpr in evaluate.cpp (Ethereal's
+    // tuned values). These two scalars are the % to apply (0 = disabled,
+    // 100 = full Ethereal magnitude).
+    // Source: C:\Engine\Engines\Ethereal-14.00\Ethereal-14.00\src\evaluate.c
+    //   line 415-425 (tables), 1189-1216 (evaluateClosedness function).
+    int ClosednessKnightScale = 100;
+    int ClosednessRookScale   = 100;
 };
 
 // Single global instance; mutable. Default-constructed with the values
