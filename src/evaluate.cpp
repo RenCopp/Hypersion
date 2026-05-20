@@ -326,6 +326,8 @@ bool set_tunable(const std::string& name, int value) {
     else if (name == "RookBehindPasserEG")     p.RookBehindPasserEG     = value;
     else if (name == "KnightPairDefMG")        p.KnightPairDefMG        = value;
     else if (name == "KnightPairDefEG")        p.KnightPairDefEG        = value;
+    else if (name == "OutpostSquareMG")        p.OutpostSquareMG        = value;
+    else if (name == "OutpostSquareEG")        p.OutpostSquareEG        = value;
     else return false;
     return true;
 }
@@ -804,6 +806,28 @@ Value evaluate(const Position& pos) {
                 mg += sign * defendedKnights * params().KnightPairDefMG;
                 eg += sign * defendedKnights * params().KnightPairDefEG;
             }
+        }
+
+        // ---- Round 47: Outpost SQUARE count (positional control) ----
+        // Count outpost-rank squares we defend with a pawn AND that no
+        // enemy pawn could ever attack (by pushing forward).
+        if (params().OutpostSquareMG != 0 || params().OutpostSquareEG != 0) {
+            Bitboard ourPawnAttacks = pawn_attacks_color(c, pawns[c]);
+            // Enemy pawn forward fill: all squares enemy pawns could reach
+            // by pushing (ignoring blockers — we just want their potential
+            // attack zone).
+            Bitboard enemyPawnFill = pawns[them];
+            for (int i = 0; i < 6; ++i) {
+                enemyPawnFill |= (them == WHITE) ? pawn_push<WHITE>(enemyPawnFill)
+                                                  : pawn_push<BLACK>(enemyPawnFill);
+            }
+            Bitboard enemyPawnAttackZone = pawn_attacks_color(them, enemyPawnFill);
+            // Outpost squares = on outpost rank, defended by our pawn,
+            // NOT in enemy's potential pawn attack zone.
+            Bitboard outpostSqs = outpost_ranks(c) & ourPawnAttacks & ~enemyPawnAttackZone;
+            int n = popcount(outpostSqs);
+            mg += sign * n * params().OutpostSquareMG;
+            eg += sign * n * params().OutpostSquareEG;
         }
 
         // ---- Trapped bishop in corner (Round 2) ----

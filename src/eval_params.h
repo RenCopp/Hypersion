@@ -529,6 +529,15 @@ struct Params {
     // shift tactical solves. Code kept, default 0 disabled.
     int KnightPairDefMG       = 0;
     int KnightPairDefEG       = 0;
+
+    // ── Round 47 (2026-05-20) — Outpost SQUARE count ────────────────────────
+    // Tested 8/4 (WAC 188) and 4/2 (WAC 186); both regressed vs R38+R42
+    // baseline 191. Hypothesis: enemyPawnFill computation may flag squares
+    // as "enemy-reachable" too aggressively, undercounting outposts; OR
+    // Hypersion's existing piece-on-outpost bonus already captures the value.
+    // Code stays; default 0 disabled.
+    int OutpostSquareMG       = 0;
+    int OutpostSquareEG       = 0;
 };
 
 // Single global instance; mutable. Default-constructed with the values
