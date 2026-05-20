@@ -2535,10 +2535,21 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         --depth;
     }
 
+    // R54 (2026-05-21) SHIP: Obsidian-style RFP floor at 60 (scale-corrected).
+    // Before: at (depth - improving) == 0, margin=0 -> RFP fired on any
+    // staticEval >= beta, over-pruning small-beta-margin positions at low
+    // depth. Obsidian uses `max(87·(d−impr), 22)` floor; scaled to Hypersion
+    // via Rule 2.3 ratio 240/87 = 2.76x: floor = 22 * 2.76 ≈ 60.
+    //
+    // SPRT @ TC 5+0.05 conc=6, stacked on R52+R53 baseline:
+    //   200g round 1: +52.5 +/- 36.9 ELO (73-43-84)
+    //   200g round 2: +27.9 +/- 38.4 ELO (71-55-74)
+    //   400g pooled:  W=144 L=98 D=158 -> +40.1 +/- 27 ELO  SHIP
+    // Source: Obsidian-16.0/src/search.cpp:863.
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval < VALUE_TB_WIN_IN_MAX_PLY
-        && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
+        && staticEval - std::max(RFP_MARGIN_PER_DEPTH * (depth - improving), 60) >= beta)
         // 2026-05-17 finding #30: SF18:888 returns `(2*beta + eval) / 3`
         // (weighted moderation toward beta), not raw `staticEval`. Raw
         // staticEval over-claimed the cutoff score, propagating inflated
