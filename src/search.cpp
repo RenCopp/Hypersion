@@ -2374,6 +2374,21 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // Berserk FMR damping rejected here also; -24.4 ELO @ 200g.
     }
 
+    // R52 REJECTED (2026-05-20): Alexandria complexity-aware LMR port.
+    //   complexity = 100 * |staticEval - rawEval| / |staticEval|
+    //   if (complexity > 50) --r;  in LMR block
+    // 30g triage: +23.2 +/- 104.6 ELO (looked promising)
+    // 200g round 1: +6.9 +/- 38.0 ELO (marginal)
+    // 200g round 2: -26.1 +/- 36.9 ELO (negative)
+    // Combined 400g: W=115 L=126 D=159 -> approx. -9.5 +/- 27 ELO
+    // Classic "30g positive fakeout" pattern documented in PROTOCOL.md.
+    // Source: Alexandria-master/src/search.cpp:528-533 + :812.
+    // Hypothesis: Hypersion's corrhist + TT-bound-clamp produces large
+    // eval deltas frequently (Hypersion-tuned cap of 256cp encourages bigger
+    // adjustments than Alexandria's), so `complexity > 50` triggers in too
+    // many nodes — turning a targeted "tactical-only" --r into a broad
+    // LMR weakener. Reverted.
+
     // NOTE: tested SF18 priorReduction hindsight depth bump: parent records
     // its LMR amount at (ss-1)->reduction; child reads at entry and bumps
     // own depth by 1 if reduction was >= 3 plies (under-search compensation,
