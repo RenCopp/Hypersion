@@ -754,9 +754,11 @@ Value evaluate(const Position& pos) {
             }
         }
 
-        // ---- Minor piece behind own pawn (mg only) ----
+        // ---- Minor piece behind own pawn (R48 — MG + EG) ----
         // Knight or bishop with an own pawn one rank in front, same file.
-        // Reward safe development. SF classical.
+        // MG: shelter / safe development (SF classical, was always present).
+        // EG: hypothesis — in the endgame minors want to be ACTIVE not hidden;
+        // EG term may want to be 0 or negative. Sweep to find peak.
         {
             Bitboard minors = pos.pieces(c, KNIGHT) | pos.pieces(c, BISHOP);
             // Shift our pawns BACKWARD by one rank to align "pawn-in-front-of-piece"
@@ -766,6 +768,7 @@ Value evaluate(const Position& pos) {
             Bitboard pawnFront = (c == WHITE) ? (pawns[c] >> 8) : (pawns[c] << 8);
             int sheltered = popcount(minors & pawnFront);
             mg += sign * sheltered * params().MinorBehindPawnMG;
+            eg += sign * sheltered * params().MinorBehindPawnEG;
         }
 
         // ---- Round 42: Knight defended by own pawn ----

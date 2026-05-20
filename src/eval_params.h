@@ -109,6 +109,17 @@ struct Params {
     int BishopPawnSCEG        = 49;
     int LongDiagBishopMG      = 48;
     int MinorBehindPawnMG     = 40;
+    // ── Round 48 (2026-05-20) — MinorBehindPawnEG sweep ─────────────────────
+    // Add EG counterpart to MinorBehindPawnMG=40. Hypothesis: minors behind
+    // pawns are useful shelter in MG, possibly negative in EG (active piece
+    // preferred). REJECTED at both signs vs R38+R42 baseline WAC d8 191:
+    //   EG=+5:  WAC 187 (-4)
+    //   EG=-5:  WAC 186 (-5)
+    // Both sides regress, suggesting EG term unwanted. Code stays; default 0
+    // disables. Possible explanation: the same "sheltered" minors are already
+    // captured by other EG terms (PSQT, mobility), and adding an explicit
+    // signal double-counts.
+    int MinorBehindPawnEG     = 0;
     int PassedKingEnemyDistEG = 50;
     int PassedKingOwnDistEG   = 0;
 
@@ -166,6 +177,15 @@ struct Params {
 
     // R6 king-attack features DISABLED (0 defaults).
     int RookOnKingFileMG      = 0;
+    // ── Round 50 (2026-05-20) — BishopXrayQueenMG sweep ────────────────────
+    // Wired feature never magnitude-tested. Bonus per bishop x-raying enemy
+    // queen through one piece. REJECTED vs R38+R42 baseline WAC d8 191:
+    //   5  → 187 (-4)
+    //   10 → 185 (-6)
+    // Monotonic regression. Hypothesis: the same pattern is already partially
+    // captured by KingAttacker_Bishop (90) when the queen sits in king zone,
+    // and by mobility (the diagonal is unobstructed). Adding an explicit
+    // bonus double-counts. Code stays; default 0 disables.
     int BishopXrayQueenMG     = 0;
     int KingSafetyScale       = 100;
     int OpenFilesNearKingMG   = 0;
@@ -408,7 +428,15 @@ struct Params {
     // Each enemy slider/knight within chebyshev distance 3 of our king
     // gets a king-safety-zone bump. Already partially captured by R17
     // KingAttacker_X but the close-distance flag is additional pressure.
-    int QueenKingTropismMG    = 30;   // disabled by default until tuned
+    // ── Round 49 (2026-05-20) — QueenKingTropismMG sweep ───────────────────
+    // Formal sweep of the R31 magnitude vs R38+R42 baseline WAC d8 191:
+    //   15 → 189 (-2)
+    //   30 → 191 (current peak, kept)
+    //   45 → 185 (-6)
+    //   60 → 188 (-3)
+    // 30 confirmed as the WAC-optimal magnitude; no improvement available.
+    // Sweep complete; magnitude unchanged.
+    int QueenKingTropismMG    = 30;
 
     // ── Round 32 (2026-05-14) — Connected passed pawns ────────────────────
     // R32-R36 features ALL tuned on 16M but values regress WAC depth-8:
