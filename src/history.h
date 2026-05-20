@@ -225,6 +225,14 @@ struct CounterMoveTable {
 // Indexed by side-to-move and a 14-bit pawn-key fragment so positions with the
 // same pawn structure share a slot. Capped to keep noise bounded.
 struct CorrectionHistory {
+    // R51 (2026-05-20): tested expansion to 1<<17 (131K) buckets matching
+    // Berserk's PAWN_CORR_SIZE. REJECTED at 30g triage: -34.9 +/- 113 ELO
+    // (10-13-6), 5+0.05 conc=6. Result is in [-50, +50] noise band but
+    // trending negative; CI suggests true value < 0. Hypothesis: at 14-bit
+    // (16K) the aliasing acts as implicit cross-position generalization that
+    // helps tactical signal transfer; at 17-bit each bucket has too few
+    // samples for the corrhist to stabilize. WAC d8 also dropped 191 -> 188
+    // with the expanded table (consistent hypothesis). Reverted.
     static constexpr int SIZE = 1 << 14;          // 16384 buckets
     // 2026-05-19 TC-gated corrhist: storage cap remains 256 cp (compatible
     // with pre-v3.2 binaries), but READ-time clamping is TC-conditional.
