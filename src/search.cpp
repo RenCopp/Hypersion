@@ -320,8 +320,18 @@ int SEE_QUIET_MARGIN        = -181;   // Joint A+B SPSA tried -155, REJECTED. Sw
     //   fakeout, Stage 2 reverted to mild negative with Black asymmetry).
 int SEE_CAPT_MARGIN         = -252;   // Joint A+B SPSA tried -246, REJECTED. Sweep history:
     // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
-int NMP_EVAL_BETA_DIV       = 803;    // 2026-05-12 SPSA campaign regressed, reverted.
-                                       // 2026-05-14 Joint A+B SPSA tried 859, REJECTED (-20.9 ELO).
+int NMP_EVAL_BETA_DIV       = 330;    // R58 SHIP (2026-05-21): scale-corrected
+                                       // from Berserk's effective divisor 114
+                                       // (Berserk-internal) * 2.9x ratio = 330.
+                                       // Replaces SPSA-found 803. SPRT @ TC
+                                       // 5+0.05 conc=6 vs HEAD post-R56 baseline:
+                                       //   R1 +17.4 +/- 39.0 ELO (70-60-70)
+                                       //   R2 +15.6 +/- 37.6 ELO (65-56-79)
+                                       //   400g pooled W=135 L=116 D=149 ->
+                                       //                +16.5 +/- 27 ELO SHIP.
+                                       // Tombstones for old SPSA at 803:
+                                       // 2026-05-12 SPSA campaign regressed at 803;
+                                       // 2026-05-14 Joint A+B tried 859, REJECTED.
     // 600 -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
 int PROBCUT_MARGIN          = 802;    // 2026-05-12 SPSA campaign regressed, reverted.
                                        // 2026-05-14 Joint A+B SPSA tried 757, REJECTED (-20.9 ELO).
