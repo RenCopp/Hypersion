@@ -2535,6 +2535,15 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         --depth;
     }
 
+    // R57 REJECTED (2026-05-21): RubiChess threat-pruning at depth==1.
+    // Hypersion already has R54 RFP-with-floor at depth==1 that covers the
+    // same trigger condition; adding threat-pruning over-prunes.
+    //   margins 180/18 (RFP-ratio 6.2x of 29/3): -24.4 +/- 37.4 ELO @ 200g
+    //   margins 300/30 (less aggressive):        -33.1 +/- 37.6 ELO @ 200g
+    // Both directions regress. Per CLAUDE.md Rule 2.4 pattern H: feature
+    // conflicts with existing tuned pruning, no magnitude helps. Source:
+    // RubiChess-master/src/search.cpp:520-524.
+
     // R54 (2026-05-21) SHIP: Obsidian-style RFP floor at 60 (scale-corrected).
     // Before: at (depth - improving) == 0, margin=0 -> RFP fired on any
     // staticEval >= beta, over-pruning small-beta-margin positions at low

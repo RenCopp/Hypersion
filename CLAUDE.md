@@ -125,7 +125,7 @@ engine.
 | Alexandria | 75 | 0.31x — multiply Alex literals by 3.2 |
 | Berserk | 83 | 0.35x — multiply Berserk literals by 2.9 |
 | Obsidian | 87 | 0.36x — multiply Obs literals by 2.75 |
-| RubiChess | ~75 | 0.31x — multiply Rubi literals by 3.2 |
+| RubiChess | 39 | 0.16x — multiply Rubi literals by **6.2** (corrected 2026-05-21) |
 
 Update these ratios if Hypersion's RFP margin changes.
 
