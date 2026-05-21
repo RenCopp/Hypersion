@@ -516,6 +516,11 @@ struct Params {
     // Hypothesis: redundant with Hypersion's R16 ThreatByPawn_* family
     // (already tunes pawn->minor/rook/queen threats at the post-push
     // position). Implementation kept in evaluate.cpp; default 0 disables.
+    // R39 / R39b: ALL tested magnitudes regress -- Pattern B confirmed.
+    //   R39 original (literal Ethereal): 75/160 -3, 38/80 -1, 19/40 -3 (WAC)
+    //   R39b scale-corrected 115/247: WAC -6; 200g SPRT -19.1 +/- 37.9 ELO
+    // Per Rule 2.4 pattern B: redundant with R16 ThreatByPawn_* family; no
+    // magnitude unlocks ELO. Feature truly conflicts; not a scale issue.
     int ThreatByPawnPushMG    = 0;
     int ThreatByPawnPushEG    = 0;
 
