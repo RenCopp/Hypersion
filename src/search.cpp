@@ -2871,12 +2871,24 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // hurts per-move within-subtree decisions.
                 if (depth <= 8 && !pos.see_ge(m, Value(SEE_QUIET_MARGIN * depth)))
                     continue;
-                // NOTE: SF18-style continuation-history pruning was
-                // attempted with threshold -4097*depth but regressed
-                // -207 ELO at 86 games.  Hypersion's history-value
-                // scale is different — needs a per-codebase threshold
-                // search before this can be re-tried.  See round-4
-                // notes in testing/IMPROVEMENTS_LOG.md.
+
+                // R56 retest (2026-05-21): Obsidian/SF18 continuation-history
+                // pruning with scale-correction (Rule 2.3 + HIST_MAX ratio).
+                // Old SF -4097*d literal got -207 ELO; the prior tombstone
+                // (line above) called for "per-codebase threshold search".
+                // Sweep at TC 5+0.05 conc=6 stacked on R54 baseline:
+                //   -2500*d (Obs * 0.34): -10.4 +/- 37.1 ELO @ 200g
+                //   -3272*d (Obs * 0.44): +3.5 +/- 37.7 ELO @ 200g
+                //   -5000*d (Obs * 0.67): +27.9 (R1), -13.9 (R2), -20.9 (R3)
+                //                         600g pooled W=185 L=189 D=226 ~ -2.3 ELO
+                //   -7000*d (Obs * 0.94): +3.5 +/- 38.6 ELO @ 200g
+                // Sweep is non-monotonic with peak interior fakeout — Rule
+                // 2.4 pattern J. At 600g R56c-5000 pools to ~0 ELO. Scale
+                // correction recovered ~205 ELO vs the literal-port attempt
+                // (-207 -> -2) but feature still doesn't ship; Hypersion's
+                // existing SEE-pruning of quiets already captures the
+                // history-pruning value. Code stays disabled. Source:
+                // Obsidian-16.0/src/search.cpp:1001.
             } else {
                 // SEE pruning of bad captures.
                 if (depth <= 6 && !pos.see_ge(m, Value(SEE_CAPT_MARGIN * depth)))
