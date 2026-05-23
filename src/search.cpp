@@ -3069,7 +3069,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             // Source: SF18 src/search.cpp:1208-1209.
             if ((ss + 1)->cutoffCnt > 2) ++r;
             if ((ss + 1)->cutoffCnt > 1 && !isPv && !cutNode) ++r;
-            // (See ttCapture tombstone above TT probe.)
+            // R60 REJECT (2026-05-21): ttCapture +r WITH cutoffCnt<=2 guard:
+            //   -33.1 +/- 37.3 ELO @ 200g (50-69-81). Worse than the original
+            //   unguarded -17.4. Hypersion's LMR has no slack for ttCapture
+            //   +ply even when stacking is prevented. Audit A2 falsified.
 
             // Stockfish-18 LMR history correction. High-history quiet moves get
             // reduced less; low-history get reduced more. Sums the same signals
