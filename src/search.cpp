@@ -320,7 +320,13 @@ int SEE_QUIET_MARGIN        = -181;   // Joint A+B SPSA tried -155, REJECTED. Sw
     //   fakeout, Stage 2 reverted to mild negative with Black asymmetry).
 int SEE_CAPT_MARGIN         = -252;   // Joint A+B SPSA tried -246, REJECTED. Sweep history:
     // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
-int NMP_EVAL_BETA_DIV       = 330;    // R58 SHIP (2026-05-21): scale-corrected
+int NMP_EVAL_BETA_DIV       = 250;    // R58b SHIP (2026-05-23):
+                                       // Sweep around R58's 330 vs HEAD post-v3.5:
+                                       //   200: -6.9 / 200g
+                                       //   250: +6.9 R1, +17.4 R2 = +12.2 / 400g  SHIP
+                                       //   280: -20.9 / 200g (non-monotonic noise)
+                                       //   330: 0 (R58 shipped baseline)
+                                       // 250 is the new peak post-v3.5.
                                        // from Berserk's effective divisor 114
                                        // (Berserk-internal) * 2.9x ratio = 330.
                                        // Replaces SPSA-found 803. SPRT @ TC
