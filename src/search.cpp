@@ -2980,6 +2980,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                  && depth >= 5) {
             extension = 1;
         }
+        // R62 REJECT (2026-05-23): RubiChess adaptive history extension —
+        // tested at thresholds 4000/-15.6, 7700/-3.5, 12000/-8.7 ELO @ 200g.
+        // No magnitude unlocks ELO; Hypersion's LMR statScore-based history
+        // adjustment already extracts the signal. Source tombstone in
+        // search.h. Code removed; Worker fields kept inert.
 
         StateInfo st;
         ss->currentMove = m;

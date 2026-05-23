@@ -241,6 +241,18 @@ private:
     //
     // Each ContinuationHistory is ~4MB; 2 tables = ~8MB per thread.
     std::unique_ptr<ContinuationHistory> contHist[2];
+
+    // R62 REJECTED (2026-05-23): RubiChess adaptive history extension.
+    //   threshold 4000:  -15.6 +/- 37.9 ELO @ 200g
+    //   threshold 7700:   -3.5 +/- 38.9 ELO @ 200g (RubiChess initial value)
+    //   threshold 12000:  -8.7 +/- 38.5 ELO @ 200g
+    // No magnitude unlocks ELO; Hypersion's existing LMR statScore-based
+    // history adjustment already extracts the available signal. Fields
+    // kept (zero-cost, unused) so future variants can re-enable.
+    // Source: RubiChess engine.cpp:307, search.cpp:795-822.
+    int      he_threshold = 7700;  // unused (R62 rejected at all magnitudes)
+    uint64_t he_yes       = 0;
+    uint64_t he_all       = 0;
 };
 
 // Pool of search worker threads. workers[0] is the main worker — the one that
