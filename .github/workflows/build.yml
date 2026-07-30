@@ -75,7 +75,7 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          install: mingw-w64-x86_64-gcc make
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-python make
       - name: Build (avx2)
         run: make build ARCH=x86-64-avx2
       - name: Run UCI smoke test

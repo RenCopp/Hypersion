@@ -101,3 +101,8 @@ tmp_*.txt
 bot_v*.log
 bot_v*.err
 lichess_games/
+
+# Historical local experiment notes (not part of the public engine source).
+DIAGNOSTIC_v3.1_LTC.md
+PLAN_V3.2_REAL.md
+TOURNAMENT_10g.md
