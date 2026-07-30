@@ -79,6 +79,8 @@ void init() {
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
                               : int(std::log(double(d)) * std::log(double(mc)) / 1.87);
         }
+    // Keep startup consistent with the advertised UCI default. Threads=2 was
+    // restored after lifecycle, fixed-node scaling, and paired-match gates.
     Threads.set_size(2);
 }
 void shutdown() { Threads.stop_all(); Threads.wait_all(); Threads.set_size(0); }

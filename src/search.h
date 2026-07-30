@@ -247,12 +247,9 @@ private:
     //   threshold 7700:   -3.5 +/- 38.9 ELO @ 200g (RubiChess initial value)
     //   threshold 12000:  -8.7 +/- 38.5 ELO @ 200g
     // No magnitude unlocks ELO; Hypersion's existing LMR statScore-based
-    // history adjustment already extracts the available signal. Fields
-    // kept (zero-cost, unused) so future variants can re-enable.
+    // history adjustment already extracts the available signal. The unused
+    // counters were removed; this tombstone preserves the experiment record.
     // Source: RubiChess engine.cpp:307, search.cpp:795-822.
-    int      he_threshold = 7700;  // unused (R62 rejected at all magnitudes)
-    uint64_t he_yes       = 0;
-    uint64_t he_all       = 0;
 };
 
 // Pool of search worker threads. workers[0] is the main worker — the one that

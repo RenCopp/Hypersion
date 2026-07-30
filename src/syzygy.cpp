@@ -146,14 +146,12 @@ bool probe_root_dtz(const Position& pos, std::vector<RootMoveEntry>& out) {
     // KRBK / KRNK through to the probe.
     int totalPieces = popcount(pos.pieces());
     if (totalPieces == 3 && pos.pieces(PAWN) == 0) {
-        // 3-piece pawnless: KvK / KB / KN / KR / KQ vs lone K — trivial,
-        // drawn, or covered by simple search. KQK with kings on the same
-        // file is the original documented Fathom hang shape; skipping
-        // all 3-piece pawnless avoids it.
-        // KPK (3-piece WITH pawn) is NOT skipped — DTZ guidance is
-        // essential for promotion + mate path; without it the engine
-        // can shuffle past the 50-move rule before promoting.
-        return false;
+        // The reproducible helper-API hang is KQK with same-file kings.
+        // Keep the defensive skip for queen endings, but allow KRK through:
+        // the conversion regression shows that search alone can lose the rook
+        // or cross the 50-move boundary from high-rule50 winning positions.
+        // KPK is also allowed because DTZ guidance is essential for promotion.
+        if (pos.pieces(QUEEN) != 0) return false;
     }
     if (totalPieces == 4 && pos.pieces(PAWN) == 0) {
         // 4-piece, no pawn. Skip ONLY for known-hang KQK and KRK shapes

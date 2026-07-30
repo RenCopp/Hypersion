@@ -64,8 +64,7 @@ MovePicker::MovePicker(const Position& p,
       killer0(killers ? killers[0] : Move::none()),
       killer1(killers ? killers[1] : Move::none()),
       prevMv(pm),  prevMv2(pm2),
-      prevPc(pp),  prevPc2(pp2),
-      depth(d) {
+      prevPc(pp),  prevPc2(pp2) {
     stage = pos.checkers() ? EVASION_TT : MAIN_TT;
     if (ttm != Move::none() && !pos.pseudo_legal(ttm)) ttMove = Move::none();
     if (ttMove == Move::none()) ++stage;   // skip *_TT stages
@@ -84,8 +83,7 @@ MovePicker::MovePicker(const Position& p,
       contHist1(contHist), contHist2(contHist2_),
       ttMove(ttm),
       prevMv(pm),  prevMv2(pm2),
-      prevPc(pp),  prevPc2(pp2),
-      depth(qd) {
+      prevPc(pp),  prevPc2(pp2) {
     // When in check, we must look at every evasion (not just captures), otherwise
     // we'd accept moves that don't resolve the check.
     if (pos.checkers()) {

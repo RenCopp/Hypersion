@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "book.h"
 #include "evaluate.h"
@@ -31,7 +33,7 @@ int       statePly = 0;
 // UCI options. Stored as plain values; setoption updates them and applies side-effects.
 struct {
     int  hashMB       = 64;          // bumped from 16 — helps slow TC, neutral at fast
-    int  threads      = 2;            // lazy-SMP works (verified), 2 is a safe default
+    int  threads      = 2;            // validated lifecycle, scaling, and paired-match default
     int  multiPV      = 1;
     int  moveOverhead = 30;          // safe for cutechess; lichess users should set 100-300
     int  skillLevel   = 20;          // 0 = weakest, 20 = full strength
@@ -132,6 +134,15 @@ inline int opponent_match_offset(int rating) {
 
 void apply_hash() { TT.resize(std::max(1, Options.hashMB)); }
 
+// UCI options that replace or clear state used by search workers must first
+// stop and join the active search. Without the stop, `Clear Hash` after
+// `go infinite` waits forever; without the join, TT/NNUE/Syzygy mutation races
+// workers that are still reading those resources.
+void stop_and_wait_search() {
+    Search::Threads.stop_all();
+    Search::Threads.wait_all();
+}
+
 void reset_position() { statePly = 0; pos.set(StartFEN, &states[statePly++]); }
 
 // Counts own-search moves per game (not book hits). Reset to 0 in
@@ -181,6 +192,74 @@ Move parse_uci_move(const std::string& input, const Position& p) {
         }
     }
     return Move::none();
+}
+
+bool valid_decimal_field(const std::string& value, unsigned minimum) {
+    if (value.empty()) return false;
+    unsigned long long parsed = 0;
+    for (unsigned char c : value) {
+        if (!std::isdigit(c)) return false;
+        const unsigned digit = unsigned(c - '0');
+        const unsigned limit = unsigned(std::numeric_limits<int>::max());
+        if (parsed > (limit - digit) / 10) return false;
+        parsed = parsed * 10 + digit;
+    }
+    return parsed >= minimum;
+}
+
+// Validate untrusted GUI input before Position::set(), whose parser assumes a
+// structurally valid FEN and uses square indices directly for speed.
+bool valid_uci_fen(const std::string& fen) {
+    std::istringstream fields(fen);
+    std::string board, side, castling, ep, halfmove, fullmove, extra;
+    if (!(fields >> board >> side >> castling >> ep >> halfmove >> fullmove)
+        || (fields >> extra))
+        return false;
+
+    int rank = 0, file = 0, whiteKings = 0, blackKings = 0;
+    constexpr std::string_view pieces = "PNBRQKpnbrqk";
+    for (char c : board) {
+        if (c == '/') {
+            if (file != 8 || rank >= 7) return false;
+            ++rank;
+            file = 0;
+        } else if (c >= '1' && c <= '8') {
+            file += c - '0';
+            if (file > 8) return false;
+        } else if (pieces.find(c) != std::string_view::npos) {
+            if (file >= 8) return false;
+            if ((rank == 0 || rank == 7) && (c == 'P' || c == 'p')) return false;
+            whiteKings += c == 'K';
+            blackKings += c == 'k';
+            ++file;
+        } else {
+            return false;
+        }
+    }
+    if (rank != 7 || file != 8 || whiteKings != 1 || blackKings != 1)
+        return false;
+    if (side != "w" && side != "b") return false;
+
+    if (castling != "-") {
+        if (castling.empty()) return false;
+        constexpr std::string_view rights = "KQkqABCDEFGHabcdefgh";
+        std::string seen;
+        for (char c : castling) {
+            if (rights.find(c) == std::string_view::npos
+                || seen.find(c) != std::string::npos)
+                return false;
+            seen += c;
+        }
+    }
+
+    if (ep != "-") {
+        if (ep.size() != 2 || ep[0] < 'a' || ep[0] > 'h') return false;
+        const char expectedRank = side == "w" ? '6' : '3';
+        if (ep[1] != expectedRank) return false;
+    }
+
+    return valid_decimal_field(halfmove, 0)
+        && valid_decimal_field(fullmove, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +372,11 @@ void cmd_position(std::istringstream& is) {
         return;
     }
 
+    if (!valid_uci_fen(fen)) {
+        std::cerr << "info string invalid FEN ignored" << std::endl;
+        return;
+    }
+
     statePly = 0;
     pos.set(fen, &states[statePly++]);
 
@@ -300,6 +384,14 @@ void cmd_position(std::istringstream& is) {
         while (is >> token) {
             Move m = parse_uci_move(token, pos);
             if (m == Move::none()) break;
+            if (statePly >= MAX_GAME_PLIES) {
+                // Preserve the current board, counters, and castling/EP state
+                // while dropping repetition history too old to fit. Search
+                // workers have the same finite history capacity.
+                const std::string compactFen = pos.fen();
+                statePly = 0;
+                pos.set(compactFen, &states[statePly++]);
+            }
             pos.do_move(m, states[statePly++]);
         }
     }
@@ -418,11 +510,17 @@ void cmd_setopt(std::istringstream& is) {
         out = (v == "true" || v == "1" || v == "yes" || v == "on");
     };
 
-    if      (eq("Hash"))           { parse_int(Options.hashMB);       apply_hash(); }
+    if      (eq("Hash"))           { parse_int(Options.hashMB);
+                                     Options.hashMB = std::clamp(Options.hashMB, 1, 65536);
+                                     stop_and_wait_search();
+                                     apply_hash(); }
     else if (eq("Threads"))        { parse_int(Options.threads);
-                                     Search::Threads.set_size(std::max(1, Options.threads)); }
-    else if (eq("MultiPV"))        { parse_int(Options.multiPV); }
-    else if (eq("Move Overhead"))  { parse_int(Options.moveOverhead); }
+                                     Options.threads = std::clamp(Options.threads, 1, 1024);
+                                     Search::Threads.set_size(Options.threads); }
+    else if (eq("MultiPV"))        { parse_int(Options.multiPV);
+                                     Options.multiPV = std::clamp(Options.multiPV, 1, 256); }
+    else if (eq("Move Overhead"))  { parse_int(Options.moveOverhead);
+                                     Options.moveOverhead = std::clamp(Options.moveOverhead, 0, 5000); }
     else if (eq("Clear Hash"))     {
         // 2026-05-17 finding #19: SF18's `Clear Hash` calls
         // `search_clear()` (engine.cpp:99-102) which clears BOTH the TT
@@ -430,8 +528,7 @@ void cmd_setopt(std::istringstream& is) {
         // TT, leaving stale corrhist / butterfly / contHist data that
         // would bias subsequent searches with information from the old
         // game. Now matches SF behaviour.
-        Search::Threads.wait_all();
-        TT.clear();
+        stop_and_wait_search();
         Search::Threads.clear_all();
     }
     else if (eq("Ponder"))         { parse_bool(Options.ponder); }
@@ -444,6 +541,7 @@ void cmd_setopt(std::istringstream& is) {
             Book::open(value);
     }
     else if (eq("EvalFile"))       {
+        stop_and_wait_search();
         Options.evalFile = value;
         if (value.empty() || value == "<empty>") {
             NNUE::unload();   // forces classical fallback for testing
@@ -452,6 +550,7 @@ void cmd_setopt(std::istringstream& is) {
         }
     }
     else if (eq("EvalFileSmall"))  {
+        stop_and_wait_search();
         Options.evalFileSmall = value;
         if (value.empty() || value == "<empty>") {
             // small net handled by unified unload()
@@ -460,22 +559,27 @@ void cmd_setopt(std::istringstream& is) {
         }
     }
     else if (eq("EvalUseSmallOnly")) {
+        stop_and_wait_search();
         parse_bool(Options.evalUseSmallOnly);
         NNUE::set_small_only(Options.evalUseSmallOnly);
     }
     else if (eq("SyzygyPath"))     {
+        stop_and_wait_search();
         Options.syzygyPath = value;
         Syzygy::init(value);
     }
     else if (eq("SyzygyProbeDepth")) {
+        stop_and_wait_search();
         int d = 1; std::istringstream(value) >> d;
         Syzygy::set_probe_depth(std::clamp(d, 1, 100));
     }
     else if (eq("Syzygy50MoveRule")) {
+        stop_and_wait_search();
         bool b = true; parse_bool(b);
         Syzygy::set_50_move_rule(b);
     }
     else if (eq("SyzygyProbeLimit")) {
+        stop_and_wait_search();
         int n = 7; std::istringstream(value) >> n;
         Syzygy::set_probe_limit(std::clamp(n, 0, 7));
     }
@@ -515,7 +619,7 @@ void cmd_setopt(std::istringstream& is) {
         // Now `setoption name PersistCorrHist value false` produces a clean
         // search state, matching what users expect for SPRT / debug runs.
         if (old_val && !Options.persistCorrHist) {
-            Search::Threads.wait_all();
+            stop_and_wait_search();
             Search::Threads.clear_all();
         }
     }
@@ -594,6 +698,7 @@ void cmd_setopt(std::istringstream& is) {
     // perturb constants between matches without rebuilding. Names match
     // the C++ identifiers (e.g. RFP_MARGIN_PER_DEPTH, PassedRank4, ...).
     else if (name.rfind("Tune_", 0) == 0) {
+        stop_and_wait_search();
         int v = 0; std::istringstream(value) >> v;
         std::string knob = name.substr(5);
         if (Search::set_tunable(knob, v) || Eval::set_tunable(knob, v)) {
@@ -786,9 +891,10 @@ void loop(int argc, char** argv) {
     for (;;) {
         if (haveCliCmd) { line = cli; haveCliCmd = false; }
         else if (!std::getline(std::cin, line)) {
-            // stdin closed — let any in-flight search finish so its output isn't truncated.
-            // (Use `quit` if you want to force-abort an `infinite` search.)
-            Search::Threads.wait_all();
+            // A closed GUI pipe is a shutdown request. Waiting without first
+            // stopping deadlocks forever when the active command was
+            // `go infinite` or `go ponder`.
+            stop_and_wait_search();
             break;
         }
 

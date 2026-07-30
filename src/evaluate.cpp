@@ -169,15 +169,8 @@ constexpr int MobilityEG[PIECE_TYPE_NB][32] = {
 };
 
 // ---------- King safety ----------
-constexpr int KingAttackerWeight[PIECE_TYPE_NB] = { 0, 0, 81, 52, 44, 10, 0, 0 };
 
-// Safe-check weights: per safe-check square (a square attacked by us, that
-// would check them's king, that them does NOT defend). Conservative values
-// that integrate with the SafetyMargin curve without overwhelming it. CRITICAL:
-// these contribute to attackUnits[c] but DO NOT bump attackerCount[c] — the
-// safety penalty triggers on `attackerCount >= 2` from king-zone attacks alone.
-// Doubling that count was the v1 regression (-89 ELO).
-constexpr int SafeCheckWeight[PIECE_TYPE_NB] = { 0, 0, 30, 15, 35, 25, 0, 0 };
+// Attacker and safe-check weights are tunable through eval_params.h.
 
 constexpr int SafetyMargin[100] = {
       0,   0,   1,   2,   3,   5,   7,   9,  12,  15,
@@ -210,10 +203,6 @@ constexpr int ThreatByRookMG [PIECE_TYPE_NB] = { 0, 3, 20, 30, 0, 70, 0, 0 };
 constexpr int ThreatByPawnMG[PIECE_TYPE_NB] = { 0, 0, 80, 80, 110, 130, 0, 0 };
 constexpr int ThreatByPawnEG[PIECE_TYPE_NB] = { 0, 0, 50, 50,  60,  80, 0, 0 };
 // HangingPenaltyMG is now in params() for tuning.
-
-// Pawn shelter penalty — count of "missing or distant pawns" on the 3 files
-// adjacent to our king, scaled by king location danger.
-constexpr int PawnShelterMissingMG[4] = { 0, 12, 28, 60 };
 
 inline Bitboard outpost_ranks(Color c) {
     return c == WHITE ? (Rank4BB | Rank5BB | Rank6BB) : (Rank3BB | Rank4BB | Rank5BB);

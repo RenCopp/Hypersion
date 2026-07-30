@@ -1,5 +1,40 @@
 # Hypersion CHANGELOG
 
+## Unreleased v3.6.0-dev — correctness and release reconciliation (2026-07-31)
+
+### Correctness and lifecycle
+
+- Fixed active-search deadlocks/races during hash, NNUE, Syzygy, persistence,
+  and tuning-option reconfiguration; EOF now stops infinite/ponder searches.
+- Strictly validate six-field FEN input and bound overlong move histories.
+- Clamp UCI spin options to their advertised ranges.
+- Added deterministic smoke, perft, lifecycle, SMP, malformed-input fuzz, and
+  exact time-manager tests. ASan+UBSan and all five release architectures pass.
+- Narrowed the Pyrrhic/Fathom root-DTZ workaround to KQK, restoring KRK DTZ
+  guidance. The endgame suite converts all 5 rule-50-feasible wins and correctly
+  classifies one impossible high-rule50 KRK position as an expected draw.
+
+### Threads and bounded measurements
+
+- Release long-soak: 10,000 searches each at Threads 1/2/4/8; sanitizer soak:
+  1,000 each, with no crash, disconnect, invalid bestmove, or sanitizer report.
+- Median fixed-node NPS was 494k/1.07M/1.53M/2.48M at Threads 1/2/4/8.
+- Threads=2 beat Threads=1 in two independent 20-game paired bullet samples,
+  14-4-2 and 12-5-3. The validated default is restored to Threads=2; deterministic
+  benchmarks remain pinned to Threads=1.
+- Compact v3.6-v3.5 samples were mixed and intentionally underpowered: 8-6-6
+  at bullet, 2-6-2 at blitz, and 4-0-2 at LTC. These are regression sentinels,
+  not release Elo claims.
+
+### Build and publication
+
+- Version sources now agree on `3.6.0-dev`; the canonical depth-13 signature is
+  `1875591` and is read from `testing/BENCH_SIGNATURE`.
+- Added warning-free GCC/Clang CI, ASan+UBSan, parser fuzzing, lifecycle/SMP
+  sentinels, x86-64 baseline, and compile-only AVX-VNNI/AVX-512 gates.
+- Added five-architecture release packaging with Git/toolchain/UCI/asset
+  metadata and SHA-256 checksums.
+
 ## Session 2026-05-15 (extended ×2) — LMR ship + LTC validation + more tombstones
 
 24 commits, all green CI. **Engine ELO shipped: +20.9 ± 39.3** via

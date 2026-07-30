@@ -112,7 +112,6 @@ private:
     // without parent-ply info).
     Move    prevMv  = Move::none(), prevMv2 = Move::none();
     Piece   prevPc  = NO_PIECE,     prevPc2 = NO_PIECE;
-    int     depth;
     Stage   stage;
 
     ExtMove movesBuf[MAX_MOVES];

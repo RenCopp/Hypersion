@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [x86-64-avx2, x86-64-bmi2]
+        arch: [x86-64, x86-64-avx2, x86-64-bmi2]
     steps:
       - uses: actions/checkout@v4
       - name: Install build deps
@@ -25,6 +25,45 @@ jobs:
       - name: Run perft suite (correctness)
         run: |
           printf 'perftsuite\nquit\n' | ./Hypersion
+      - name: Run portable smoke tests
+        run: python3 testing/test_smoke.py --exe ./Hypersion --skip-bench
+      - name: Run bounded UCI lifecycle stress
+        run: python3 testing/test_uci_lifecycle.py --exe ./Hypersion --cycles 20
+      - name: Run fixed-thread SMP sentinel
+        run: python3 testing/test_smp_soak.py --exe ./Hypersion --searches 100
+      - name: Run deterministic time-manager unit tests
+        run: make test_timeman ARCH=${{ matrix.arch }}
+      - name: Run bounded parser fuzz
+        run: python3 testing/test_uci_fuzz.py --exe ./Hypersion --cases 250
+
+  build-linux-clang-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y clang make
+      - name: Build Clang release
+        run: make build ARCH=x86-64-avx2 CXX=clang++ CC=clang
+      - name: Build with ASan and UBSan
+        run: make debug SANITIZER_CXX=clang++ SANITIZER_CC=clang
+      - name: Run portable smoke tests
+        run: python3 testing/test_smoke.py --exe ./Hypersion --skip-bench
+      - name: Run bounded UCI lifecycle stress
+        run: python3 testing/test_uci_lifecycle.py --exe ./Hypersion --cycles 20
+      - name: Run bounded parser fuzz under sanitizers
+        run: python3 testing/test_uci_fuzz.py --exe ./Hypersion --cases 250
+
+  compile-modern-architectures:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86-64-avxvnni, x86-64-avx512]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+      - name: Compile (${{ matrix.arch }})
+        run: make build ARCH=${{ matrix.arch }}
 
   build-windows:
     runs-on: windows-latest
@@ -43,3 +82,13 @@ jobs:
         run: |
           printf 'uci\nposition startpos\ngo depth 6\nquit\n' | ./Hypersion.exe > out.txt
           grep -q '^bestmove ' out.txt
+      - name: Run portable smoke tests
+        run: python testing/test_smoke.py --exe ./Hypersion.exe --skip-bench
+      - name: Run bounded UCI lifecycle stress
+        run: python testing/test_uci_lifecycle.py --exe ./Hypersion.exe --cycles 20
+      - name: Run fixed-thread SMP sentinel
+        run: python testing/test_smp_soak.py --exe ./Hypersion.exe --searches 100
+      - name: Run deterministic time-manager unit tests
+        run: make test_timeman ARCH=x86-64-avx2
+      - name: Run bounded parser fuzz
+        run: python testing/test_uci_fuzz.py --exe ./Hypersion.exe --cases 250
