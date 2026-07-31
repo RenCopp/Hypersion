@@ -209,7 +209,10 @@ def t_global_node_limit():
             "setoption name OwnBook value false",
             "setoption name Threads value 4",
             "position startpos",
-            "go nodes 10000",
+            # Large enough that the main worker completes an iteration even
+            # when a CI scheduler lets helpers run first. The former per-worker
+            # bug still reports roughly 400K nodes at Threads=4.
+            "go nodes 100000",
         ]
     )
     info_nodes = [
@@ -219,8 +222,8 @@ def t_global_node_limit():
     ]
     assert info_nodes, "node-limited search emitted no completed iteration"
     # A completed iteration may be below the hard boundary; a small in-flight
-    # overshoot is expected.  The old per-worker bug reported ~37K at T4.
-    assert info_nodes[-1] <= 12000, f"per-thread node budget leak: {info_nodes[-1]}"
+    # overshoot is expected. The old per-worker bug reports ~400K at T4.
+    assert info_nodes[-1] <= 120000, f"per-thread node budget leak: {info_nodes[-1]}"
 
 
 @test("go mate respects the requested mate distance")
