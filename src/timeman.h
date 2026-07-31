@@ -34,6 +34,11 @@ struct SearchLimits {
     // Used by tournament managers / analysis features and OpenBench.
     std::vector<Move> searchMoves;
 
+    // Optional root-ordering hint. Infinite analysis can seed the opening
+    // book's suggestion here without restricting `searchMoves`; every legal
+    // alternative is still searched.
+    Move preferredRootMove = Move::none();
+
     // Skill / strength tuning (Stockfish-style). 20 = full strength;
     // lower values cap depth and add move-selection noise.
     int     skillLevel    = 20;

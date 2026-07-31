@@ -500,18 +500,18 @@ void cmd_go(std::istringstream& is) {
     lim.contempt      = Options.contempt;
     lim.showWDL       = Options.showWDL;
     // `go infinite` is the standard GUI analysis command. Automatically use
-    // the thorough analysis search and bypass the opening book, so users do
-    // not need a separate UCI_AnalyseMode checkbox. Keep the hidden legacy
-    // override for scripts that request analysis on a finite-depth search.
+    // the thorough analysis search, so users do not need a separate
+    // UCI_AnalyseMode checkbox. Keep the hidden legacy override for scripts
+    // that request analysis on a finite-depth search.
     lim.analyseMode   = lim.infinite || Options.analyseModeOverride;
     lim.ponderEnabled = Options.ponder;
 
-    // Try the opening book first — but never when in analyse mode (the GUI
-    // wants the engine's actual evaluation, not a pre-canned book reply).
-    if (Options.ownBook && !lim.analyseMode && Book::is_open()) {
+    // During play, a book hit returns immediately. During analysis, report
+    // the same suggestion and seed it as the first root candidate, but keep
+    // searching every legal move instead of returning a pre-canned answer.
+    if (Options.ownBook && Book::is_open()) {
         Move bm = Book::probe(pos, Options.bookBest);
         if (bm != Move::none()) {
-            // Book hit: don't increment own-search counter (we didn't search).
             Square from = bm.from_sq(), to = bm.to_sq();
             std::string s;
             s += char('a' + file_of(from));
@@ -522,9 +522,17 @@ void cmd_go(std::istringstream& is) {
                 constexpr char promoChar[] = " pnbrqk";
                 s += promoChar[bm.promotion_type()];
             }
-            std::cout << "info string book move " << s << '\n'
-                      << "bestmove " << s << std::endl;
-            return;
+            if (lim.analyseMode) {
+                lim.preferredRootMove = bm;
+                std::cout << "info string book move " << s
+                          << " (analysis continues)" << std::endl;
+            } else {
+                // Book hit in play: don't increment own-search counter because
+                // no engine search was performed.
+                std::cout << "info string book move " << s << '\n'
+                          << "bestmove " << s << std::endl;
+                return;
+            }
         }
     }
 

@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- Made `go infinite` automatically bypass the opening book and enable the
-  thorough analysis search. `UCI_AnalyseMode` is no longer advertised as a
-  checkbox, matching Stockfish-style GUI behavior; the old `setoption` command
-  remains accepted as a hidden compatibility override for finite searches.
+- Made `go infinite` automatically enable the thorough analysis search.
+  Opening-book suggestions are reported and searched first without stopping
+  analysis or excluding legal alternatives. `UCI_AnalyseMode` is no longer
+  advertised as a checkbox, matching Stockfish-style GUI behavior; the old
+  `setoption` command remains a hidden compatibility override for finite
+  searches.
 
 ## 3.2 — correctness and release reconciliation (2026-07-31)
 

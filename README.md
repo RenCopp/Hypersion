@@ -165,9 +165,10 @@ ChessBase, Scid, Fritz, …) will drive it.
 | `Move Overhead` | 30 | spin | ms reserved for GUI / network latency |
 | `Contempt` | 0 | −200 to 200 | draw aversion |
 
-Analysis mode is automatic: a GUI's standard `go infinite` command bypasses
-the opening book and enables Hypersion's more thorough analysis search. No
-separate `UCI_AnalyseMode` checkbox is required.
+Analysis mode is automatic: a GUI's standard `go infinite` command enables
+Hypersion's more thorough analysis search. If the opening book has a move, the
+engine reports and searches that suggestion first while continuing to analyse
+every legal alternative. No separate `UCI_AnalyseMode` checkbox is required.
 
 The opponent-matching behavior with `UCI_MatchOpponent=true`:
 
