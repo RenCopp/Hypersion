@@ -1,5 +1,41 @@
 # Hypersion deep audit — v3.6 improvement roadmap
 
+## 2026-07-31 whole-tree pre-merge addendum
+
+The entire tracked engine source was re-audited against Stockfish commit
+`23cf5d827388e84d4389b40025ef401db4925f25` and Reckless commit
+`d6603046e76d66edd43622ded23458da1af50c68`. The comparison covered position
+state/move legality, UCI, search limits, SMP, TT, NNUE loading and incremental
+evaluation, classical evaluation, move ordering, time management, Polyglot,
+Syzygy/Fathom, build paths, and tests. The vendored Fathom copy was retained:
+Reckless's `tbchess.c` is identical, while replacing Hypersion's remaining
+files would discard local C++20, atomic, and aligned-I/O hardening.
+
+Confirmed fixes from this pass:
+
+- reject or normalize impossible and pinned en-passant targets and generate EP
+  keys only when a legal capture exists;
+- preserve a working NNUE when a replacement file is missing, truncated, or
+  architecture-incompatible;
+- enforce one global UCI node budget across all workers;
+- honor the distance bound in `go mate N`;
+- parse FEN/UCI counters and options without overflow or uninitialized values;
+- replace undefined multidimensional history decay with recursive traversal;
+- return the conventional one leaf for `perft 0`.
+
+Verification completed on the final behavior: GCC release and Clang
+ASan+UBSan builds; 12 release smoke checks (11 under sanitizers); 2,000
+malformed FEN/UCI cases; 100-cycle
+lifecycle stress; 2,000 release SMP searches at Threads=1/2/4/8; randomized
+differential perft on 300 standard and 160 Chess960 positions (3,265,970 leaf
+nodes); 500 incremental-vs-fresh NNUE comparisons; five identical Threads=1
+bench runs at `1872788`; and a bounded 100-game CuteChess regression match
+against the prior AVX-VNNI build (33-29-38, no crash, illegal move, disconnect,
+or time forfeit). The match interval, +13.9 +/-54 Elo, is a regression sentinel
+only and is not a strength claim.
+
+Large telemetry collection and NNUE training remain explicitly out of scope.
+
 **Date:** 2026-05-21 (post v3.5 ship)
 **Current state:** HEAD `5adb326`, tag `v3.5`, +90 ELO bullet over pre-session HEAD
 **Tournament gap:** −176 ELO vs Berserk/Obsidian/RubiChess (was −266 before this session — closed 34% in one session)

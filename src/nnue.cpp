@@ -18,6 +18,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 #include "bitboard.h"
@@ -66,6 +67,10 @@ namespace {
 // SF18 SFNNv10 constants (must match the binary file format exactly)
 // ─────────────────────────────────────────────────────────────────────────
 constexpr std::uint32_t NNUE_VERSION = 0x7AF32F20u;
+constexpr std::uint32_t BIG_ARCH_HASH = 0xEC102EF2u;
+constexpr std::uint32_t BIG_FT_HASH   = 0x8F2344B8u;
+constexpr std::uint32_t SMALL_ARCH_HASH = 0x1C103C92u;
+constexpr std::uint32_t SMALL_FT_HASH   = 0x7F234DB8u;
 constexpr int PSQT_BUCKETS = 8;
 constexpr int LAYER_STACKS = 8;
 constexpr int OUTPUT_SCALE = 16;
@@ -966,8 +971,13 @@ struct Network {
         f.read(reinterpret_cast<char*>(&ver),  4);
         f.read(reinterpret_cast<char*>(&ah),   4);
         f.read(reinterpret_cast<char*>(&dlen), 4);
+        const std::uint32_t expectedArch = big ? BIG_ARCH_HASH : SMALL_ARCH_HASH;
         if (!f || ver != NNUE_VERSION) {
             std::cerr << "info string nnue: version mismatch\n";
+            return false;
+        }
+        if (ah != expectedArch) {
+            std::cerr << "info string nnue: incompatible architecture\n";
             return false;
         }
         if (dlen > 4096) return false;
@@ -982,6 +992,11 @@ struct Network {
         f.read(reinterpret_cast<char*>(&fth), 4);
         std::cerr << "info string nnue: FT hash 0x"
                   << std::hex << fth << std::dec << '\n';
+        const std::uint32_t expectedFt = big ? BIG_FT_HASH : SMALL_FT_HASH;
+        if (!f || fth != expectedFt) {
+            std::cerr << "info string nnue: incompatible feature transformer\n";
+            return false;
+        }
 
         ft_bias.resize(l1);
         if (!read_leb128(f, ft_bias.data(), l1)) {
@@ -1058,6 +1073,14 @@ struct Network {
                 std::cerr << "info string nnue: FC fail bucket " << bk << '\n';
                 return false;
             }
+        }
+
+        // A compatible NNUE file must contain exactly one complete network.
+        // Accepting trailing data can hide a wrong architecture or a damaged
+        // concatenated download even when all expected reads happened to fit.
+        if (f.peek() != std::char_traits<char>::eof()) {
+            std::cerr << "info string nnue: trailing data after network\n";
+            return false;
         }
 
         loaded = true;
@@ -1243,11 +1266,19 @@ void init() {
 
 bool load_big(const std::string& path) {
     build_threat_tables();
-    return g_big.load(path, true);
+    Network candidate;
+    if (!candidate.load(path, true)) return false;
+    g_big = std::move(candidate);
+    g_finny.invalidate();
+    return true;
 }
 
 bool load_small(const std::string& path) {
-    return g_small.load(path, false);
+    Network candidate;
+    if (!candidate.load(path, false)) return false;
+    g_small = std::move(candidate);
+    g_finny.invalidate();
+    return true;
 }
 
 bool is_loaded() { return g_big.loaded || g_small.loaded; }

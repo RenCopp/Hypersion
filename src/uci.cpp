@@ -1,7 +1,8 @@
 #include "uci.h"
 
 #include <algorithm>
-#include <cstdlib>
+#include <charconv>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -25,6 +26,22 @@ namespace {
 
 constexpr const char* StartFEN =
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+void lowercase_ascii(std::string& value) {
+    for (char& c : value)
+        c = char(std::tolower(static_cast<unsigned char>(c)));
+}
+
+bool parse_i64_exact(std::string_view text, std::int64_t& out) {
+    if (text.empty()) return false;
+    if (text.front() == '+') text.remove_prefix(1);
+    if (text.empty()) return false;
+    std::int64_t parsed = 0;
+    auto result = std::from_chars(text.data(), text.data() + text.size(), parsed, 10);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return false;
+    out = parsed;
+    return true;
+}
 
 Position  pos;
 StateInfo states[MAX_GAME_PLIES];
@@ -194,17 +211,16 @@ Move parse_uci_move(const std::string& input, const Position& p) {
     return Move::none();
 }
 
-bool valid_decimal_field(const std::string& value, unsigned minimum) {
+bool valid_decimal_field(const std::string& value, unsigned minimum, unsigned maximum) {
     if (value.empty()) return false;
     unsigned long long parsed = 0;
     for (unsigned char c : value) {
         if (!std::isdigit(c)) return false;
         const unsigned digit = unsigned(c - '0');
-        const unsigned limit = unsigned(std::numeric_limits<int>::max());
-        if (parsed > (limit - digit) / 10) return false;
+        if (parsed > (maximum - digit) / 10) return false;
         parsed = parsed * 10 + digit;
     }
-    return parsed >= minimum;
+    return parsed >= minimum && parsed <= maximum;
 }
 
 // Validate untrusted GUI input before Position::set(), whose parser assumes a
@@ -217,6 +233,7 @@ bool valid_uci_fen(const std::string& fen) {
         return false;
 
     int rank = 0, file = 0, whiteKings = 0, blackKings = 0;
+    int whitePieces = 0, blackPieces = 0, whitePawns = 0, blackPawns = 0;
     constexpr std::string_view pieces = "PNBRQKpnbrqk";
     for (char c : board) {
         if (c == '/') {
@@ -231,12 +248,18 @@ bool valid_uci_fen(const std::string& fen) {
             if ((rank == 0 || rank == 7) && (c == 'P' || c == 'p')) return false;
             whiteKings += c == 'K';
             blackKings += c == 'k';
+            whitePieces += (c >= 'A' && c <= 'Z');
+            blackPieces += (c >= 'a' && c <= 'z');
+            whitePawns += c == 'P';
+            blackPawns += c == 'p';
             ++file;
         } else {
             return false;
         }
     }
-    if (rank != 7 || file != 8 || whiteKings != 1 || blackKings != 1)
+    if (rank != 7 || file != 8 || whiteKings != 1 || blackKings != 1
+        || whitePieces > 16 || blackPieces > 16
+        || whitePawns > 8 || blackPawns > 8)
         return false;
     if (side != "w" && side != "b") return false;
 
@@ -258,8 +281,18 @@ bool valid_uci_fen(const std::string& fen) {
         if (ep[1] != expectedRank) return false;
     }
 
-    return valid_decimal_field(halfmove, 0)
-        && valid_decimal_field(fullmove, 1);
+    if (!valid_decimal_field(halfmove, 0, 32767)
+        || !valid_decimal_field(fullmove, 1, 100000))
+        return false;
+
+    // Syntax alone still permits impossible positions, for example adjacent
+    // kings or a side that ended its move while its king remained attacked.
+    // Position::set() now safely normalizes EP state, so use the same board
+    // invariants as search before replacing the current GUI position.
+    Position probe;
+    StateInfo probeState{};
+    probe.set(fen, &probeState);
+    return probe.pos_is_ok();
 }
 
 // ---------------------------------------------------------------------------
@@ -404,19 +437,31 @@ void cmd_go(std::istringstream& is) {
     // probe + ThreadPool::start() latency is counted against the move
     // budget (SF18 uci.cpp:204 does the same).
     lim.goStartTime = now();
+    auto read_i64 = [&](std::int64_t& out, std::int64_t minimum, std::int64_t maximum) {
+        std::string argument;
+        std::int64_t parsed = 0;
+        if (is >> argument && parse_i64_exact(argument, parsed))
+            out = std::clamp(parsed, minimum, maximum);
+    };
+    auto read_int = [&](int& out, int minimum, int maximum) {
+        std::int64_t parsed = 0;
+        std::string argument;
+        if (is >> argument && parse_i64_exact(argument, parsed))
+            out = int(std::clamp<std::int64_t>(parsed, minimum, maximum));
+    };
     std::string token;
     while (is >> token) {
-        if      (token == "depth")     is >> lim.depth;
-        else if (token == "movetime")  is >> lim.movetime;
-        else if (token == "wtime")     is >> lim.time[WHITE];
-        else if (token == "btime")     is >> lim.time[BLACK];
-        else if (token == "winc")      is >> lim.inc [WHITE];
-        else if (token == "binc")      is >> lim.inc [BLACK];
-        else if (token == "movestogo") is >> lim.movestogo;
-        else if (token == "nodes")     is >> lim.nodes;
+        if      (token == "depth")     read_int(lim.depth, 1, MAX_PLY - 4);
+        else if (token == "movetime")  read_i64(lim.movetime, 1, std::numeric_limits<int>::max());
+        else if (token == "wtime")     read_i64(lim.time[WHITE], 0, std::numeric_limits<int>::max());
+        else if (token == "btime")     read_i64(lim.time[BLACK], 0, std::numeric_limits<int>::max());
+        else if (token == "winc")      read_i64(lim.inc [WHITE], 0, std::numeric_limits<int>::max());
+        else if (token == "binc")      read_i64(lim.inc [BLACK], 0, std::numeric_limits<int>::max());
+        else if (token == "movestogo") read_int(lim.movestogo, 1, std::numeric_limits<int>::max());
+        else if (token == "nodes")     read_i64(lim.nodes, 1, std::numeric_limits<std::int64_t>::max());
         else if (token == "infinite")  lim.infinite = true;
         else if (token == "ponder")    lim.ponder   = true;
-        else if (token == "mate")      is >> lim.mate;
+        else if (token == "mate")      read_int(lim.mate, 1, MAX_PLY / 2);
         else if (token == "searchmoves") {
             // Each remaining whitespace-separated token until end-of-line is
             // a UCI move string. Push valid ones onto lim.searchMoves; the
@@ -429,7 +474,14 @@ void cmd_go(std::istringstream& is) {
             break;   // searchmoves consumes everything to end of line
         }
         else if (token == "perft")     {
-            int d; is >> d;
+            std::string argument;
+            std::int64_t parsed = 0;
+            if (!(is >> argument) || !parse_i64_exact(argument, parsed)
+                || parsed < 0 || parsed > MAX_PLY) {
+                std::cerr << "info string invalid perft depth ignored\n";
+                return;
+            }
+            const int d = int(parsed);
             TimePoint t0 = now();
             perft_divide(pos, d);
             std::cout << "info string perft " << d << " took " << (now() - t0) << " ms" << std::endl;
@@ -494,19 +546,21 @@ void cmd_setopt(std::istringstream& is) {
 
     auto eq = [&](const char* s) {
         std::string a = name, b = s;
-        std::transform(a.begin(), a.end(), a.begin(), ::tolower);
-        std::transform(b.begin(), b.end(), b.begin(), ::tolower);
+        lowercase_ascii(a);
+        lowercase_ascii(b);
         return a == b;
     };
 
     auto parse_int = [&](int& out) {
-        char* endp = nullptr;
-        long v = std::strtol(value.c_str(), &endp, 10);
-        if (endp != value.c_str()) out = int(v);
+        std::int64_t parsed = 0;
+        if (parse_i64_exact(value, parsed)
+            && parsed >= std::numeric_limits<int>::min()
+            && parsed <= std::numeric_limits<int>::max())
+            out = int(parsed);
     };
     auto parse_bool = [&](bool& out) {
         std::string v = value;
-        std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+        lowercase_ascii(v);
         out = (v == "true" || v == "1" || v == "yes" || v == "on");
     };
 
@@ -570,8 +624,9 @@ void cmd_setopt(std::istringstream& is) {
     }
     else if (eq("SyzygyProbeDepth")) {
         stop_and_wait_search();
-        int d = 1; std::istringstream(value) >> d;
-        Syzygy::set_probe_depth(std::clamp(d, 1, 100));
+        std::int64_t parsed = 0;
+        if (parse_i64_exact(value, parsed))
+            Syzygy::set_probe_depth(int(std::clamp<std::int64_t>(parsed, 1, 100)));
     }
     else if (eq("Syzygy50MoveRule")) {
         stop_and_wait_search();
@@ -580,8 +635,9 @@ void cmd_setopt(std::istringstream& is) {
     }
     else if (eq("SyzygyProbeLimit")) {
         stop_and_wait_search();
-        int n = 7; std::istringstream(value) >> n;
-        Syzygy::set_probe_limit(std::clamp(n, 0, 7));
+        std::int64_t parsed = 0;
+        if (parse_i64_exact(value, parsed))
+            Syzygy::set_probe_limit(int(std::clamp<std::int64_t>(parsed, 0, 7)));
     }
     else if (eq("UCI_Chess960")) {
         // 2026-05-17 audit uci [25]: Chess960 is now genuinely supported.
@@ -646,17 +702,16 @@ void cmd_setopt(std::istringstream& is) {
             while (iss >> tok) {
                 // Type token detection (case-insensitive).
                 std::string lower = tok;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                lowercase_ascii(lower);
                 if (lower == "computer" || lower == "engine" || lower == "bot") {
                     isHuman = false; typeSeen = true;
                 } else if (lower == "human") {
                     isHuman = true;  typeSeen = true;
                 } else if (rating < 0) {
                     // First integer in valid range = rating.
-                    char* endp = nullptr;
-                    long n = std::strtol(tok.c_str(), &endp, 10);
-                    if (endp && *endp == '\0' && n >= 100 && n <= 4000)
-                        rating = int(n);
+                    std::int64_t parsed = 0;
+                    if (parse_i64_exact(tok, parsed) && parsed >= 100 && parsed <= 4000)
+                        rating = int(parsed);
                 }
             }
             // Rated game override: regardless of opponent type, play full
@@ -699,8 +754,15 @@ void cmd_setopt(std::istringstream& is) {
     // the C++ identifiers (e.g. RFP_MARGIN_PER_DEPTH, PassedRank4, ...).
     else if (name.rfind("Tune_", 0) == 0) {
         stop_and_wait_search();
-        int v = 0; std::istringstream(value) >> v;
         std::string knob = name.substr(5);
+        std::int64_t parsed = 0;
+        if (!parse_i64_exact(value, parsed)
+            || parsed < std::numeric_limits<int>::min()
+            || parsed > std::numeric_limits<int>::max()) {
+            std::cerr << "info string Tune_" << knob << ": invalid integer\n";
+            return;
+        }
+        const int v = int(parsed);
         if (Search::set_tunable(knob, v) || Eval::set_tunable(knob, v)) {
             std::cerr << "info string Tune_" << knob << " = " << v << '\n';
         } else {
@@ -710,7 +772,16 @@ void cmd_setopt(std::istringstream& is) {
 }
 
 void cmd_perft(std::istringstream& is) {
-    int depth = 1; is >> depth;
+    int depth = 1;
+    std::string argument;
+    if (is >> argument) {
+        std::int64_t parsed = 0;
+        if (!parse_i64_exact(argument, parsed) || parsed < 0 || parsed > MAX_PLY) {
+            std::cerr << "info string invalid perft depth ignored\n";
+            return;
+        }
+        depth = int(parsed);
+    }
     TimePoint t0 = now();
     perft_divide(pos, depth);
     std::cout << "info string perft " << depth << " took " << (now() - t0) << " ms" << std::endl;
@@ -751,7 +822,16 @@ void cmd_d() { std::cout << pos.pretty() << std::endl; }
 // the cumulative node count and elapsed time.
 void cmd_bench(std::istringstream& is) {
     int depth = 13;
-    is >> depth;
+    std::string argument;
+    if (is >> argument) {
+        std::int64_t parsed = 0;
+        if (!parse_i64_exact(argument, parsed)
+            || parsed < 1 || parsed > MAX_PLY - 4) {
+            std::cerr << "info string invalid bench depth ignored\n";
+            return;
+        }
+        depth = int(parsed);
+    }
     static const char* BenchFENs[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",

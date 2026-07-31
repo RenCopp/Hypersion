@@ -46,6 +46,11 @@ std::string move_to_uci(Move m) {
 }  // namespace
 
 void perft_divide(Position& pos, int depth) {
+    if (depth <= 0) {
+        std::cout << "\nTotal: 1 moves\n";
+        return;
+    }
+
     std::uint64_t total = 0;
     StateInfo st;
     for (Move m : MoveList<LEGAL>(pos)) {

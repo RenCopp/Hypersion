@@ -232,17 +232,39 @@ Position& Position::set(const std::string& fenStr, StateInfo* si) {
     char col = 0, row = 0;
     if ((ss >> col) && col != '-' && (ss >> row)) {
         Square epsq = make_square(File(col - 'a'), Rank(row - '1'));
-        // Only set epSquare if a pawn of the side to move can actually capture there.
-        if (PawnAttacks[~sideToMove][epsq] & pieces(sideToMove, PAWN))
-            st->epSquare = epsq;
+        Square capsq = epsq + (sideToMove == WHITE ? SOUTH : NORTH);
+        Square origin = epsq + (sideToMove == WHITE ? NORTH : SOUTH);
+        Bitboard takers = PawnAttacks[~sideToMove][epsq] & pieces(sideToMove, PAWN);
+
+        // A syntactically valid target is not sufficient.  The opposing pawn
+        // must be on the square it reached by a double push, both traversed
+        // squares must now be empty, and at least one capture must leave our
+        // king safe.  Otherwise move generation would emit a phantom EP move
+        // and do_move() would remove a nonexistent pawn, corrupting bitboards.
+        if (piece_on(epsq) == NO_PIECE
+            && piece_on(capsq) == make_piece(~sideToMove, PAWN)
+            && piece_on(origin) == NO_PIECE) {
+            const Square king = square<KING>(sideToMove);
+            while (takers) {
+                Square from = pop_lsb(takers);
+                Bitboard occ = (pieces() ^ square_bb(from) ^ square_bb(capsq))
+                             | square_bb(epsq);
+                if (!(attacks_bb<ROOK>(king, occ) & pieces(~sideToMove, ROOK, QUEEN))
+                    && !(attacks_bb<BISHOP>(king, occ) & pieces(~sideToMove, BISHOP, QUEEN))) {
+                    st->epSquare = epsq;
+                    break;
+                }
+            }
+        }
     }
     ss >> token;   // skip space
 
     // 5) Half-move clock + 6) full-move counter
     int rule50 = 0, fullmove = 1;
     ss >> std::skipws >> rule50 >> fullmove;
-    st->rule50  = rule50;
-    gamePly = std::max(2 * (fullmove - 1), 0) + (sideToMove == BLACK);
+    st->rule50 = std::clamp(rule50, 0, 32767);
+    fullmove = std::clamp(fullmove, 1, 100000);
+    gamePly = 2 * (fullmove - 1) + (sideToMove == BLACK);
 
     set_state();
     set_check_info();
@@ -485,10 +507,23 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     if (type_of(pc) == PAWN
         && std::abs(int(to) - int(from)) == 16) {
         Square epCandidate = Square((int(from) + int(to)) / 2);
-        // Only set if an enemy pawn can actually capture (Stockfish-style filter).
-        if (PawnAttacks[us][epCandidate] & pieces(them, PAWN)) {
-            st->epSquare = epCandidate;
-            k ^= Zobrist::enpassant[file_of(epCandidate)];
+        Bitboard takers = PawnAttacks[us][epCandidate] & pieces(them, PAWN);
+        const Square king = square<KING>(them);
+        while (takers) {
+            Square epFrom = pop_lsb(takers);
+            Bitboard occ = (pieces() ^ square_bb(epFrom) ^ square_bb(to))
+                         | square_bb(epCandidate);
+            // The just-moved pawn is absent after EP but is still present in
+            // the piece bitboards used by attackers_to(), so mask it out of
+            // the final attacker set.  At least one taker must leave its king
+            // safe before the EP square participates in the position key.
+            Bitboard ourAttackers = attackers_to(king, occ)
+                                  & (pieces(us) ^ square_bb(to));
+            if (!ourAttackers) {
+                st->epSquare = epCandidate;
+                k ^= Zobrist::enpassant[file_of(epCandidate)];
+                break;
+            }
         }
     }
 

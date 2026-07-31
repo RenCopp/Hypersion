@@ -25,6 +25,9 @@ def malformed_fens(rng: random.Random, count: int) -> list[str]:
         "8/8/8/8/8/8/8/K6k w - - -1 1",
         "8/8/8/8/8/8/8/K6k w - - 0 0",
         "8/8/8/8/8/8/8/K6k w - - 999999999999999999999 1",
+        "4k3/8/8/4P3/8/8/8/4K3 w - d6 0 1",
+        "k3r3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+        "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2147483647",
         "P7/8/8/8/8/8/8/K6k w - - 0 1",
     ]
     alphabet = "pnbrqkPNBRQK123456789/x-abcdefghKQ "
@@ -60,7 +63,20 @@ def main() -> int:
         if index % 100 == 0:
             commands.append("this-command-does-not-exist " + "x" * (index % 257))
 
-    commands.extend(("position startpos", "go depth 5", "quit"))
+    commands.extend(
+        (
+            "go perft",
+            "go perft -999999999999999999999",
+            "perft nonsense",
+            "bench -1",
+            "setoption name SyzygyProbeDepth value not-a-number",
+            "setoption name SyzygyProbeLimit value 999999999999999999999",
+            "setoption name Tune_RFP_MARGIN_PER_DEPTH value 999999999999999999999",
+            "position startpos",
+            "go depth 5",
+            "quit",
+        )
+    )
     try:
         result = subprocess.run(
             [str(exe), "--no-nnue-default"],

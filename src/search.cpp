@@ -968,6 +968,10 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     limits = lim;
     tm.init(limits, rootPos.side_to_move(), rootPos.game_ply());
     nodes.store(0);
+    nodeCheckInterval = limits.nodes > 0
+        ? int(std::clamp<std::int64_t>(limits.nodes / 1024, 1, 512))
+        : 512;
+    nodeCheckCountdown = 1;
     selDepth = 0;
     completedDepth = 0;
     stopFlag.store(false);
@@ -1019,7 +1023,20 @@ void Worker::wait_for_finish() { if (th.joinable()) th.join(); }
 bool Worker::should_stop() {
     if (stopFlag.load(std::memory_order_relaxed)) return true;
     if (pool && pool->global_stop().load(std::memory_order_relaxed)) return true;
-    if (limits.nodes && nodes.load() >= std::uint64_t(limits.nodes)) return true;
+    // UCI `go nodes N` is a pool-wide budget.  The previous per-worker
+    // comparison allowed approximately Threads * N nodes while reporting the
+    // combined count, unlike Stockfish/Reckless and GUI expectations.  Only
+    // the main worker performs the relatively expensive pool sum, at an
+    // adaptive cadence; helpers observe the shared stop flag above.
+    if (isMain && limits.nodes > 0 && --nodeCheckCountdown <= 0) {
+        nodeCheckCountdown = nodeCheckInterval;
+        const std::uint64_t searched = pool ? pool->total_nodes()
+                                            : nodes.load(std::memory_order_relaxed);
+        if (searched >= std::uint64_t(limits.nodes)) {
+            if (pool) pool->global_stop().store(true, std::memory_order_relaxed);
+            return true;
+        }
+    }
     // Pondering: search until ponderhit / stop, never on time.
     if (pool && pool->ponder_flag().load(std::memory_order_relaxed)) return false;
     // Only the main worker enforces the clock — helpers run until the main
@@ -1646,7 +1663,15 @@ void Worker::iterative_deepen(Position& pos) {
         }
 
         if (should_stop()) break;
-        if (std::abs(bestScore) >= VALUE_MATE_IN_MAX_PLY) break;
+        if (std::abs(bestScore) >= VALUE_MATE_IN_MAX_PLY) {
+            // A plain search may finish as soon as it proves mate.  For the
+            // UCI `go mate N` limit, however, a farther mate does not satisfy
+            // the request: keep searching until the proven distance is at
+            // most N moves (matching Stockfish's interpretation).
+            const int matePlies = VALUE_MATE - std::abs(bestScore);
+            if (limits.mate == 0 || matePlies <= 2 * limits.mate)
+                break;
+        }
 
         // Track score / bestmove stability for time scaling.
         // Gate on havePrevScore (not d > 1): SMP-helper threads may skip

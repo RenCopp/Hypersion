@@ -4,6 +4,17 @@
 
 ### Correctness and lifecycle
 
+- Normalized FEN and generated en-passant state only when an actual legal
+  capture exists, preventing phantom-pawn board corruption and inconsistent
+  repetition keys for pinned captures.
+- Made NNUE replacement transactional and validate version, architecture,
+  feature-transformer hash, complete payload, and end-of-file before replacing
+  the active network.
+- Made `go nodes N` a pool-wide budget and made `go mate N` honor the requested
+  mate distance. Hardened all UCI numeric parsing, including malformed perft,
+  Syzygy, tuning, FEN-counter, and extreme-value inputs.
+- Removed undefined multidimensional-array traversal from history decay and
+  aligned `perft 0` with the conventional one-leaf result.
 - Fixed active-search deadlocks/races during hash, NNUE, Syzygy, persistence,
   and tuning-option reconfiguration; EOF now stops infinite/ponder searches.
 - Strictly validate six-field FEN input and bound overlong move histories.
@@ -29,7 +40,8 @@
 ### Build and publication
 
 - Version sources now agree on `3.6.0-dev`; the canonical depth-13 signature is
-  `1875591` and is read from `testing/BENCH_SIGNATURE`.
+  `1872788` and is read from `testing/BENCH_SIGNATURE`. The intentional shift
+  is from legal en-passant key normalization.
 - Added warning-free GCC/Clang CI, ASan+UBSan, parser fuzzing, lifecycle/SMP
   sentinels, x86-64 baseline, and compile-only AVX-VNNI/AVX-512 gates.
 - Added five-architecture release packaging with Git/toolchain/UCI/asset

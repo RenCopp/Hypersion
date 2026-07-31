@@ -158,6 +158,8 @@ private:
     SearchLimits         limits;
     TimeManager          tm;
     std::atomic<std::uint64_t> nodes{0};
+    int                   nodeCheckInterval  = 512;
+    int                   nodeCheckCountdown = 1;
 
     std::vector<RootMove> rootMoves;
     int                   selDepth       = 0;

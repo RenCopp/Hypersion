@@ -44,6 +44,39 @@ def run_engine(commands: str, timeout: int = 30) -> str:
     return result.stdout + "\n" + result.stderr
 
 
+def run_until_bestmove(commands: list[str], timeout: int = 30) -> str:
+    """Run an asynchronous UCI search to natural completion before quitting."""
+    proc = subprocess.Popen(
+        [str(ENGINE), "--no-nnue-default"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    assert proc.stdin is not None and proc.stdout is not None
+    for command in commands:
+        proc.stdin.write(command + "\n")
+    proc.stdin.flush()
+    lines: list[str] = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        lines.append(line)
+        if line.startswith("bestmove "):
+            proc.stdin.write("quit\n")
+            proc.stdin.flush()
+            proc.wait(timeout=5)
+            return "".join(lines)
+    proc.kill()
+    proc.wait(timeout=5)
+    raise AssertionError("search did not produce bestmove before timeout")
+
+
 @test("engine starts and responds to uci")
 def t_uci_handshake():
     out = run_engine("uci\nquit\n", timeout=10)
@@ -59,13 +92,9 @@ def t_isready():
 
 @test("perft 4 startpos = 197281")
 def t_perft_startpos():
-    out = run_engine("position startpos\nperft 4\nquit\n")
-    for line in out.splitlines():
-        if line.startswith("Total:"):
-            n = int(line.split()[1])
-            assert n == 197281, f"expected 197281, got {n}"
-            return
-    raise AssertionError("no Total: line in perft output")
+    out = run_engine("position startpos\nperft 0\nperft 4\nquit\n")
+    totals = [int(line.split()[1]) for line in out.splitlines() if line.startswith("Total:")]
+    assert totals == [1, 197281], f"expected [1, 197281], got {totals}"
 
 
 @test("perft 4 kiwipete = 4085603")
@@ -78,6 +107,53 @@ def t_perft_kiwipete():
             assert n == 4085603, f"expected 4085603, got {n}"
             return
     raise AssertionError("no Total: line in perft output")
+
+
+@test("invalid and pinned en-passant targets are normalized")
+def t_en_passant_validation():
+    cases = [
+        # No black pawn exists on d5: the old parser generated e5d6 anyway
+        # and undo_move resurrected a phantom pawn on d5.
+        ("4k3/8/8/4P3/8/8/8/4K3 w - d6 0 1", 6),
+        # The d5 pawn exists, but e5d6 would expose the white king to Re8.
+        ("k3r3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", 6),
+        # Fully valid en passant remains available.
+        ("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", 7),
+    ]
+    commands = "setoption name OwnBook value false\n"
+    for fen, _ in cases:
+        commands += f"position fen {fen}\nperft 1\n"
+    commands += (
+        "position fen k3r3/3p4/8/4P3/8/8/8/4K3 b - - 0 1 moves d7d5\nd\n"
+        "position fen 4k3/3p4/8/4P3/8/8/8/4K3 b - - 0 1 moves d7d5\nd\n"
+    )
+    out = run_engine(commands + "quit\n")
+    totals = [int(line.split()[1]) for line in out.splitlines() if line.startswith("Total:")]
+    assert totals == [expected for _, expected in cases], f"unexpected EP perft totals: {totals}"
+    fens = [line.removeprefix("FEN: ") for line in out.splitlines() if line.startswith("FEN: ")]
+    assert fens[-2].split()[3] == "-", f"pinned EP target survived double push: {fens[-2]}"
+    assert fens[-1].split()[3] == "d6", f"legal EP target was lost: {fens[-1]}"
+
+
+@test("failed NNUE replacement preserves the active network")
+def t_nnue_replacement_is_transactional():
+    big = ROOT / "nn-c288c895ea92.nnue"
+    small = ROOT / "nn-37f18f62d772.nnue"
+    if not big.is_file() or not small.is_file():
+        return  # CI source builds intentionally do not carry network assets.
+    fen = "r1bq1rk1/ppp2ppp/2np1n2/4p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 4 8"
+    out = run_engine(
+        f"position fen {fen}\neval\n"
+        "setoption name EvalFile value does-not-exist.nnue\neval\n"
+        f"setoption name EvalFile value {small}\neval\nquit\n"
+    )
+    values = [
+        int(line.split(":", 1)[1].strip())
+        for line in out.splitlines()
+        if "static eval (cp)" in line
+    ]
+    assert len(values) == 3 and len(set(values)) == 1, f"active NNUE changed: {values}"
+    assert "incompatible architecture" in out, "wrong-architecture network was not rejected"
 
 
 @test("eval startpos returns finite cp")
@@ -123,6 +199,48 @@ def t_determinism_threads1():
                 bests.append(line.split()[1])
                 break
     assert len(set(bests)) == 1, f"non-deterministic: {bests}"
+
+
+@test("go nodes is a pool-wide budget")
+def t_global_node_limit():
+    out = run_until_bestmove(
+        [
+            "uci",
+            "setoption name OwnBook value false",
+            "setoption name Threads value 4",
+            "position startpos",
+            "go nodes 10000",
+        ]
+    )
+    info_nodes = [
+        int(match.group(1))
+        for line in out.splitlines()
+        if (match := re.search(r"^info depth .*\bnodes (\d+)", line))
+    ]
+    assert info_nodes, "node-limited search emitted no completed iteration"
+    # A completed iteration may be below the hard boundary; a small in-flight
+    # overshoot is expected.  The old per-worker bug reported ~37K at T4.
+    assert info_nodes[-1] <= 12000, f"per-thread node budget leak: {info_nodes[-1]}"
+
+
+@test("go mate respects the requested mate distance")
+def t_go_mate_distance():
+    # White has a forced mate in two, but no mate in one.  `go mate 1`
+    # therefore must not stop when the mate-in-two score first appears at d3.
+    out = run_until_bestmove(
+        [
+            "uci",
+            "setoption name OwnBook value false",
+            "position fen 8/8/8/8/3Q4/k7/8/1K6 w - - 0 1",
+            "go mate 1 depth 6",
+        ]
+    )
+    depths = [
+        int(match.group(1))
+        for line in out.splitlines()
+        if (match := re.search(r"^info depth (\d+)", line))
+    ]
+    assert depths and depths[-1] == 6, f"farther mate ended search at depth {depths[-1:]}"
 
 
 @test("bench Threads=1 gives expected total nodes")

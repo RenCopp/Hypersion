@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <type_traits>
 
 #include "types.h"
 
@@ -70,9 +71,14 @@ inline void update_history(int& entry, int bonus) {
 // away strong learned patterns; halving fades them gently).
 template<typename T, size_t N>
 inline void decay_buffer(T (&buf)[N]) {
-    int* p = reinterpret_cast<int*>(&buf[0]);
-    size_t n = sizeof(buf) / sizeof(int);
-    for (size_t i = 0; i < n; ++i) p[i] /= 2;
+    for (auto& element : buf) {
+        if constexpr (std::is_array_v<T>)
+            decay_buffer(element);
+        else {
+            static_assert(std::is_same_v<T, int>);
+            element /= 2;
+        }
+    }
 }
 
 // Butterfly: indexed by [color][from][to].
