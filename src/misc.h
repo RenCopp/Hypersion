@@ -42,11 +42,9 @@ public:
     std::uint64_t sparse_rand() { return rand() & rand() & rand(); }
 };
 
-// Engine metadata — bumped each release.
-// Release policy: only bump version when an A/B match shows >= +200 ELO over
-// the previous release. Until then we run as "<current major>-dev".
+// Engine metadata — bumped for each public release.
 constexpr const char* ENGINE_NAME    = "Hypersion";
-constexpr const char* ENGINE_VERSION = "3.6.0-dev";
+constexpr const char* ENGINE_VERSION = "3.2";
 constexpr const char* ENGINE_AUTHOR  = "RenCopp";
 
 std::string engine_id();

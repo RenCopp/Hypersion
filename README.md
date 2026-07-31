@@ -15,7 +15,7 @@ transposition table, aspiration windows, late-move reductions, singular
 extensions, ProbCut, futility/razoring/SEE pruning, and lazy-SMP
 infrastructure.
 
-> **Project status (v3.6 development):** broad search/move-ordering
+> **Project status (v3.2):** broad search/move-ordering
 > experimentation is paused. The engine is at a local optimum on its
 > current SF18 NNUE network — 9 SPSA campaigns and dozens of tombstoned
 > experiments have explored the remaining parameter regions. The most
@@ -189,7 +189,7 @@ Offset curve (bot plays N ELO below opponent rating):
 
 ## Contributing
 
-Hypersion v3.6 development currently prioritizes correctness, portability,
+Hypersion v3.2 currently prioritizes correctness, portability,
 reproducible releases, and low-cost measured improvements. Large NNUE training
 and telemetry campaigns are deferred because they require substantially more
 compute; they are not prerequisites for contributing useful work.

@@ -1,6 +1,6 @@
 # Hypersion CHANGELOG
 
-## Unreleased v3.6.0-dev — correctness and release reconciliation (2026-07-31)
+## 3.2 — correctness and release reconciliation (2026-07-31)
 
 ### Correctness and lifecycle
 
@@ -39,7 +39,7 @@
 
 ### Build and publication
 
-- Version sources now agree on `3.6.0-dev`; the canonical depth-13 signature is
+- Version sources now agree on `3.2`; the canonical depth-13 signature is
   `1872788` and is read from `testing/BENCH_SIGNATURE`. The intentional shift
   is from legal en-passant key normalization.
 - Added warning-free GCC/Clang CI, ASan+UBSan, parser fuzzing, lifecycle/SMP
