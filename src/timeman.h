@@ -34,6 +34,11 @@ struct SearchLimits {
     // Used by tournament managers / analysis features and OpenBench.
     std::vector<Move> searchMoves;
 
+    // Optional root-ordering hint. Infinite analysis can seed the opening
+    // book's suggestion here without restricting `searchMoves`; every legal
+    // alternative is still searched.
+    Move preferredRootMove = Move::none();
+
     // Skill / strength tuning (Stockfish-style). 20 = full strength;
     // lower values cap depth and add move-selection noise.
     int     skillLevel    = 20;
@@ -43,7 +48,7 @@ struct SearchLimits {
     int     moveOverhead  = 30;       // ms reserved for GUI / network jitter
     int     contempt      = 0;        // cp added to draw eval (positive = avoid draw)
     bool    showWDL       = false;    // emit `wdl W D L` per-iteration
-    bool    analyseMode   = false;    // UCI_AnalyseMode: reduce pruning for thoroughness
+    bool    analyseMode   = false;    // auto for `go infinite`: reduce pruning for thoroughness
 
     // 1-indexed counter of own-search moves this game. Set by uci.cpp
     // (g_ownSearchesThisGame) before Search::Threads.start(). Book hits

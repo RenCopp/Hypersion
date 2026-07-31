@@ -1010,6 +1010,17 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
         RootMove rm; rm.pv0 = m; rm.pv.moves[0] = m; rm.pv.length = 1;
         rootMoves.push_back(rm);
     }
+
+    // A book suggestion during analysis is an ordering hint, not a forced
+    // move. Search it first at the initial iteration, then let measured root
+    // scores determine normal ordering at deeper iterations.
+    if (limits.preferredRootMove != Move::none()) {
+        auto preferred = std::find_if(rootMoves.begin(), rootMoves.end(), [&](const RootMove& rm) {
+            return rm.pv0 == limits.preferredRootMove;
+        });
+        if (preferred != rootMoves.end())
+            std::iter_swap(rootMoves.begin(), preferred);
+    }
 }
 
 void Worker::launch() {

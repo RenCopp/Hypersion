@@ -82,6 +82,9 @@ def t_uci_handshake():
     out = run_engine("uci\nquit\n", timeout=10)
     assert "uciok" in out, "missing uciok"
     assert "Hypersion" in out, "missing engine id"
+    assert "option name UCI_AnalyseMode" not in out, (
+        "analysis mode should be inferred from `go infinite`, not exposed as a checkbox"
+    )
 
 
 @test("isready / readyok")
