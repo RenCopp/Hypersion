@@ -158,13 +158,16 @@ ChessBase, Scid, Fritz, …) will drive it.
 | `Skill Level` | 20 | 0–20 | weaker play at low values |
 | `UCI_LimitStrength` | false | check | enable Elo limiting |
 | `UCI_Elo` | 1500 | 500–3300 | target rating when limit-strength is on |
-| `UCI_AnalyseMode` | false | check | hint that the GUI is analysing, not playing |
 | `UCI_Opponent` | empty | string | opponent info from GUI (`<title> <rating> <type> <name>`) |
 | `UCI_MatchOpponent` | false | check | auto-match opponent ELO (offset curve, see below) |
 | `UCI_GameRated` | false | check | per-game rated/casual flag (set by lichess-bot) |
 | `UCI_GameTournament` | false | check | per-game tournament flag — when true, ELO matching applies even in rated games |
 | `Move Overhead` | 30 | spin | ms reserved for GUI / network latency |
 | `Contempt` | 0 | −200 to 200 | draw aversion |
+
+Analysis mode is automatic: a GUI's standard `go infinite` command bypasses
+the opening book and enables Hypersion's more thorough analysis search. No
+separate `UCI_AnalyseMode` checkbox is required.
 
 The opponent-matching behavior with `UCI_MatchOpponent=true`:
 

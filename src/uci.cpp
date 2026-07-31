@@ -58,7 +58,11 @@ struct {
     int  uciElo       = 1500;
     bool ownBook      = true;
     bool bookBest     = false;
-    bool analyseMode  = false;
+    // Backward-compatible override for older GUIs/scripts that still send
+    // UCI_AnalyseMode. It is intentionally not advertised: `go infinite`
+    // now selects analysis behavior automatically, as Stockfish-style GUIs
+    // expect.
+    bool analyseModeOverride = false;
     bool showWDL      = false;
     int  contempt     = 0;
     bool ponder       = false;       // UCI Ponder mode (think on opponent's clock).
@@ -336,7 +340,6 @@ void cmd_uci() {
               << "option name Skill Level type spin default 20 min 0 max 20\n"
               << "option name UCI_LimitStrength type check default false\n"
               << "option name UCI_Elo type spin default 1500 min 500 max 3300\n"
-              << "option name UCI_AnalyseMode type check default false\n"
               << "option name UCI_ShowWDL type check default false\n"
               << "option name Contempt type spin default 0 min -200 max 200\n"
               // Opponent-aware play: declaring UCI_Opponent makes lichess-bot
@@ -496,12 +499,16 @@ void cmd_go(std::istringstream& is) {
     lim.moveOverhead  = Options.moveOverhead;
     lim.contempt      = Options.contempt;
     lim.showWDL       = Options.showWDL;
-    lim.analyseMode   = Options.analyseMode;
+    // `go infinite` is the standard GUI analysis command. Automatically use
+    // the thorough analysis search and bypass the opening book, so users do
+    // not need a separate UCI_AnalyseMode checkbox. Keep the hidden legacy
+    // override for scripts that request analysis on a finite-depth search.
+    lim.analyseMode   = lim.infinite || Options.analyseModeOverride;
     lim.ponderEnabled = Options.ponder;
 
     // Try the opening book first — but never when in analyse mode (the GUI
     // wants the engine's actual evaluation, not a pre-canned book reply).
-    if (Options.ownBook && !Options.analyseMode && Book::is_open()) {
+    if (Options.ownBook && !lim.analyseMode && Book::is_open()) {
         Move bm = Book::probe(pos, Options.bookBest);
         if (bm != Move::none()) {
             // Book hit: don't increment own-search counter (we didn't search).
@@ -657,7 +664,10 @@ void cmd_setopt(std::istringstream& is) {
     else if (eq("UCI_Elo"))        { parse_int(Options.uciElo);
                                      // 2026-05-17 finding #9: declared max is 3300, was clamping to 3200.
                                      Options.uciElo = std::clamp(Options.uciElo, 500, 3300); }
-    else if (eq("UCI_AnalyseMode")) parse_bool(Options.analyseMode);
+    // Hidden compatibility alias. Modern GUIs should simply send
+    // `go infinite`, but accepting the old option keeps local analysis tools
+    // and older GUI profiles working.
+    else if (eq("UCI_AnalyseMode")) parse_bool(Options.analyseModeOverride);
     else if (eq("UCI_ShowWDL"))     parse_bool(Options.showWDL);
     else if (eq("Contempt"))       { parse_int(Options.contempt);
                                      Options.contempt = std::clamp(Options.contempt, -200, 200); }

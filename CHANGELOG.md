@@ -1,5 +1,12 @@
 # Hypersion CHANGELOG
 
+## Unreleased
+
+- Made `go infinite` automatically bypass the opening book and enable the
+  thorough analysis search. `UCI_AnalyseMode` is no longer advertised as a
+  checkbox, matching Stockfish-style GUI behavior; the old `setoption` command
+  remains accepted as a hidden compatibility override for finite searches.
+
 ## 3.2 — correctness and release reconciliation (2026-07-31)
 
 ### Correctness and lifecycle
