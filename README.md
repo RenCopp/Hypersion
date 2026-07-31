@@ -29,9 +29,9 @@ infrastructure.
 > grew from 14 to 145 tunable scalars across 16 feature rounds
 > (Mop-up, OCB scaling, Initiative bonus, KBNK mating, drawish-endgame
 > scaling, KPK bitbase, plus 9 other feature blocks). Best WAC depth-8
-> tactical: **184/198 (92.9%)**. Historical results remain documented in
-> `testing/IMPROVEMENTS_LOG.md`; the current deterministic T1 depth-13
-> signature is tracked in `testing/BENCH_SIGNATURE`.
+> tactical: **184/198 (92.9%)**. Historical experiment notes remain local
+> and ignored; the deterministic T1 depth-13 signature needed by CI is
+> tracked in `testing/BENCH_SIGNATURE`.
 
 ## Features
 
@@ -219,7 +219,7 @@ Hypersion/
 ├── src/                  C++ engine source
 │   └── fathom/           bundled Syzygy probe (Fathom)
 ├── tools/tuner/          Texel-style tuner for classical eval
-├── testing/              cutechess-cli launchers (edit paths to your env)
+├── testing/              minimal portable CI validation harness
 ├── docs/                 build + NNUE-download guides
 ├── .github/workflows/    CI build job
 ├── Makefile

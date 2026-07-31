@@ -85,22 +85,28 @@ compile_commands.json
 # keep generated match data,
 # local paths, large suites, tuning inputs, and experiments private.
 testing/*
-!testing/README.md
-!testing/PROTOCOL.md
 !testing/test_smoke.py
 !testing/test_uci_lifecycle.py
 !testing/test_smp_soak.py
 !testing/test_uci_fuzz.py
-!testing/test_thread_scaling.py
 !testing/timeman_test.cpp
-!testing/test_endgame_conversion.py
-!testing/regression.py
-!testing/sprt.py
 !testing/BENCH_SIGNATURE
 tmp_*.txt
 bot_v*.log
 bot_v*.err
 lichess_games/
+
+# AI-agent configuration and historical development plans are local working
+# material, not part of the engine source or release.
+.claude/
+CLAUDE.md
+AUDIT.md
+HYPERSION_MASTER_ROADMAP.md
+IMPROVEMENT_PLAN.md
+PLAN_V3.2.md
+RETUNE_PLAN.md
+TOMBSTONE_RETEST_PLAN.md
+docs/AUDIT-*.md
 
 # Historical local experiment notes (not part of the public engine source).
 DIAGNOSTIC_v3.1_LTC.md

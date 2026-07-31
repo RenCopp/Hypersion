@@ -1,9 +1,8 @@
 # Contributing to Hypersion
 
 Thanks for the interest. This document describes how to build, test,
-and propose changes to Hypersion. Read `CLAUDE.md` at the repo root
-for the agent-oriented overview and `testing/PROTOCOL.md` for the
-SPRT testing rules.
+and propose changes to Hypersion. Historical agent notes, experiment plans,
+large suites, and tournament harnesses are intentionally kept local.
 
 ## Quick start (build)
 
@@ -22,7 +21,7 @@ deterministic node count. The current T1 depth-13 baseline is stored in
 
 - `src/` — engine (UCI, search, eval, NNUE, syzygy, book, ...)
 - `tools/tuner/` — Texel-style classical-eval tuner + PGN-to-positions extractor
-- `testing/` — tracked smoke/regression harness plus locally ignored large suites and results
+- `testing/` — minimal CI smoke/lifecycle/SMP/fuzz harness; other experiments are local
 - `.github/workflows/` — CI (Build + CodeQL)
 - `src/fathom/` — vendored Syzygy probe library (BSD, basil00/Fathom)
 
@@ -40,8 +39,8 @@ deterministic node count. The current T1 depth-13 baseline is stored in
    available, `py testing/wac_runner.py --depth 8 --no-nnue` solves ≥ 178/198
    (current baseline is 184). This is not a clone/CI prerequisite.
 5. **SPRT** for any ELO-affecting search change: 200 games at TC
-   5+0.05 conc=2 vs the immediate previous release.
-   See `testing/PROTOCOL.md` for the full protocol.
+   5+0.05 conc=2 vs the immediate previous release. Match harnesses, PGNs,
+   and analysis logs stay ignored because they are environment-specific.
 
 ## Tombstoning failed experiments
 
