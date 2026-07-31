@@ -33,7 +33,10 @@ inline Value piece_value_simple(PieceType pt) {
 // 2026-05-17 audit #6.3: split-quiet threshold (mirrors SF18
 // movepick.cpp:210 `goodQuietThreshold = -14000`). Hypersion's quiet
 // scores have comparable range (butterfly + contHist + threat bonus).
-// Future SPSA-tunable if behaviour regresses.
+// 2026-05-19 RETROACTIVELY SPRT-VALIDATED AS NEUTRAL: tested disabling
+// the split (threshold = INT_MIN/2, all quiets emit from GOOD_QUIET) at
+// 400g 5+0.05 vs v3.0: +0.9 +/- 26.0 ELO (117W-116L-167D). The split
+// adds no measurable ELO at bullet but matches SF18 structure — kept.
 constexpr int GOOD_QUIET_THRESHOLD = -14000;
 }  // namespace
 
@@ -61,8 +64,7 @@ MovePicker::MovePicker(const Position& p,
       killer0(killers ? killers[0] : Move::none()),
       killer1(killers ? killers[1] : Move::none()),
       prevMv(pm),  prevMv2(pm2),
-      prevPc(pp),  prevPc2(pp2),
-      depth(d) {
+      prevPc(pp),  prevPc2(pp2) {
     stage = pos.checkers() ? EVASION_TT : MAIN_TT;
     if (ttm != Move::none() && !pos.pseudo_legal(ttm)) ttMove = Move::none();
     if (ttMove == Move::none()) ++stage;   // skip *_TT stages
@@ -81,8 +83,7 @@ MovePicker::MovePicker(const Position& p,
       contHist1(contHist), contHist2(contHist2_),
       ttMove(ttm),
       prevMv(pm),  prevMv2(pm2),
-      prevPc(pp),  prevPc2(pp2),
-      depth(qd) {
+      prevPc(pp),  prevPc2(pp2) {
     // When in check, we must look at every evasion (not just captures), otherwise
     // we'd accept moves that don't resolve the check.
     if (pos.checkers()) {
@@ -100,6 +101,8 @@ MovePicker::MovePicker(const Position& p,
 // Scoring
 // ---------------------------------------------------------------------------
 void MovePicker::score_captures() {
+    // 2026-05-19 T4 REJECT: defender-status indexing tested neutral after
+    // clean rebuild (0.0 +/- 38.9 ELO @ 200g). See history.h tombstone.
     for (auto* it = cur; it != endMoves; ++it) {
         Move m = it->move;
         PieceType victim = type_of(pos.piece_on(m.to_sq()));
@@ -175,6 +178,7 @@ void MovePicker::score_quiets() {
         // default; SPSA-tunable in future.
         if (tsHist && tsSq != 64)
             v += tsHist->get(us, tsSq, m.from_sq(), m.to_sq()) / 2;
+        // 2026-05-19 T3 REJECT: rootHist read at 4x weight removed.
         Piece moving = pos.piece_on(m.from_sq());
         PieceType pt = type_of(moving);
         if (useCont1) v += contHist1->get(prevPc, prevMv.to_sq(), moving, m.to_sq()) * cont1W / 100;
@@ -301,6 +305,8 @@ top:
             return killer1;
         [[fallthrough]];
 
+    // 2026-05-19 T2 REJECT: dedicated COUNTERMOVE stage tested neutral
+    // (+1.7 +/- 38.5 ELO @ 200g). See tombstone in movepick.h.
     case QUIET_INIT:
         if (skipQuiets) { stage = BAD_CAPTURE; goto top; }
         cur = endMoves = movesBuf;

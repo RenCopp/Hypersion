@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <type_traits>
 
 #include "types.h"
 
@@ -70,9 +71,14 @@ inline void update_history(int& entry, int bonus) {
 // away strong learned patterns; halving fades them gently).
 template<typename T, size_t N>
 inline void decay_buffer(T (&buf)[N]) {
-    int* p = reinterpret_cast<int*>(&buf[0]);
-    size_t n = sizeof(buf) / sizeof(int);
-    for (size_t i = 0; i < n; ++i) p[i] /= 2;
+    for (auto& element : buf) {
+        if constexpr (std::is_array_v<T>)
+            decay_buffer(element);
+        else {
+            static_assert(std::is_same_v<T, int>);
+            element /= 2;
+        }
+    }
 }
 
 // Butterfly: indexed by [color][from][to].
@@ -84,7 +90,44 @@ struct ButterflyHistory {
     void update(Color c, Move m, int bonus) { update_history(data[c][m.from_sq()][m.to_sq()], bonus); }
 };
 
+// 2026-05-19 T3 REJECT (-5.2 +/- 39.1 ELO @ 200g 5+0.05): tested
+// Alexandria-style root-only history `int data[COLOR_NB][64*64]` updated
+// ONLY at ply==0 on quiet cutoffs (bonus to bestMove, malus to other
+// quiets) and read in score_quiets at root with weight 4x. Result was
+// statistically a noise reject (64W-67L-69D, point -5.2). Classic 30g
+// fakeout pattern: 30g triage returned +70.4 +/- 86.4 ELO (10W-4L-16D)
+// but the gain evaporated at 200g — see CLAUDE.md PROTOCOL.md "30g
+// fakeout pattern" warning. Likely cause: Hypersion's root-iteration
+// already has TT-cached PV ordering across iterations (carried via the
+// hash table), so a separate rootHist table duplicates signal already
+// captured by TT + contHist1 at root. Source consulted:
+// C:\Engine\Engines\Alexandria-master\Alexandria-master\src\threads.h:63
+// (table), history.cpp:69-73 (update), history.cpp:221,232 (read x4),
+// history.cpp:128-129,138 (update sites).
+//   struct RootHistory {
+//     int data[COLOR_NB][SQUARE_NB * SQUARE_NB] = {};
+//     ...same gravity update/read as ButterflyHistory...
+//   };
+
 // Capture history: [piece moved][to-square][captured piece type].
+// 2026-05-19 T4 REJECT (0.0 +/- 38.9 ELO @ 200g 5+0.05, clean rebuild):
+// tested Berserk-style 4D `data[PIECE_NB][SQUARE_NB][2][PIECE_TYPE_NB]`
+// where the new `[defended]` dim is 1 when enemy does NOT attack the
+// destination (clean capture) and 0 when enemy attacks `to` (SEE-vuln).
+// First measurement showed +45.4 +/- 39.7 ELO @ 200g but that was a
+// STALE INCREMENTAL BUILD — adding a struct field changes ABI and some
+// .o files weren't re-linked; clean rebuild (after `make clean`) reversed
+// sign to 0.0 net. CLAUDE.md PROTOCOL.md warns: "Adding new struct fields
+// to eval_params.h (etc.) changes the binary ABI. Incremental make may
+// NOT relink all object files." Same applies to history.h struct edits.
+// Source consulted: C:\Engine\Engines\berserk-main\berserk-main\src\types.h:201,
+// history.c:55-60 (update), history.h:36-43 (read with !threatened mask).
+// Future contributors: do not re-test in isolation — Hypersion's existing
+// 3D captureHist + threat-by-lesser move-ordering already captures the
+// SEE-vulnerability signal that defender-status would add. Joint SPSA
+// re-tune of capture-history magnitudes would be required for a
+// fundamentally different result. ALWAYS `make clean && make -j` before
+// SPRT after struct dimension changes.
 struct CaptureHistory {
     int data[PIECE_NB][SQUARE_NB][PIECE_TYPE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
@@ -188,8 +231,24 @@ struct CounterMoveTable {
 // Indexed by side-to-move and a 14-bit pawn-key fragment so positions with the
 // same pawn structure share a slot. Capped to keep noise bounded.
 struct CorrectionHistory {
-    static constexpr int SIZE = 1 << 14;          // 16384 buckets
-    static constexpr int CORR_MAX = 256;          // soft cap on stored adjustment (cp * 256)
+    // ── R51 expansion attempts to Berserk's 17-bit table size ──
+    // R51  (NNUE on  vs HEAD pre-R52/53):  -9.5 +/- 27 ELO @ 400g  REJECT
+    // R51b (no NNUE  vs HEAD post-R52/53): +3.5 +/- 37 ELO @ 200g  marginal
+    //
+    // NNUE is masking ~+13 ELO of latent table-size benefit, but net is
+    // still negative with NNUE on (Hypersion's shipping config). The 17-bit
+    // table needs joint tuning with Hypersion's NNUE eval distribution +
+    // corrhist update rate to extract the masked ELO -- not a simple port.
+    // Source: Berserk PAWN_CORR_SIZE=131072 in history.h.
+    static constexpr int SIZE = 1 << 14;          // 16384 buckets (kept)
+    // 2026-05-19 TC-gated corrhist: storage cap remains 256 cp (compatible
+    // with pre-v3.2 binaries), but READ-time clamping is TC-conditional.
+    // At bullet (tm.optimum() < 500ms) the read cap is 128cp (tested +48 ELO
+    // combined 400g 5+0.05); at longer TCs the read cap stays at 256cp (no
+    // change). Per v3.1 release notes Tier 2 v2: TC-gating is the right
+    // pattern when an effect helps bullet but hurts LTC. See
+    // DIAGNOSTIC_v3.1_LTC.md for the corrhist overestimation hypothesis.
+    static constexpr int CORR_MAX = 256;          // storage cap (cp * 256)
     int data[COLOR_NB][SIZE] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
     int idx(std::uint64_t pawnKey) const { return int(pawnKey & (SIZE - 1)); }
@@ -203,10 +262,31 @@ struct CorrectionHistory {
         if (slot >  CORR_MAX * 256) slot =  CORR_MAX * 256;
         if (slot < -CORR_MAX * 256) slot = -CORR_MAX * 256;
     }
-    // Apply correction to a raw static eval.
+    // 2026-05-19 TC-gated update: clamp the EMA-updated value to a runtime
+    // cap maxCp * 256 (smaller than the constexpr CORR_MAX*256 storage cap).
+    // At bullet TC, callers pass maxCp=128 — both storage and read behave
+    // as if CORR_MAX were 128, matching the SPRT-validated bullet-only port
+    // (+48 ELO @ 400g 5+0.05).
+    void update_capped(Color c, std::uint64_t pawnKey, int diff, int weight, int maxCp) {
+        int& slot = data[c][idx(pawnKey)];
+        slot = (slot * (256 - weight) + diff * weight) / 256;
+        int cap = maxCp * 256;
+        if (slot >  cap) slot =  cap;
+        if (slot < -cap) slot = -cap;
+    }
+    // Apply correction to a raw static eval (full storage cap).
     Value adjust(Color c, std::uint64_t pawnKey, Value rawEval) const {
         if (rawEval == VALUE_NONE) return rawEval;
         int corr = data[c][idx(pawnKey)] / 256;
+        return Value(rawEval + corr);
+    }
+    // Apply correction with a runtime cap (TC-gated). Used in v3.2+: bullet
+    // passes 128 cp, longer TCs pass 256 (== storage cap, no-op).
+    Value adjust_capped(Color c, std::uint64_t pawnKey, Value rawEval, int capCp) const {
+        if (rawEval == VALUE_NONE) return rawEval;
+        int corr = data[c][idx(pawnKey)] / 256;
+        if (corr >  capCp) corr =  capCp;
+        if (corr < -capCp) corr = -capCp;
         return Value(rawEval + corr);
     }
     // Prefetch the corr-history slot. Called right after do_move so the entry
@@ -340,6 +420,14 @@ struct ThreatSquareHistory {
 // Memory: PIECE_NB × SQUARE_NB × PIECE_NB × SQUARE_NB × sizeof(int16) =
 // 16 × 64 × 16 × 64 × 2 = 2,097,152 bytes ≈ 2 MB per thread.
 struct ContCorrHist {
+    // 2026-05-19: int16_t-overflow "bug" at CORR_MAX=256 is INTENTIONAL-by-test.
+    // Tested the "obvious fix" (CORR_MAX=127, safe int16_t range) at 400g 5+0.05
+    // vs v3.2 baseline: -10.4 +/- 26.3 ELO (REGRESSED). The wrap-around at
+    // saturation acts as a built-in randomization/diversification of the
+    // strongest corrhist signals; cleanly clamping at int16_t-safe ±127 makes
+    // the engine WORSE at bullet by ~10 ELO. Keeping the existing (technically
+    // overflow-y) clamp at ±256*256 — slot=int16_t(v) wraps on edge cases but
+    // shipped Hypersion (v3.1, v3.2) relies on the behavior. DO NOT "fix".
     static constexpr int CORR_MAX = 256;          // soft cap on stored adjustment (cp * 256)
     int16_t data[PIECE_NB][SQUARE_NB][PIECE_NB][SQUARE_NB] = {};
     void clear() { std::memset(data, 0, sizeof(data)); }
@@ -355,9 +443,31 @@ struct ContCorrHist {
         if (v < -CORR_MAX * 256) v = -CORR_MAX * 256;
         slot = int16_t(v);
     }
+    // 2026-05-19 TC-gated update: clamp EMA-updated value to a runtime cap.
+    // See CorrectionHistory::update_capped() for rationale.
+    // Note: ContCorrHist data is int16_t — so callers should pass maxCp <= 127
+    // (because int16_t range = -32768..+32767, /256 gives effective ±127).
+    void update_capped(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo,
+                       int diff, int weight, int maxCp) {
+        int16_t& slot = data[outerPc][outerTo][innerPc][innerTo];
+        int v = (int(slot) * (256 - weight) + diff * weight) / 256;
+        int cap = maxCp * 256;
+        if (cap > int(CORR_MAX) * 256) cap = int(CORR_MAX) * 256;
+        if (v >  cap) v =  cap;
+        if (v < -cap) v = -cap;
+        slot = int16_t(v);
+    }
     // Apply correction (in cp). Returns the cp delta to add to rawEval.
     int corr_cp(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo) const {
         return int(data[outerPc][outerTo][innerPc][innerTo]) / 256;
+    }
+    // TC-gated read: clamp the cp delta to [-capCp, +capCp] at read time.
+    // See CorrectionHistory::adjust_capped() for rationale.
+    int corr_cp_capped(Piece outerPc, Square outerTo, Piece innerPc, Square innerTo, int capCp) const {
+        int v = int(data[outerPc][outerTo][innerPc][innerTo]) / 256;
+        if (v >  capCp) v =  capCp;
+        if (v < -capCp) v = -capCp;
+        return v;
     }
     void halve() {
         int16_t* p = &data[0][0][0][0];

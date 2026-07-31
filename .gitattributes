@@ -1,0 +1,20 @@
+# Keep legacy engine-source line endings untouched; normalize the portable
+# project metadata and test harness where cross-platform churn is common.
+src/search.cpp -text whitespace=cr-at-eol
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+Makefile text eol=lf
+
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+*.bin  binary
+*.nnue binary
+*.exe  binary
+*.zip  binary
+*.gz   binary
+*.pgn  binary

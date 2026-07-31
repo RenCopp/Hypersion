@@ -85,6 +85,122 @@ coupling** means:
 
 Tombstones in NNUE-on tests are the correct measurement for Hypersion.
 
+### Rule 2.2 — `make clean && make -j` before SPRT after struct layout changes
+Any edit that changes the dimensions or fields of a struct in a HEADER
+(`src/history.h`, `src/search.h::Worker`, `src/movepick.h::MovePicker`,
+`src/eval_params.h`, etc.) MUST be followed by `make clean && make -j`
+BEFORE running SPRT. Incremental `make -j` does NOT relink all `.o` files
+that reference the struct, producing a binary where some translation
+units use the OLD layout and some use the NEW layout — internally
+inconsistent, often giving spurious +30 to +90 ELO at bullet that
+disappears under clean rebuild.
+
+Verified empirically 2026-05-19: T4 (CaptureHistory dimension `[12][64][7]`
+→ `[12][64][2][7]`) showed +45.4 +/- 39.7 ELO at 200g in incremental
+build, then 0.0 +/- 38.9 ELO at 200g after `make clean`. Same source
+code. Stale build was deterministic across processes (bench at Threads=1
+matched run-to-run) but produced a corrupt-but-internally-consistent
+binary. The bench-determinism test alone CANNOT detect this — only
+clean rebuild can.
+
+Function-body-only changes inside .cpp files (no header struct edits)
+do NOT need `make clean` — incremental is safe there.
+
+### Rule 2.3 — Scale-correct any literal threshold/margin from another engine
+
+When porting a heuristic that compares an eval-magnitude value against a
+literal threshold (`eval >= 155`, `complexity > 50`, `staticEval - 75·d`,
+margin constants, etc.), the literal **MUST be scaled** to Hypersion's
+eval magnitude BEFORE the first SPRT. Direct literal copies regress
+because Hypersion runs at a different internal scale than every reference
+engine.
+
+**Hypersion vs reference-engine eval scales** (measured 2026-05-20 via
+`RFP_MARGIN_PER_DEPTH` ratio):
+
+| Reference engine | RFP margin per depth | Ratio to Hypersion |
+|---|---|---|
+| Hypersion | 240 | 1.00x (reference) |
+| Stockfish 18 | 80 | 0.33x — multiply SF literals by 3.0 |
+| Alexandria | 75 | 0.31x — multiply Alex literals by 3.2 |
+| Berserk | 83 | 0.35x — multiply Berserk literals by 2.9 |
+| Obsidian | 87 | 0.36x — multiply Obs literals by 2.75 |
+| RubiChess | 39 | 0.16x — multiply Rubi literals by **6.2** (corrected 2026-05-21) |
+
+Update these ratios if Hypersion's RFP margin changes.
+
+**What needs scaling vs what does NOT:**
+
+| Quantity | Scale-correct? | Notes |
+|---|---|---|
+| Static-eval thresholds in cp | YES | `eval >= X`, `staticEval - K·d ≥ β`, hindsight thresholds, futility margins |
+| History bonuses / penalties | NO | Hypersion has its own bonus formula; needs separate retune |
+| Reduction amounts (`r += 1`) | NO | Integer ply counts; engine-independent |
+| Depth gates (`depth >= N`) | NO | Ply counts |
+| Ratios / percentages (e.g. `100·|delta|/|eval|`) | SOMETIMES | Formula is scale-invariant but the threshold may not be if a related cap (e.g. corrhist max) differs |
+| Hash table sizes (corrhist, history) | NO directly, but BEWARE | Larger tables interact with corrhist update rate and the NNUE eval distribution; may need joint re-tune |
+
+**Sweep procedure when porting a thresholded heuristic:**
+
+1. Compute scale-corrected starting value: `port_value = ref_value * 3.2`
+   (or appropriate ratio per the table above).
+2. SPRT 200g at the starting value.
+3. If positive: SHIP candidate.
+4. If marginal (in [+5, +10] band): sweep up by 1.4x, 2x.
+5. If negative: sweep down by 0.5x, 0.7x.
+6. Take the peak; ship if ≥ +10 ELO @ 400g cumulative.
+
+**Documented success (2026-05-20):** R52 complexity-aware LMR + R53
+hindsight reduction were both originally rejected at Alexandria's literal
+thresholds (−9.5 and −36.6 ELO respectively). Scale-correcting the
+thresholds unlocked +19.1 and +13.9 ELO respectively at 400g — combined
++33 ELO at bullet TC.  Source: src/search.cpp commits 265fe39 + 01cad41.
+
+**Debugging hint for future negative ports:** if a ported heuristic returns
+between −5 and −50 ELO at 200g, scale-mismatch is the first hypothesis to
+check. Re-run with the threshold multiplied by Hypersion's ratio (3.0-3.2x
+for SF/Alex/Berserk/Obs/Rubi). The 30g result often INVERTS sign under
+correct scaling.
+
+### Rule 2.4 — Cross-engine port failure-pattern catalog
+
+When a ported heuristic regresses, the first hypothesis after Rule 2.3
+(scale-mismatch) should be one of the patterns below. Each is grounded
+in a documented Hypersion tombstone.
+
+| Pattern | Symptom | Diagnostic check | Example tombstones |
+|---|---|---|---|
+| **A. Scale-mismatch** | Hypersion-eval thresholds copied as literals from source engine | Compare `RFP_MARGIN_PER_DEPTH` (or pawn-value) ratio; multiply thresholds | R52, R53 (both FIXED, +33 ELO) |
+| **B. Feature redundancy** | Hypersion already has an equivalent feature in a different form | grep eval_params.h / movepick.cpp / search.cpp for similar code | R39 ThreatByPawnPush (redundant w/ R16); R43 BishopDefByPawn; R44 RookBehindPasser |
+| **C. Wrong sign / direction** | Port applies +1 where source applies -1 or vice-versa | Re-read source line carefully; both directions may exist in different engines | SF18 priorReduction +1ply rejected (-120 ELO); Alexandria's same-area hindsight -1ply works (+14 ELO) |
+| **D. Wrong formula structure** | Port implements subtractive where source uses multiplicative, or vice versa | Fetch raw source via WebFetch; verify expression shape, not just constants | corrhist-RFP port (subtract corrhist/N; SF actually uses (40 - \|corr\|/131072) multiplier) |
+| **E. Pruning gate damping** | Port reduces or shifts staticEval, weakening downstream gates | Trace which gates read `staticEval` after the change; check RFP/NMP/futility fire-rate | Berserk FMR damping `(200-rule50)/200 · eval` (-24 ELO) |
+| **F. Reduction stacking** | Adding +ply reduction to existing reduction-heavy paths over-prunes | Sum maximum reductions across cutoffCnt/ttCapture/LMR/etc; cap shouldn't exceed depth−2 | SF18 ttCapture +1 ply stacking on cutoffCnt +1..+2 (-17 ELO) |
+| **G. NNUE masking** | Feature shows different sign with NNUE on vs off | Re-test with `sprt.py --no-nnue`; if positive without, NNUE eval distribution is hiding latent value | R51 17-bit corrhist (NNUE on -9.5; NNUE off +3.5; net still negative for shipping) |
+| **H. Local-optimum disruption** | Multiple magnitudes all regress in same band; Hypersion's tuned alt already extracts the signal | sweep ≥4 magnitudes; if all in [-50, +5] band with no peak, feature truly conflicts | PawnHistory 4 weights all rejected; LowPlyHistory+6-deep contHist bundle |
+| **I. Insufficient sample size** | First 200g positive, second 200g negative, pooled neutral | Always re-run a [+5, +50] result; treat as inconclusive until 400-800g | corrhist-RFP /1024 (run 1 +10.4, run 2 −23.5, pooled −6.5) |
+| **J. Interior sweep-point fakeout** | Sweep peak is in [+5, +50] with no clear monotonic trend | 6 of 7 tested showed first-200g positive collapse at 200-400g extension | Multiple v25-v32 SPSA-extracted tunables |
+
+**Diagnostic workflow when a port regresses:**
+
+1. **Scale check (Rule 2.3)**: is the threshold a cp-magnitude literal from
+   another engine?
+2. **Redundancy check (B)**: grep the codebase for similar feature names
+   already in Hypersion. If a similar feature exists with `Round N` comment
+   in `eval_params.h`, the new port likely double-counts.
+3. **Source verification (D)**: WebFetch the EXACT source line; ports done
+   from skill reference notes have higher D-error rate.
+4. **NNUE-off test (G)**: `py testing/sprt.py --new ... --old ... --no-nnue`
+   — if sign flips positive, the latent ELO is masked by NNUE.
+5. **Magnitude sweep (A/H)**: if step 1 doesn't apply, sweep at least 3
+   magnitudes (0.5x, 1x, 2x of literal); if all in [-50, +5] with no peak,
+   the feature truly disrupts Hypersion's local optimum (H).
+6. **Reduction-stacking check (F)**: if the change affects depth/reduction,
+   sum max contributions across cutoffCnt, LMR, ttCapture, etc.; the sum
+   shouldn't exceed `depth - 2`.
+7. **Sample size (I)**: any borderline [+5, +50] @ 200g result MUST be
+   extended to 400-800g before shipping. The "30g fakeout pattern" is real.
+
 ### Rule 3 — Web research for context
 For decisions involving theory or community-known patterns, search
 the web:

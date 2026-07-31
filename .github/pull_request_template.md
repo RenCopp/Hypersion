@@ -14,7 +14,9 @@
 
 - [ ] `make -j` builds without new warnings
 - [ ] `./Hypersion bench 13` (Threads=1) produces the expected node count
-- [ ] WAC depth-8 classical: `py testing/wac_runner.py --depth 8 --no-nnue` ≥ 178/198
+- [ ] Portable smoke/lifecycle/fuzz tests pass
+- [ ] `make test_timeman` passes
+- [ ] Optional local WAC depth-8 classical is ≥ 178/198 when its dataset is available
 - [ ] CI Build + CodeQL workflows pass
 
 ### For search/eval changes only

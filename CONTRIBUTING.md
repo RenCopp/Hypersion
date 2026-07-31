@@ -15,25 +15,31 @@ make -j                      # default: AVX2 release build
 ```
 
 Run `setoption name Threads value 1` before `bench` if you want a
-deterministic node count (1,273,328 nodes T1 d=13 is the v3.1
-baseline).
+deterministic node count. The current T1 depth-13 baseline is stored in
+`testing/BENCH_SIGNATURE`.
 
 ## Where the code lives
 
 - `src/` — engine (UCI, search, eval, NNUE, syzygy, book, ...)
 - `tools/tuner/` — Texel-style classical-eval tuner + PGN-to-positions extractor
-- `testing/` — SPRT runner, tactical suites, IMPROVEMENT_LOG, plans (gitignored)
+- `testing/` — tracked smoke/regression harness plus locally ignored large suites and results
 - `.github/workflows/` — CI (Build + CodeQL)
 - `src/fathom/` — vendored Syzygy probe library (BSD, basil00/Fathom)
 
 ## How to test a change
 
 1. **Build**: `make -j` succeeds with no warnings.
-2. **Bench preservation**: `./Hypersion bench 13` outputs
-   `Nodes searched : 1273328` (or the PR explains why bench shifted).
-3. **WAC tactical**: `py testing/wac_runner.py --depth 8 --no-nnue`
-   solves ≥ 178/198 (current baseline is 184).
-4. **SPRT** for any ELO-affecting search change: 200 games at TC
+2. **Bench preservation**: `make verify` matches
+   `testing/BENCH_SIGNATURE` (or the PR explains and intentionally updates
+   the signature when an accepted search change shifts the tree).
+3. **Portable regressions**: `py testing/test_smoke.py`,
+   `py testing/test_uci_lifecycle.py --cycles 100`, and
+   `py testing/test_smp_soak.py --searches 1000`,
+   `py testing/test_uci_fuzz.py --cases 1000`, and `make test_timeman` all pass.
+4. **Optional local WAC tactical suite**: if the non-redistributed WAC data is
+   available, `py testing/wac_runner.py --depth 8 --no-nnue` solves ≥ 178/198
+   (current baseline is 184). This is not a clone/CI prerequisite.
+5. **SPRT** for any ELO-affecting search change: 200 games at TC
    5+0.05 conc=2 vs the immediate previous release.
    See `testing/PROTOCOL.md` for the full protocol.
 

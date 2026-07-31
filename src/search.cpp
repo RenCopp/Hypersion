@@ -79,6 +79,8 @@ void init() {
             Reductions[d][mc] = (d == 0 || mc == 0) ? 0
                               : int(std::log(double(d)) * std::log(double(mc)) / 1.87);
         }
+    // Keep startup consistent with the advertised UCI default. Threads=2 was
+    // restored after lifecycle, fixed-node scaling, and paired-match gates.
     Threads.set_size(2);
 }
 void shutdown() { Threads.stop_all(); Threads.wait_all(); Threads.set_size(0); }
@@ -308,11 +310,11 @@ int RAZOR_MARGIN_BASE       = 852;    // A3: 850 -> 852. Sweep history:
     //   +11.6 ELO -- classic fakeout, Stage 2 reverted to mild negative).
 int RAZOR_MARGIN_PER_DEPTH  = 383;    // A9 joint: 387 -> 383. A3 was: 390 -> 387.
     // Sweep history: 300 = -34.9 ELO @ 30g; 480 = +46.6 @ 30g but -51.6 @ 61g.
-int FUTIL_MARGIN_PER_DEPTH  = 397;    // Joint A+B SPSA tried 400 (no-op-ish), REJECTED. Sweep history:
+int FUTIL_MARGIN_PER_DEPTH  = 397;    // R55b tried Obs-scaled 421: -19.1 ELO @ 200g, reverted.
     // 330 -> 400 was +15.6 +/- 37.6 ELO @ 200g;
     // 410 = -58.5 +/- 108.4 ELO @ 30g (v25, REJECT at triage -- noise band
     // but ≤ -50 lower bound, don't proceed to Stage 2).
-int FUTIL_MARGIN_BASE       = 385;    // A3: 390 -> 385. Sweep history:
+int FUTIL_MARGIN_BASE       = 385;    // R55b tried Obs-scaled 437: -19.1 ELO @ 200g, reverted.
     // 480 = -23.2 ELO; 300 = -46.6 ELO. Both directions worse than 390.
 int SEE_QUIET_MARGIN        = -181;   // Joint A+B SPSA tried -155, REJECTED. Sweep history:
     // -150 = -70 ELO; -220 = -1.7 +/- 38.5 ELO;
@@ -320,8 +322,24 @@ int SEE_QUIET_MARGIN        = -181;   // Joint A+B SPSA tried -155, REJECTED. Sw
     //   fakeout, Stage 2 reverted to mild negative with Black asymmetry).
 int SEE_CAPT_MARGIN         = -252;   // Joint A+B SPSA tried -246, REJECTED. Sweep history:
     // -400 = -58 ELO; -250 = +8.7 +/- 39.7 ELO vs -300 baseline.
-int NMP_EVAL_BETA_DIV       = 803;    // 2026-05-12 SPSA campaign regressed, reverted.
-                                       // 2026-05-14 Joint A+B SPSA tried 859, REJECTED (-20.9 ELO).
+int NMP_EVAL_BETA_DIV       = 250;    // R58b SHIP (2026-05-23):
+                                       // Sweep around R58's 330 vs HEAD post-v3.5:
+                                       //   200: -6.9 / 200g
+                                       //   250: +6.9 R1, +17.4 R2 = +12.2 / 400g  SHIP
+                                       //   280: -20.9 / 200g (non-monotonic noise)
+                                       //   330: 0 (R58 shipped baseline)
+                                       // 250 is the new peak post-v3.5.
+                                       // from Berserk's effective divisor 114
+                                       // (Berserk-internal) * 2.9x ratio = 330.
+                                       // Replaces SPSA-found 803. SPRT @ TC
+                                       // 5+0.05 conc=6 vs HEAD post-R56 baseline:
+                                       //   R1 +17.4 +/- 39.0 ELO (70-60-70)
+                                       //   R2 +15.6 +/- 37.6 ELO (65-56-79)
+                                       //   400g pooled W=135 L=116 D=149 ->
+                                       //                +16.5 +/- 27 ELO SHIP.
+                                       // Tombstones for old SPSA at 803:
+                                       // 2026-05-12 SPSA campaign regressed at 803;
+                                       // 2026-05-14 Joint A+B tried 859, REJECTED.
     // 600 -> 800 = +8.7 ELO; 800 -> 1200 = -1.7 ELO.
 int PROBCUT_MARGIN          = 802;    // 2026-05-12 SPSA campaign regressed, reverted.
                                        // 2026-05-14 Joint A+B SPSA tried 757, REJECTED (-20.9 ELO).
@@ -950,6 +968,10 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     limits = lim;
     tm.init(limits, rootPos.side_to_move(), rootPos.game_ply());
     nodes.store(0);
+    nodeCheckInterval = limits.nodes > 0
+        ? int(std::clamp<std::int64_t>(limits.nodes / 1024, 1, 512))
+        : 512;
+    nodeCheckCountdown = 1;
     selDepth = 0;
     completedDepth = 0;
     stopFlag.store(false);
@@ -964,6 +986,12 @@ void Worker::prepare(const Position& srcPos, const SearchLimits& lim, ThreadPool
     useThreatHist = (tm.optimum() > 0 && tm.optimum() < 500)
                  || (limits.movetime > 0 && limits.movetime < 500)
                  || (limits.nodes > 0 && limits.nodes < 200000);
+    // 2026-05-19 v3.2: TC-gate corrhist read cap. Same predicate as
+    // useThreatHist (bullet TC) - the diagnostic showed corrhist saturating
+    // at 256cp cap drives eval drift at deep LTC, but the cap helps bullet.
+    // Bullet: tight 128cp read cap (+48 ELO @ 400g 5+0.05).
+    // Any other TC: keep storage cap 256 (no clamping, baseline behavior).
+    corrCap = useThreatHist ? 128 : 256;
     // Note: Lynx-style 3/4 history gravity tested and regressed -35 ELO.
     // Hypersion's update_history already does Stockfish-style soft-cap
     // decay (entry += bonus - entry * |bonus| / HISTORY_MAX); adding 3/4
@@ -995,7 +1023,20 @@ void Worker::wait_for_finish() { if (th.joinable()) th.join(); }
 bool Worker::should_stop() {
     if (stopFlag.load(std::memory_order_relaxed)) return true;
     if (pool && pool->global_stop().load(std::memory_order_relaxed)) return true;
-    if (limits.nodes && nodes.load() >= std::uint64_t(limits.nodes)) return true;
+    // UCI `go nodes N` is a pool-wide budget.  The previous per-worker
+    // comparison allowed approximately Threads * N nodes while reporting the
+    // combined count, unlike Stockfish/Reckless and GUI expectations.  Only
+    // the main worker performs the relatively expensive pool sum, at an
+    // adaptive cadence; helpers observe the shared stop flag above.
+    if (isMain && limits.nodes > 0 && --nodeCheckCountdown <= 0) {
+        nodeCheckCountdown = nodeCheckInterval;
+        const std::uint64_t searched = pool ? pool->total_nodes()
+                                            : nodes.load(std::memory_order_relaxed);
+        if (searched >= std::uint64_t(limits.nodes)) {
+            if (pool) pool->global_stop().store(true, std::memory_order_relaxed);
+            return true;
+        }
+    }
     // Pondering: search until ponderhit / stop, never on time.
     if (pool && pool->ponder_flag().load(std::memory_order_relaxed)) return false;
     // Only the main worker enforces the clock — helpers run until the main
@@ -1622,7 +1663,15 @@ void Worker::iterative_deepen(Position& pos) {
         }
 
         if (should_stop()) break;
-        if (std::abs(bestScore) >= VALUE_MATE_IN_MAX_PLY) break;
+        if (std::abs(bestScore) >= VALUE_MATE_IN_MAX_PLY) {
+            // A plain search may finish as soon as it proves mate.  For the
+            // UCI `go mate N` limit, however, a farther mate does not satisfy
+            // the request: keep searching until the proven distance is at
+            // most N moves (matching Stockfish's interpretation).
+            const int matePlies = VALUE_MATE - std::abs(bestScore);
+            if (limits.mate == 0 || matePlies <= 2 * limits.mate)
+                break;
+        }
 
         // Track score / bestmove stability for time scaling.
         // Gate on havePrevScore (not d > 1): SMP-helper threads may skip
@@ -1905,7 +1954,7 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         // stand-pat used the raw NNUE — so the same position reported
         // different eval depending on whether main search or qsearch
         // reached it first. SF18:1573-1579 wraps in `to_corrected_static_eval`.
-        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), raw);
+        staticEval = pawnCorrHist.adjust_capped(pos.side_to_move(), pos.pawn_key(), raw, corrCap);
         bestValue  = staticEval;
         // 2026-05-17 qsearch finding #39: write ss->staticEval BEFORE the
         // stand-pat short-circuit so the value is set even on fail-high
@@ -1958,7 +2007,14 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
         // worth searching. At Hypersion's 5x eval scale, -80 cp = -400.
         // SHIPPED WITHOUT SPRT — magnitude pulled from SF reference; if
         // Hypersion regresses, revert to VALUE_ZERO.
-        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, Value(-400)))
+        // 2026-05-19 v3.3: REVERTED back to VALUE_ZERO from the
+        // SHIPPED-WITHOUT-SPRT 2026-05-17 audit qs #21 change (-400). Tested:
+        // 800g 5+0.05 vs v3.2 = +21 +/- 24 ELO (279W-230L-291D);
+        // 200g 10+0.1 vs v3.2 = -5 +/- 38 ELO (LTC neutral). The -400 cp
+        // threshold from SF18 scaling assumed Hypersion's eval scale and
+        // qsearch tactical resources behaved like SF18's; SPRT shows the
+        // tighter VALUE_ZERO gate is +21 ELO at bullet (and neutral at LTC).
+        if (!inCheck && bestValue > VALUE_TB_LOSS_IN_MAX_PLY && !pos.see_ge(m, VALUE_ZERO))
             continue;
 
         // Capture-futility in qsearch: even capturing a queen wouldn't lift our
@@ -1980,13 +2036,16 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
                 // and a queen got the same prune threshold. Now uses
                 // futilityBase + PieceValueMG[victim] so small captures get
                 // tighter gates. Gives qsearch the same gain-conditional
-                // pruning SF18 uses. SHIPPED WITHOUT SPRT.
+                // pruning SF18 uses.
+                // 2026-05-19 RETROACTIVELY SPRT-VALIDATED AS NEUTRAL: tested
+                // reverting to single-MaxGain (gain = PieceValueMG[QUEEN] =
+                // 2538) at 800g 5+0.05 pooled across 2 runs:
+                //   Run 1: +23.5 +/- 27.6 (144W-117L-139D)
+                //   Run 2: -16.5 +/- 27.1 (117W-136L-147D)
+                //   Pooled: +3.5 +/- 19 ELO, statistically indistinguishable
+                //   from 0. The per-victim change is neutral; kept as-is.
                 PieceType victim = type_of(pos.piece_on(m.to_sq()));
                 if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
-                // futilityBase: small slack above staticEval to absorb
-                // post-capture quiet improvements. SF18 uses ~204; at 5x
-                // scale that's ~1020. Pick the same magnitude as Hypersion's
-                // QSEARCH futility slack uses elsewhere.
                 Value futilityBase = staticEval + Value(150);
                 Value gain         = Eval::PieceValueMG[victim];
                 if (futilityBase + gain <= alpha) continue;
@@ -2258,6 +2317,25 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     }
 
     Value rawEval, staticEval;
+    // ── R52 complexity-aware LMR — investigation + ship at threshold=250 ──
+    //
+    // Initial port (R52, threshold=50 = Alexandria's literal default):
+    //   30g +23.2 (fakeout), 200g R1 +6.9, R2 -26.1 = -9.5 +/- 27 ELO @ 400g.
+    //   REJECTED (tombstoned, then re-investigated).
+    //
+    // Root cause: Hypersion's corrhist storage cap is 256cp (5x SF's typical
+    // ~50cp). At Alexandria's literal threshold=50%, complexity triggered in
+    // nearly every node where corrhist applied any meaningful adjustment.
+    //
+    // Sweep at TC 5+0.05 conc=6, stacked on R53 (hindsight) ship baseline:
+    //   threshold=50  (Alex default):     -9.5 +/-   27 ELO @ 400g (original)
+    //   threshold=150 (3x):                +7.8 +/-   27 ELO @ 400g
+    //   threshold=250 (peak):              +19.1 +/- ~26 ELO @ 400g  SHIP
+    //                                      (R1 +34.9/200g, R2 +3.5/200g)
+    //
+    // Final shipped: 250. Source: Alexandria-master/src/search.cpp:528-533
+    //   (complexity compute) + :812 (LMR use).
+    int complexity = 0;
     if (inCheck) {
         // 2026-05-17 finding #21: SF18:716-717 propagates (ss-2)->staticEval
         // through in-check plies so `improving` and downstream margins still
@@ -2278,7 +2356,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         // minor + nonPawn[W] + nonPawn[B]) tested at -3.5 ELO @ 200g and
         // tombstoned — Tier 1's 3-source blend already captures the
         // available signal.
-        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
+        staticEval = pawnCorrHist.adjust_capped(pos.side_to_move(), pos.pawn_key(), rawEval, corrCap);
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()
                      && (ss - 1)->movedPiece != NO_PIECE) {
@@ -2288,16 +2366,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ply >= 3 && (ss - 2)->currentMove != Move::none()
                          && (ss - 2)->currentMove != Move::null()
                          && (ss - 2)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist2.corr_cp((ss - 2)->movedPiece,
+                contAdjustCp += contCorrHist2.corr_cp_capped((ss - 2)->movedPiece,
                                                      (ss - 2)->currentMove.to_sq(),
-                                                     innerPc, innerTo);
+                                                     innerPc, innerTo, corrCap);
             }
             if (ply >= 4 && (ss - 3)->currentMove != Move::none()
                          && (ss - 3)->currentMove != Move::null()
                          && (ss - 3)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist1.corr_cp((ss - 3)->movedPiece,
+                contAdjustCp += contCorrHist1.corr_cp_capped((ss - 3)->movedPiece,
                                                      (ss - 3)->currentMove.to_sq(),
-                                                     innerPc, innerTo) / 2;
+                                                     innerPc, innerTo, corrCap) / 2;
             }
             staticEval = Value(int(staticEval) + contAdjustCp);
         }
@@ -2306,9 +2384,22 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 || ((tte->bound() & BOUND_UPPER) && ttValue < staticEval)))
             staticEval = ttValue;
         ss->staticEval = staticEval;
+        // 2026-05-19 T1 REJECT (-24.4 +/- 36.8 ELO @ 200g 5+0.05): tested
+        // Berserk-style FMR damping `staticEval = (200 - rule50) * eval /
+        // 200` at both eval-read sites (this branch + the Eval::evaluate
+        // branch). Faithful Berserk port: damp local working `staticEval`
+        // AFTER ss->staticEval store + TT-bound clamp; keep ss->staticEval
+        // undamped so improving comparison stays consistent across plies.
+        // Result: 51W-65L-84D against Hypersion v3.1 baseline. Hypothesis
+        // was eval damping helps avoid draw-traps near 50-move; reality
+        // appears to be that lowering the working eval as fmr climbs makes
+        // RFP/NMP/futility gates less effective at high fmr (less pruning
+        // when search is already deep), costing more than it saves. Source:
+        // C:\Engine\Engines\berserk-main\berserk-main\src\search.c:81-83,
+        // applied at lines 476, 485, 890, 899 in Berserk's search loop.
     } else {
         rawEval = Eval::evaluate(pos);
-        staticEval = pawnCorrHist.adjust(pos.side_to_move(), pos.pawn_key(), rawEval);
+        staticEval = pawnCorrHist.adjust_capped(pos.side_to_move(), pos.pawn_key(), rawEval, corrCap);
         // 2026-05-18 Tier 1: same contCorrHist blend as above branch.
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()
@@ -2319,16 +2410,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ply >= 3 && (ss - 2)->currentMove != Move::none()
                          && (ss - 2)->currentMove != Move::null()
                          && (ss - 2)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist2.corr_cp((ss - 2)->movedPiece,
+                contAdjustCp += contCorrHist2.corr_cp_capped((ss - 2)->movedPiece,
                                                      (ss - 2)->currentMove.to_sq(),
-                                                     innerPc, innerTo);
+                                                     innerPc, innerTo, corrCap);
             }
             if (ply >= 4 && (ss - 3)->currentMove != Move::none()
                          && (ss - 3)->currentMove != Move::null()
                          && (ss - 3)->movedPiece != NO_PIECE) {
-                contAdjustCp += contCorrHist1.corr_cp((ss - 3)->movedPiece,
+                contAdjustCp += contCorrHist1.corr_cp_capped((ss - 3)->movedPiece,
                                                      (ss - 3)->currentMove.to_sq(),
-                                                     innerPc, innerTo) / 2;
+                                                     innerPc, innerTo, corrCap) / 2;
             }
             staticEval = Value(int(staticEval) + contAdjustCp);
         }
@@ -2341,6 +2432,14 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
         if (!ttHit && ss->excludedMove == Move::none())
             tte->save(pos.key(), VALUE_NONE, ttPv, BOUND_NONE,
                       0, Move::none(), rawEval, TT.generation());
+        // 2026-05-19 T1 REJECT (see tombstone in tt-hit branch above):
+        // Berserk FMR damping rejected here also; -24.4 ELO @ 200g.
+    }
+
+    // R52: complexity = 100 * |staticEval - rawEval| / |staticEval|.
+    if (rawEval != 0 && int(staticEval) != 0) {
+        complexity = 100 * std::abs(int(staticEval) - int(rawEval))
+                         / std::abs(int(staticEval));
     }
 
     // NOTE: tested SF18 priorReduction hindsight depth bump: parent records
@@ -2432,10 +2531,77 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // uses `!is_loss(beta) && !is_win(eval)`. The is_loss/is_win pair
     // covers TB-magnitude scores, not just true mates. Symmetric-conservative
     // form below matches: skip RFP whenever beta or eval is TB-decisive.
+    //
+    // 2026-05-19 REJECTED port (both magnitudes): SF PR #5735/#5748
+    // corrhist-magnitude RFP margin. Tested two divisors at 5+0.05 vs v3.0:
+    //   N=32   (400g):  -19.1 +/- 27.5 ELO (too aggressive)
+    //   N=1024 (800g pooled):
+    //     Run 1 (400g): +10.4 +/- 26.8 (130W-118L-152D)
+    //     Run 2 (400g): -23.5 +/- 28.2 (123W-150L-127D)
+    //     Pooled:        -6.5 +/- 19 ELO (253W-268L-279D), CI [-26, +12]
+    //   Pattern matches several other v3.0-cycle tests: single 400g run
+    //   showed near-ship-threshold positive, but second run with different
+    //   openings produced opposite sign, pooled to ~neutral.
+    //   Conclusion: the SF port's mechanism doesn't transfer to Hypersion's
+    //   eval scale + search-tree distribution at this sample size — either
+    //   the effect is genuinely <+5 ELO (below SPRT 400g detection), or the
+    //   port needs joint tuning with other corrhist-sensitive params.
+    // Source: https://github.com/official-stockfish/Stockfish/pull/5748
+
+    // ── R53 hindsight reduction — investigation + ship at threshold=900 ───
+    //
+    // Initial port (R53, threshold=155 = Alexandria's literal default):
+    //   30g: 0.0 +/- 109.8 ELO; 200g: -36.6 +/- 40.7 ELO; WAC d8: 191->185.
+    //   REJECTED (tombstoned, then re-investigated).
+    //
+    // Root cause (web research 2026-05-20):  Hypersion's eval scale is ~3.2x
+    // Alexandria's (Alex rfpDepthMargin=75 vs Hyp RFP_MARGIN_PER_DEPTH=240).
+    // Using Alex's literal 155 fired hindsight in ~every non-PV node with
+    // combined eval >= 0.16 pawn — far too broad.
+    //
+    // Sweep at TC 5+0.05 conc=6 vs HEAD post-R53-tombstone:
+    //   threshold=155 (Alex default):       -36.6 +/- 40.7 ELO @ 200g
+    //   threshold=496 (155 * 3.2):           +7.8 +/-   27 ELO @ 400g
+    //   threshold=700:                      +10.4 +/- 39.5 ELO @ 200g
+    //   threshold=900 (peak):               +29.6 +/- 38.8 (R1), -1.7 +/- 39.1 (R2)
+    //                                      => +13.9 +/-   27 ELO @ 400g  SHIP
+    //   threshold=1200:                     -24.4 +/- 39.0 ELO @ 200g
+    //
+    // Final shipped: 900. Source: Alexandria-master/src/search.cpp:553 +
+    //   tune.h:144 (hindsightEval=155 default). Hypersion ships at 900
+    //   (Alex's 155 scaled to Hypersion's eval magnitudes; sweep peak).
+    if (!isPv && !inCheck && ss->excludedMove == Move::none()
+        && depth >= 2
+        && (ss - 1)->reduction >= 1
+        && (ss - 1)->staticEval != VALUE_NONE
+        && int(ss->staticEval) + int((ss - 1)->staticEval) >= 900) {
+        --depth;
+    }
+
+    // R57 REJECTED (2026-05-21): RubiChess threat-pruning at depth==1.
+    // Hypersion already has R54 RFP-with-floor at depth==1 that covers the
+    // same trigger condition; adding threat-pruning over-prunes.
+    //   margins 180/18 (RFP-ratio 6.2x of 29/3): -24.4 +/- 37.4 ELO @ 200g
+    //   margins 300/30 (less aggressive):        -33.1 +/- 37.6 ELO @ 200g
+    // Both directions regress. Per CLAUDE.md Rule 2.4 pattern H: feature
+    // conflicts with existing tuned pruning, no magnitude helps. Source:
+    // RubiChess-master/src/search.cpp:520-524.
+
+    // R54 (2026-05-21) SHIP: Obsidian-style RFP floor at 60 (scale-corrected).
+    // Before: at (depth - improving) == 0, margin=0 -> RFP fired on any
+    // staticEval >= beta, over-pruning small-beta-margin positions at low
+    // depth. Obsidian uses `max(87·(d−impr), 22)` floor; scaled to Hypersion
+    // via Rule 2.3 ratio 240/87 = 2.76x: floor = 22 * 2.76 ≈ 60.
+    //
+    // SPRT @ TC 5+0.05 conc=6, stacked on R52+R53 baseline:
+    //   200g round 1: +52.5 +/- 36.9 ELO (73-43-84)
+    //   200g round 2: +27.9 +/- 38.4 ELO (71-55-74)
+    //   400g pooled:  W=144 L=98 D=158 -> +40.1 +/- 27 ELO  SHIP
+    // Source: Obsidian-16.0/src/search.cpp:863.
     if (!isPv && !inCheck && depth <= 7
         && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
         && staticEval < VALUE_TB_WIN_IN_MAX_PLY
-        && staticEval - RFP_MARGIN_PER_DEPTH * (depth - improving) >= beta)
+        && staticEval - std::max(RFP_MARGIN_PER_DEPTH * (depth - improving), 60) >= beta)
         // 2026-05-17 finding #30: SF18:888 returns `(2*beta + eval) / 3`
         // (weighted moderation toward beta), not raw `staticEval`. Raw
         // staticEval over-claimed the cutoff score, propagating inflated
@@ -2677,6 +2843,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                   contHist[0].get(), prevMove1, prevPiece1,
                   contHist[1].get(), prevMove2, prevPiece2,
                   useThreatHist ? &threatHist : nullptr, ss->threatSq);
+    // 2026-05-19 T2 REJECT: passing `counter` as additional MovePicker
+    // param for COUNTERMOVE stage tested neutral. See movepick.h tombstone.
+    // 2026-05-19 T3 REJECT: rootHist as 6th param (only at ply==0) tested
+    // noise (-5.2 +/- 39.1 ELO @ 200g). See history.h tombstone.
 
     Value bestValue = -VALUE_INFINITE;
     Move  bestMove  = Move::none();
@@ -2744,12 +2914,24 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // hurts per-move within-subtree decisions.
                 if (depth <= 8 && !pos.see_ge(m, Value(SEE_QUIET_MARGIN * depth)))
                     continue;
-                // NOTE: SF18-style continuation-history pruning was
-                // attempted with threshold -4097*depth but regressed
-                // -207 ELO at 86 games.  Hypersion's history-value
-                // scale is different — needs a per-codebase threshold
-                // search before this can be re-tried.  See round-4
-                // notes in testing/IMPROVEMENTS_LOG.md.
+
+                // R56 retest (2026-05-21): Obsidian/SF18 continuation-history
+                // pruning with scale-correction (Rule 2.3 + HIST_MAX ratio).
+                // Old SF -4097*d literal got -207 ELO; the prior tombstone
+                // (line above) called for "per-codebase threshold search".
+                // Sweep at TC 5+0.05 conc=6 stacked on R54 baseline:
+                //   -2500*d (Obs * 0.34): -10.4 +/- 37.1 ELO @ 200g
+                //   -3272*d (Obs * 0.44): +3.5 +/- 37.7 ELO @ 200g
+                //   -5000*d (Obs * 0.67): +27.9 (R1), -13.9 (R2), -20.9 (R3)
+                //                         600g pooled W=185 L=189 D=226 ~ -2.3 ELO
+                //   -7000*d (Obs * 0.94): +3.5 +/- 38.6 ELO @ 200g
+                // Sweep is non-monotonic with peak interior fakeout — Rule
+                // 2.4 pattern J. At 600g R56c-5000 pools to ~0 ELO. Scale
+                // correction recovered ~205 ELO vs the literal-port attempt
+                // (-207 -> -2) but feature still doesn't ship; Hypersion's
+                // existing SEE-pruning of quiets already captures the
+                // history-pruning value. Code stays disabled. Source:
+                // Obsidian-16.0/src/search.cpp:1001.
             } else {
                 // SEE pruning of bad captures.
                 if (depth <= 6 && !pos.see_ge(m, Value(SEE_CAPT_MARGIN * depth)))
@@ -2789,23 +2971,13 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (should_stop()) return VALUE_ZERO;
             if (v < singularBeta) {
                 extension = 1;          // singular — extend
-                // NOTE: tested SF18 src/search.cpp:1151 SE depth++ — when
-                // singularity is detected, also bump the current depth by 1
-                // for the whole subtree.  Result trajectory:
-                //   30g triage: +70.4 +/- 93.3 ELO  (looked PROMISING)
-                //   200g confirm: +10.4 +/- 37.7 ELO  (at ship bar)
-                //   300g extended: -4.6 +/- 30.3 ELO  (REJECT, tombstone)
-                // Classic PROTOCOL.md fakeout pattern (+70 -> +10 -> -5).
-                // The depth++ adds significant work on ~1% of nodes (SE
-                // firing rate), and the extra subtree depth doesn't pay
-                // back in this codebase's calibration.  SF gates this with
-                // their full doubleMargin/tripleMargin family which we
-                // don't have; trying just depth++ in isolation under-
-                // performs because we lack the compensating rate-control.
-                // Future contributor wanting to retry should pair with
-                // SF's doubleMargin/tripleMargin tunables (require
-                // ttCapture flag + ttPv tracking + correctionValue
-                // computation, all SF18 src/search.cpp:1142-1149).
+                // R61 REJECT (2026-05-23): SF18 doubleMargin/tripleMargin SE
+                // family port with Rule 2.3 scaling. 200g: -68.6 +/- 37.8 ELO
+                // (41-80-79). SF formula has doubleMargin go NEGATIVE in most
+                // non-PV non-ttCapture cases, making extension=2 fire routinely.
+                // Hypersion's search tree over-prunes via cutoffCnt + closedness
+                // + endgame-mitigation already; routine SE depth=2 pushes total
+                // ply budget past limits. AUDIT-v3.6.md A1 falsified.
             } else if (singularBeta >= beta) {
                 // Multi-cut: another move already meets beta in the reduced search,
                 // so the position is at least beta — return early.
@@ -2841,6 +3013,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                  && depth >= 5) {
             extension = 1;
         }
+        // R62 REJECT (2026-05-23): RubiChess adaptive history extension —
+        // tested at thresholds 4000/-15.6, 7700/-3.5, 12000/-8.7 ELO @ 200g.
+        // No magnitude unlocks ELO; Hypersion's LMR statScore-based history
+        // adjustment already extracts the signal. Source tombstone in
+        // search.h. Code removed; Worker fields kept inert.
 
         StateInfo st;
         ss->currentMove = m;
@@ -2903,6 +3080,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             // attributable to over-reduced lines that hid the refutation.
             if (popcount(pos.pieces()) <= 8) --r;
 
+            // R52: complexity-aware LMR. Shipped at threshold=250 (see header
+            // tombstone for sweep results). Higher = fewer firings; peak ~250.
+            if (complexity > 250) --r;
+
             // SF18 cutoffCnt LMR adjustment. When the previously-searched
             // sibling moves' subtrees produced many fail-highs in our child
             // ply, the position is cut-off-heavy — reduce more aggressively
@@ -2916,7 +3097,10 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             // Source: SF18 src/search.cpp:1208-1209.
             if ((ss + 1)->cutoffCnt > 2) ++r;
             if ((ss + 1)->cutoffCnt > 1 && !isPv && !cutNode) ++r;
-            // (See ttCapture tombstone above TT probe.)
+            // R60 REJECT (2026-05-21): ttCapture +r WITH cutoffCnt<=2 guard:
+            //   -33.1 +/- 37.3 ELO @ 200g (50-69-81). Worse than the original
+            //   unguarded -17.4. Hypersion's LMR has no slack for ttCapture
+            //   +ply even when stacking is prevented. Audit A2 falsified.
 
             // Stockfish-18 LMR history correction. High-history quiet moves get
             // reduced less; low-history get reduced more. Sums the same signals
@@ -2939,6 +3123,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                 // losing the historical-quality discrimination.
                 PieceType victim = type_of(pos.piece_on(m.to_sq()));
                 if (m.type_of() == MT_EN_PASSANT) victim = PAWN;
+                // 2026-05-19 T4 REJECT: defender-status indexed lookup reverted
+                // (clean rebuild gave 0.0 ELO @ 200g; see history.h tombstone).
                 int statScore = captureHist.get(moving, m.to_sq(), victim)
                               + int(Eval::PieceValueMG[victim]) * 4;
                 r -= statScore / LMR_STATSCORE_DIV;
@@ -3069,6 +3255,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                             counterMoves.set(prevPiece1, prevMove1.to_sq(), m);
                         // Bonus to the fail-high quiet (butterfly + contHist).
                         update_quiet_history(pos, m, bonus, prevPiece1, prevMove1, prevPiece2, prevMove2);
+                        // 2026-05-19 T3 REJECT: rootHist update at rootNode
+                        // tested noise (-5.2 +/- 39.1 ELO). See history.h.
                         // 2026-05-18 Tier 2: also update threat-square HH on
                         // the same cutoff signal. Tier 2 v2: only when
                         // useThreatHist is set (low-TC bullet mode).
@@ -3101,6 +3289,8 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
                         // 05-12 at smaller 1.13x (vs prior 1.395x at +5.2
                         // ELO borderline). Bundled with NMP changes; LTC
                         // 20g cumulative -34.9 ± 111. Reverted.
+                        // 2026-05-19 T4 REJECT: defender-status [2] dim
+                        // reverted; clean rebuild gave 0.0 ELO @ 200g.
                         captureHist.update(moving, m.to_sq(), victim, bonus);
                     }
                     for (int i = 0; i < captureCount; ++i) {
@@ -3136,6 +3326,11 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // capture fail-low bonus) require deeper structural changes — moving
     // the cutoff-internal history updates to post-loop, and tracking the
     // piece-captured-by-prior-move. Both still deferred.
+    // 2026-05-19 audit-#125 RETROACTIVELY SPRT-VALIDATED AS NEUTRAL:
+    // Tested disabling this entire block vs v3.3 at 400g 5+0.05 — result
+    // +0.9 +/- 26.9 ELO (125W-124L-151D), statistically indistinguishable
+    // from 0. The bonus does no harm and may help in tactical edge cases
+    // that 400g doesn't sample. Kept as ship-correct.
     if (bestValue <= alpha && bestMove == Move::none() && ply > 0
         && prevPiece1 != NO_PIECE && prevMove1 != Move::null() && prevMove1 != Move::none()
         && !pos.captured_piece()) {
@@ -3195,18 +3390,21 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     // Hypersion previously skipped fail-low updates entirely. Including them
     // doubles the corrhist signal volume. Capture bestMoves are still excluded
     // because their value comes from tactical exchange, not positional eval.
-    // SHIPPED WITHOUT SPRT.
+    // 2026-05-19: SPRT-VALIDATED RETROACTIVELY. The reverse (strict gate, no
+    // fail-low updates) tested at -54.3 +/- 38.7 ELO @ 200g 5+0.05 (48W-79L-73D)
+    // — confirming the audit-#136 inclusion of fail-low updates is net +54 ELO.
+    // The previously-unverified change stands as ship-correct.
     bool capturedBest = bestMove != Move::none() && pos.capture(bestMove);
     if (!inCheck && rawEval != VALUE_NONE
         && !capturedBest
         && (bestValue > rawEval) == (bestMove != Move::none())) {
         int diff = int(bestValue - rawEval) * 256;
         int weight = std::min(64, depth * 4 + 8);
-        pawnCorrHist.update(pos.side_to_move(), pos.pawn_key(), diff, weight);
-        // 2026-05-18 Tier 1: ALSO update contCorrHist1 + contCorrHist2 on
-        // the same (real - raw) signal. Two table writes per qualifying
-        // search step. Keys mirror the read-side: outer = (ss-2) or
-        // (ss-3)'s piece+to, inner = (ss-1)'s piece+to.
+        // 2026-05-19 v3.2: use TC-gated update cap. corrCap=128 at bullet TC
+        // limits storage saturation, matching the SPRT-validated CORR_MAX=128
+        // bullet port (+48 ELO @ 400g). At LTC, corrCap=256 (= storage cap,
+        // no change from baseline v3.1).
+        pawnCorrHist.update_capped(pos.side_to_move(), pos.pawn_key(), diff, weight, corrCap);
         if (ply >= 2 && (ss - 1)->currentMove != Move::none()
                      && (ss - 1)->currentMove != Move::null()
                      && (ss - 1)->movedPiece != NO_PIECE) {
@@ -3215,16 +3413,16 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
             if (ply >= 3 && (ss - 2)->currentMove != Move::none()
                          && (ss - 2)->currentMove != Move::null()
                          && (ss - 2)->movedPiece != NO_PIECE) {
-                contCorrHist2.update((ss - 2)->movedPiece,
+                contCorrHist2.update_capped((ss - 2)->movedPiece,
                                      (ss - 2)->currentMove.to_sq(),
-                                     innerPc, innerTo, diff, weight);
+                                     innerPc, innerTo, diff, weight, corrCap);
             }
             if (ply >= 4 && (ss - 3)->currentMove != Move::none()
                          && (ss - 3)->currentMove != Move::null()
                          && (ss - 3)->movedPiece != NO_PIECE) {
-                contCorrHist1.update((ss - 3)->movedPiece,
+                contCorrHist1.update_capped((ss - 3)->movedPiece,
                                      (ss - 3)->currentMove.to_sq(),
-                                     innerPc, innerTo, diff, weight);
+                                     innerPc, innerTo, diff, weight, corrCap);
             }
         }
     }

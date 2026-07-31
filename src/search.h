@@ -158,6 +158,8 @@ private:
     SearchLimits         limits;
     TimeManager          tm;
     std::atomic<std::uint64_t> nodes{0};
+    int                   nodeCheckInterval  = 512;
+    int                   nodeCheckCountdown = 1;
 
     std::vector<RootMove> rootMoves;
     int                   selDepth       = 0;
@@ -176,6 +178,8 @@ private:
     CaptureHistory   captureHist;
     KillerTable      killers;
     CounterMoveTable counterMoves;
+    // 2026-05-19 T3 REJECT (-5.2 ELO @ 200g): RootHistory struct removed
+    // from Worker; see history.h tombstone for tested mechanism.
     CorrectionHistory pawnCorrHist;
     CorrectionHistory materialCorrHist;   // SF18-style: a second correction
                                           // source keyed by material distribution
@@ -203,6 +207,15 @@ private:
     // -78 ELO; bullet showed +83. Gate set in iterative_deepen after
     // tm.init(); read by MovePicker + history-update sites.
     bool useThreatHist = true;
+    // 2026-05-19 v3.2 TC-gated corrhist read cap (TWAIN — Tight-Wrap At INference).
+    // CORR_MAX = 256 cp storage; at runtime we clamp the READ to a smaller
+    // value at bullet TC where the diagnostic showed 200-400cp upward eval
+    // drift saturating the full cap. Set in iterative_deepen the same way
+    // as useThreatHist (tm.optimum() < 500ms gate). Bullet: 128 cp.
+    // Anything else: 256 cp (= storage cap, no clamp). Tested +48 ELO @ 400g
+    // 5+0.05 with 128cp; -38 ELO @ 100g 10+0.1 with 128cp at LTC (TC-mismatch
+    // confirmed). Default 256 is safe for any non-bullet TC.
+    int corrCap = 256;
     // NOTE: 2026-05-12 added minorCorrHist + nonPawnCorrHist[2] with SF18
     // weight blend. LTC 20g cumulative -34.9 ± 111 ELO when bundled with
     // other SF18 ports. Reverted. Tables stay declared as dead code in case
@@ -230,6 +243,15 @@ private:
     //
     // Each ContinuationHistory is ~4MB; 2 tables = ~8MB per thread.
     std::unique_ptr<ContinuationHistory> contHist[2];
+
+    // R62 REJECTED (2026-05-23): RubiChess adaptive history extension.
+    //   threshold 4000:  -15.6 +/- 37.9 ELO @ 200g
+    //   threshold 7700:   -3.5 +/- 38.9 ELO @ 200g (RubiChess initial value)
+    //   threshold 12000:  -8.7 +/- 38.5 ELO @ 200g
+    // No magnitude unlocks ELO; Hypersion's existing LMR statScore-based
+    // history adjustment already extracts the available signal. The unused
+    // counters were removed; this tombstone preserves the experiment record.
+    // Source: RubiChess engine.cpp:307, search.cpp:795-822.
 };
 
 // Pool of search worker threads. workers[0] is the main worker — the one that

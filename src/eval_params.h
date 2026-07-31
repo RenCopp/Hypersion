@@ -101,7 +101,7 @@ struct Params {
     int BishopOutpostEG       = 17;
 
     // Hanging (R1)
-    int HangingPenaltyMG      = 17;
+    int HangingPenaltyMG      = 17;   // sweep: 10→WAC 187, 17→WAC 191 (peak), 30→WAC 188
     int HangingPenaltyEG      = 149;
 
     // R1 features (R1 tuned)
@@ -109,11 +109,21 @@ struct Params {
     int BishopPawnSCEG        = 49;
     int LongDiagBishopMG      = 48;
     int MinorBehindPawnMG     = 40;
+    // ── Round 48 (2026-05-20) — MinorBehindPawnEG sweep ─────────────────────
+    // Extended sweep results vs WAC d8 baseline 191:
+    //   EG=-20: 186 (-5)
+    //   EG=-5:  186 (-5)
+    //   EG= 0:  191 (peak, kept)
+    //   EG=+5:  187 (-4)
+    //   EG=+20: 186 (-5)
+    // Peak at 0. The MG-only formulation is correct; an EG term double-
+    // counts with PSQT_EG + mobility_EG.  Truly rejected, no salvage.
+    int MinorBehindPawnEG     = 0;
     int PassedKingEnemyDistEG = 50;
     int PassedKingOwnDistEG   = 0;
 
     // R2 features DISABLED (neutral defaults).
-    int TempoMG               = 28;
+    int TempoMG               = 28;   // R46 tested 40/20 and 35/28; both regressed
     int TempoEG               = 28;
     int TrappedBishopMG       = 0;
     int TrappedBishopEG       = 0;
@@ -166,6 +176,15 @@ struct Params {
 
     // R6 king-attack features DISABLED (0 defaults).
     int RookOnKingFileMG      = 0;
+    // ── Round 50 (2026-05-20) — BishopXrayQueenMG sweep ────────────────────
+    // Wired feature never magnitude-tested. Bonus per bishop x-raying enemy
+    // queen through one piece. REJECTED vs R38+R42 baseline WAC d8 191:
+    //   5  → 187 (-4)
+    //   10 → 185 (-6)
+    // Monotonic regression. Hypothesis: the same pattern is already partially
+    // captured by KingAttacker_Bishop (90) when the queen sits in king zone,
+    // and by mobility (the diagonal is unobstructed). Adding an explicit
+    // bonus double-counts. Code stays; default 0 disables.
     int BishopXrayQueenMG     = 0;
     int KingSafetyScale       = 100;
     int OpenFilesNearKingMG   = 0;
@@ -408,7 +427,15 @@ struct Params {
     // Each enemy slider/knight within chebyshev distance 3 of our king
     // gets a king-safety-zone bump. Already partially captured by R17
     // KingAttacker_X but the close-distance flag is additional pressure.
-    int QueenKingTropismMG    = 30;   // disabled by default until tuned
+    // ── Round 49 (2026-05-20) — QueenKingTropismMG sweep ───────────────────
+    // Formal sweep of the R31 magnitude vs R38+R42 baseline WAC d8 191:
+    //   15 → 189 (-2)
+    //   30 → 191 (current peak, kept)
+    //   45 → 185 (-6)
+    //   60 → 188 (-3)
+    // 30 confirmed as the WAC-optimal magnitude; no improvement available.
+    // Sweep complete; magnitude unchanged.
+    int QueenKingTropismMG    = 30;
 
     // ── Round 32 (2026-05-14) — Connected passed pawns ────────────────────
     // R32-R36 features ALL tuned on 16M but values regress WAC depth-8:
@@ -464,6 +491,85 @@ struct Params {
     // tuned material weights (R13 PieceValue scalars + R10 PSQT scalars).
     // Disabled.
     int ImbalanceScale        = 0;
+
+    // ── Round 38 (2026-05-19) — Closedness piece adjustment (Ethereal port) ─
+    // Knights prefer closed positions (more pawns blocked, fewer files
+    // open); rooks prefer open positions. Closedness index 0..8 is computed
+    // from popcount(pawns) + 3*popcount(rammed) - 4*openFileCount, then
+    // clamp(/3, 0, 8). The two tables ClosednessKnight{MG,EG}[9] and
+    // ClosednessRook{MG,EG}[9] are constexpr in evaluate.cpp (Ethereal's
+    // tuned values). These two scalars are the % to apply (0 = disabled,
+    // 100 = full Ethereal magnitude).
+    // Source: C:\Engine\Engines\Ethereal-14.00\Ethereal-14.00\src\evaluate.c
+    //   line 415-425 (tables), 1189-1216 (evaluateClosedness function).
+    int ClosednessKnightScale = 100;
+    int ClosednessRookScale   = 100;
+
+    // ── Round 39 (2026-05-20) — ThreatByPawnPush (Ethereal port) ────────────
+    // Bonus per square we can safely push a pawn to that attacks an enemy
+    // non-pawn piece. Source: Ethereal evaluate.c:405 + evaluateThreats:
+    // 1145-1148.
+    // REJECTED at every magnitude tested vs R38-only baseline (WAC d8 189):
+    //   75/160 (Ethereal): 186/198 (-3)
+    //   38/80 (half):      188/198 (-1)
+    //   19/40 (quarter):   186/198 (-3)
+    // Hypothesis: redundant with Hypersion's R16 ThreatByPawn_* family
+    // (already tunes pawn->minor/rook/queen threats at the post-push
+    // position). Implementation kept in evaluate.cpp; default 0 disables.
+    // R39 / R39b: ALL tested magnitudes regress -- Pattern B confirmed.
+    //   R39 original (literal Ethereal): 75/160 -3, 38/80 -1, 19/40 -3 (WAC)
+    //   R39b scale-corrected 115/247: WAC -6; 200g SPRT -19.1 +/- 37.9 ELO
+    // Per Rule 2.4 pattern B: redundant with R16 ThreatByPawn_* family; no
+    // magnitude unlocks ELO. Feature truly conflicts; not a scale issue.
+    int ThreatByPawnPushMG    = 0;
+    int ThreatByPawnPushEG    = 0;
+
+    // ── Round 42 (2026-05-20) — Knight defended by pawn ──────────────────────
+    // Simple: count own knights defended by own pawns. Captures the
+    // tactical safety value of a knight that's hard to dislodge. Default
+    // 0 = disabled, ramp up after WAC test.
+    int KnightDefByPawnMG     = 25;   // sweep peak: 15→189, 25→191, 35→186 WAC d8
+    int KnightDefByPawnEG     = 25;
+
+    // ── Round 43 (2026-05-20) — Bishop defended by own pawn ─────────────────
+    // Symmetric to R42 attempt. REJECTED at all tested magnitudes vs the
+    // R38+R42 baseline (WAC d8 191):
+    //   15/15: 186/198 (-5)
+    //   8/8:   189/198 (-2)
+    //   4/4:   185/198 (-6)
+    // Non-monotonic + consistent regression. Hypothesis: bishops defended
+    // by pawns are usually already captured by mobility (the same diagonal
+    // is open) and bad-bishop (same-colour-pawn) features. Adding a flat
+    // bonus over-rewards. Code kept; default 0 disables.
+    int BishopDefByPawnMG     = 0;
+    int BishopDefByPawnEG     = 0;
+
+    // ── Round 44 (2026-05-20) — Rook behind own passed pawn ─────────────────
+    // Classical textbook feature, but REJECTED at all tested magnitudes:
+    //   15/45: WAC 188 (-3 vs R38+R42 baseline 191)
+    //   5/15:  WAC 185 (-6)
+    // Hypothesis: Hypersion already implicitly captures this via rook
+    // mobility on clear files + passer king-distance bonus. Code kept,
+    // default 0 disabled.
+    int RookBehindPasserMG    = 0;
+    int RookBehindPasserEG    = 0;
+
+    // ── Round 45 (2026-05-20) — Knight pair mutual defense ──────────────────
+    // Tested 5/5/10/25 magnitudes; all neutral or regress vs R38+R42
+    // baseline (WAC 191): 5→189, 10→191(no-op), 25→188. The feature triggers
+    // rarely (knight pairs not common in WAC positions) so magnitude doesn't
+    // shift tactical solves. Code kept, default 0 disabled.
+    int KnightPairDefMG       = 0;
+    int KnightPairDefEG       = 0;
+
+    // ── Round 47 (2026-05-20) — Outpost SQUARE count ────────────────────────
+    // Tested 8/4 (WAC 188) and 4/2 (WAC 186); both regressed vs R38+R42
+    // baseline 191. Hypothesis: enemyPawnFill computation may flag squares
+    // as "enemy-reachable" too aggressively, undercounting outposts; OR
+    // Hypersion's existing piece-on-outpost bonus already captures the value.
+    // Code stays; default 0 disabled.
+    int OutpostSquareMG       = 0;
+    int OutpostSquareEG       = 0;
 };
 
 // Single global instance; mutable. Default-constructed with the values

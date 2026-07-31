@@ -84,7 +84,6 @@ all at once. Files use < 200 lines each so you can grep them quickly.
 | 2-ply continuation history (half weight) | +34.9 ELO @ 200g |
 | Threat-by-lesser move-ordering bonus | (in shipped code, see movepick.cpp::score_quiets) |
 | Material/endgame time scaling | (in shipped code, see search.cpp:734-738) |
-
 For neutrals/negatives, see source tombstones (grep for `// NOTE: tested`).
 
 ## Tournament-grounded gap analysis

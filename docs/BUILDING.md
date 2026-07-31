@@ -8,8 +8,17 @@
   newer). Older CPUs need a different `ARCH=` (see below).
 - Linux, macOS, or Windows.
 
-On **Windows**, install MSYS2 from <https://www.msys2.org>, then
-`pacman -S mingw-w64-x86_64-gcc make`.
+On **Windows**, install MSYS2 from <https://www.msys2.org>, then run:
+
+```
+pacman -S mingw-w64-x86_64-gcc make
+```
+
+For sanitizer builds, also install the matching Clang64 toolchain:
+
+```
+pacman -S mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-compiler-rt
+```
 
 ## Quick build
 
@@ -27,6 +36,7 @@ Pick the one that matches your CPU. From oldest to newest:
 
 | `ARCH=` | Targets | When to use |
 |---|---|---|
+| `x86-64` | x86-64 + SSE2 | portable baseline for older 64-bit CPUs |
 | `x86-64-avx2` | Haswell+ (2013) | **default** — works on most modern CPUs |
 | `x86-64-bmi2` | Zen 3+ / Ice Lake+ | adds fast PEXT for slider attacks |
 | `x86-64-avxvnni` | Alder Lake+ | adds AVX-VNNI dpbusd intrinsics for FC dot products |
@@ -37,11 +47,6 @@ Pick the one that matches your CPU. From oldest to newest:
 make build ARCH=x86-64-bmi2
 ```
 
-Hypersion does not currently have a non-AVX2 (SSE2-only) target. If your
-CPU lacks AVX2 you'll need to add one — the SIMD primitives in
-`src/nnue.cpp` already have an SSE2 fallback path, but the build flags
-need wiring.
-
 ## Other targets
 
 | `make` target | Description |
@@ -50,6 +55,8 @@ need wiring.
 | `make` | alias for `build` |
 | `make debug` | -O0 with `-fsanitize=address,undefined` |
 | `make bench` | release build then run the deterministic bench |
+| `make verify` | run the deterministic bench five times and check the tracked signature |
+| `make test_timeman` | compile and run deterministic time-budget unit tests |
 | `make profile` | 2-pass PGO build (slow — ~5 min on Windows MinGW) |
 | `make clean` | remove `obj/` and the binary |
 | `make tuner` | build the Texel tuner at `tools/tuner/` |
@@ -69,19 +76,35 @@ Expected output ends with three lines like:
 ```
 ===========================
 Total time : 1700 ms
-Nodes      : 635067
-Nodes/sec  : 370000
+Nodes      : 1875591
+Nodes/sec  : 1100000
 ===========================
 ```
 
 The **node count is deterministic** — if your `make build` matches the
-released binary, you'll see exactly `635067` nodes at depth 13 (default
-bench depth, NNUE on). Different node counts indicate either a build
-flag mismatch or a search-affecting change.
+released binary, the depth-13 result must match `testing/BENCH_SIGNATURE`
+(currently `1875591`, Threads=1, NNUE on). Different node counts indicate
+either a build flag mismatch or a search-affecting change. `make verify`
+is the canonical gate and reads the signature file directly.
 
 If the NNUE files are missing, the bench still runs but on the classical
 evaluator and the node count differs — `make bench` is only deterministic
 once both `.nnue` files are present alongside the binary.
+
+## Release artifacts
+
+From a clean working tree, build every portable x86-64 package and generate
+the release manifest and checksums with:
+
+```
+py tools/build_release.py
+```
+
+The output under `dist/Hypersion-<version>/` contains five stripped binaries,
+`release-manifest.json`, and `SHA256SUMS`. A clean commit also produces a
+checksummed source `tar.gz` through `git archive`. The command refuses a dirty
+tree by default; `--allow-dirty` is intended only for local release-candidate
+checks and deliberately omits the source archive.
 
 ## Troubleshooting
 

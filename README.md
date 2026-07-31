@@ -15,21 +15,23 @@ transposition table, aspiration windows, late-move reductions, singular
 extensions, ProbCut, futility/razoring/SEE pruning, and lazy-SMP
 infrastructure.
 
-> **Project status (v3.0+, 2026-05-14):** active search/move-ordering
-> development is **paused**. The engine is at a local optimum on its
+> **Project status (v3.6 development):** broad search/move-ordering
+> experimentation is paused. The engine is at a local optimum on its
 > current SF18 NNUE network — 9 SPSA campaigns and dozens of tombstoned
 > experiments have explored the remaining parameter regions. The most
-> realistic remaining ELO ceiling is an NNUE retrain. Development
-> resumes if a contributor steps up with a custom-trained NNUE network.
+> realistic remaining ELO ceiling may eventually involve an NNUE retrain,
+> but training and large-scale telemetry are deferred because they require
+> resources outside this project's current scope. Near-term work focuses on
+> correctness, portability, reproducibility, and low-cost measured changes.
 > See [CONTRIBUTING](#contributing) below.
 >
 > **Classical-eval expansion session (2026-05-14)**: classical eval
 > grew from 14 to 145 tunable scalars across 16 feature rounds
 > (Mop-up, OCB scaling, Initiative bonus, KBNK mating, drawish-endgame
 > scaling, KPK bitbase, plus 9 other feature blocks). Best WAC depth-8
-> tactical: **184/198 (92.9%)**. NNUE-shipped path bench is **unchanged
-> at 1,273,328 nodes** (T1 d=13) — classical-only changes don't reach
-> the shipping eval path. See `testing/IMPROVEMENTS_LOG.md`.
+> tactical: **184/198 (92.9%)**. Historical results remain documented in
+> `testing/IMPROVEMENTS_LOG.md`; the current deterministic T1 depth-13
+> signature is tracked in `testing/BENCH_SIGNATURE`.
 
 ## Features
 
@@ -39,7 +41,7 @@ infrastructure.
   multi-cut + ProbCut + razoring + futility + SEE move pruning +
   correction history + counter-moves + 2-ply continuation history.
 - **Adaptive strength**: `UCI_LimitStrength` + `UCI_Elo` map a target
-  rating from ~500 to ~3200 to a depth cap and move-selection noise.
+  rating from ~500 to ~3300 to a depth cap and move-selection noise.
 - **Build**: single Makefile, AVX2 default, optional AVX-VNNI / AVX-512
   / native-arch targets, optional 2-pass PGO.
 - **Tablebases**: Syzygy probing via the bundled Fathom library.
@@ -90,6 +92,7 @@ make bench              # build then run a deterministic NPS bench
 Architecture targets:
 
 ```
+make build ARCH=x86-64          # SSE2 baseline for older 64-bit CPUs
 make build ARCH=x86-64-avx2     # default; works on most modern CPUs
 make build ARCH=x86-64-bmi2     # adds PEXT (Zen 3+, Ice Lake+)
 make build ARCH=x86-64-avxvnni  # +AVX-VNNI dpbusd (Alder Lake+)
@@ -104,8 +107,8 @@ recommended for distribution to such users.
 Distribution-ready stripped binaries:
 
 ```
-py testing/build_releases.py   # builds avx2/bmi2/avxvnni stripped variants
-                               # into ./release/, 1.32 MB each
+py tools/build_release.py      # clean-builds all five portable x86-64 variants
+                               # plus manifest and SHA256SUMS under ./dist/
 ```
 
 See [docs/BUILDING.md](docs/BUILDING.md) for full options including PGO,
@@ -145,7 +148,7 @@ ChessBase, Scid, Fritz, …) will drive it.
 | Option | Default | Range | Notes |
 |---|---|---|---|
 | `Hash` | 64 | spin | TT size in MB |
-| `Threads` | 2 | spin | lazy-SMP works; 2 is a safe default. For deterministic bench/testing, use 1. |
+| `Threads` | 2 | 1–1024 | Validated lazy-SMP default; use 1 for deterministic benchmarks. |
 | `EvalFile` | `nn-c288c895ea92.nnue` | string | big NNUE network |
 | `EvalFileSmall` | `nn-37f18f62d772.nnue` | string | small NNUE network |
 | `SyzygyPath` | empty | string | Syzygy tablebase directory |
@@ -154,7 +157,7 @@ ChessBase, Scid, Fritz, …) will drive it.
 | `BookBestMove` | false | check | always pick highest-weight book move |
 | `Skill Level` | 20 | 0–20 | weaker play at low values |
 | `UCI_LimitStrength` | false | check | enable Elo limiting |
-| `UCI_Elo` | 1500 | 500–3200 | target rating when limit-strength is on |
+| `UCI_Elo` | 1500 | 500–3300 | target rating when limit-strength is on |
 | `UCI_AnalyseMode` | false | check | hint that the GUI is analysing, not playing |
 | `UCI_Opponent` | empty | string | opponent info from GUI (`<title> <rating> <type> <name>`) |
 | `UCI_MatchOpponent` | false | check | auto-match opponent ELO (offset curve, see below) |
@@ -186,24 +189,26 @@ Offset curve (bot plays N ELO below opponent rating):
 
 ## Contributing
 
-Hypersion's active development is paused after v3.0. The single biggest
-remaining ELO lever is an **NNUE network retrain**. The architecture
-(SF18 SFNNv10) and training pipeline (`nnue-pytorch`) are public; the
-blocker is GPU compute.
+Hypersion v3.6 development currently prioritizes correctness, portability,
+reproducible releases, and low-cost measured improvements. Large NNUE training
+and telemetry campaigns are deferred because they require substantially more
+compute; they are not prerequisites for contributing useful work.
 
 If you're interested in contributing:
 
-- **NNUE retrain** (high impact, +30 to +60 ELO realistic): use
+- **NNUE retrain** (deferred, compute-intensive): use
   `nnue-pytorch`, train a fresh net on Hypersion self-play data or the
   public Stockfish training datasets (e.g. `linrock/test80-2024` on
   HuggingFace). Drop the resulting `.nnue` file into the engine's
   working directory; existing NNUE inference loads it with no source
   changes if architecture matches.
-- **Long-TC SPSA** (moderate impact): the session SPSA campaigns ran at
+- **Long-TC SPSA** (deferred unless resources are explicitly available): the session SPSA campaigns ran at
   `nodes=50000` (bullet-equivalent depth ~10-12). LTC-specific tuning
   campaigns (`nodes=500000+` or `tc=60+0.6`) should find further gains.
 - **Bug reports / specific-position blunders**: open issues with the
   problematic FEN and Hypersion's response.
+- **Portable tests and tooling**: improve UCI lifecycle, perft, release,
+  cross-compiler, and architecture coverage without requiring match farms.
 
 Open an issue or PR at <https://github.com/RenCopp/Hypersion>.
 

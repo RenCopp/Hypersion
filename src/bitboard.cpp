@@ -76,7 +76,6 @@ void init_magics(Bitboard table[], Magic magics[], const Direction dirs[4]) {
         const unsigned size = 1u << popcount(m.mask);
 
         Bitboard occ[4096], ref[4096];
-        unsigned epoch[4096] = {};
         unsigned cnt = 0;
         Bitboard b = 0;
         do {
@@ -94,6 +93,7 @@ void init_magics(Bitboard table[], Magic magics[], const Direction dirs[4]) {
 #else
         // Search for a magic. Sparse randoms (& & &) converge in a few tries.
         // Epoch counter avoids needing to memset m.attacks between attempts.
+        unsigned epoch[4096] = {};
         for (unsigned tries = 1;; ++tries) {
             do { m.magic = prng.sparse_rand(); }
             while (popcount((m.magic * m.mask) >> 56) < 6);
