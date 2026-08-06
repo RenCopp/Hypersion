@@ -195,6 +195,11 @@ public:
     void do_null_move  (StateInfo& newSt);
     void undo_null_move();
 
+    // Network weights can be replaced at runtime through UCI. Accumulators
+    // in the current state and its history chain belong to the old weights
+    // and must not be reused by the next evaluation.
+    void invalidate_nnue(bool big, bool small);
+
     // Recompute st->repetition based on the current StateInfo->previous chain.
     // Use after the chain is reattached externally (e.g. Worker::prepare
     // copying history from srcPos). set() runs this once at FEN parse but

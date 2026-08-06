@@ -284,6 +284,18 @@ top:
             // SEE-split: captures whose static exchange value is >= 0 are
             // "good" and returned now; the rest go to the bad-capture buffer
             // and come out after quiets.
+            //
+            // 2026-08-07 PRACTICAL TOMBSTONE: tested Stockfish 18's matching
+            // history-aware boundary `-em.value / 18`, also used with
+            // engine-specific divisors by Obsidian, PlentyChess, Integral,
+            // Alexandria, and Reckless. Revised-protocol results vs the frozen
+            // correctness baseline, AVX-VNNI + shipping NNUE:
+            //   240g 5+0.05: 80-78-82, +2.9 +/- 35.7 Elo
+            //   800g 10+0.1 SPRT [0,15]: 236-230-334, +2.6 +/- 18.4 Elo,
+            //     LLR -0.84 [-2.94,+2.94] (cap; inconclusive)
+            // No robust +15-Elo signal after 1040 revised-protocol games. Keep
+            // the strict-zero boundary; retry only with a materially different
+            // formulation, not the same divisor.
             if (pos.see_ge(em.move, VALUE_ZERO)) return em.move;
             // Stash bad captures (with their score) for later.
             if (endBad - badCapBuf < 64) *endBad++ = em;

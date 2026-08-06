@@ -566,6 +566,15 @@ void Position::recompute_repetition() {
     }
 }
 
+void Position::invalidate_nnue(bool big, bool small) {
+    for (StateInfo* s = st; s != nullptr; s = s->previous) {
+        if (big)
+            s->nnue.valid_big[0] = s->nnue.valid_big[1] = false;
+        if (small)
+            s->nnue.valid_small[0] = s->nnue.valid_small[1] = false;
+    }
+}
+
 void Position::undo_move(Move m) {
     sideToMove = ~sideToMove;
     Color  us   = sideToMove;

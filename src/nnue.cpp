@@ -14,10 +14,13 @@
 #include "nnue.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -241,57 +244,98 @@ inline int threat_index(int persp, int attacker, int from, int to,
 // ─────────────────────────────────────────────────────────────────────────
 template<typename T>
 bool read_leb128(std::ifstream& f, T* out, std::size_t n) {
+    static_assert(std::is_integral_v<T> && std::is_signed_v<T>);
     char mag[17];
     f.read(mag, 17);
     if (!f || std::memcmp(mag, "COMPRESSED_LEB128", 17) != 0) return false;
     std::uint32_t bc;
     f.read(reinterpret_cast<char*>(&bc), 4);
     if (!f) return false;
+
+    // A canonical signed LEB128 value needs at most ceil(bits / 7) bytes.
+    // Reject impossible block sizes before allocating, and reject truncated
+    // payloads before reading. A damaged network previously could request a
+    // multi-gigabyte vector from its four-byte block-length field.
+    constexpr std::size_t MAX_BYTES_PER_VALUE = (sizeof(T) * 8 + 6) / 7;
+    if (n > std::numeric_limits<std::size_t>::max() / MAX_BYTES_PER_VALUE
+        || std::size_t(bc) > n * MAX_BYTES_PER_VALUE)
+        return false;
+    const std::streampos payloadPos = f.tellg();
+    f.seekg(0, std::ios::end);
+    const std::streampos fileEnd = f.tellg();
+    f.seekg(payloadPos);
+    if (payloadPos < 0 || fileEnd < payloadPos
+        || std::uint64_t(bc) > std::uint64_t(fileEnd - payloadPos))
+        return false;
+
     std::vector<std::uint8_t> buf(bc);
     f.read(reinterpret_cast<char*>(buf.data()), bc);
     if (!f) return false;
     std::size_t p = 0;
     for (std::size_t i = 0; i < n; ++i) {
-        T r = 0;
+        using U = std::make_unsigned_t<T>;
+        U r = 0;
         std::size_t sh = 0;
         std::uint8_t b;
         do {
             if (p >= buf.size()) return false;
             b = buf[p++];
-            r |= T(b & 0x7f) << sh;
+            if (sh >= sizeof(T) * 8) return false;
+            r |= U(U(b & 0x7f) << sh);
             sh += 7;
         } while (b & 0x80);
-        if (sh < sizeof(T) * 8 && (b & 0x40)) r |= ~T(0) << sh;
-        out[i] = r;
+        if (sh < sizeof(T) * 8 && (b & 0x40))
+            r |= U(std::numeric_limits<U>::max() << sh);
+        out[i] = std::bit_cast<T>(r);
     }
     return true;
 }
 
 template<typename T>
 bool read_leb128_2(std::ifstream& f, T* a, std::size_t na, T* b2, std::size_t nb) {
+    static_assert(std::is_integral_v<T> && std::is_signed_v<T>);
     char mag[17];
     f.read(mag, 17);
     if (!f || std::memcmp(mag, "COMPRESSED_LEB128", 17) != 0) return false;
     std::uint32_t bc;
     f.read(reinterpret_cast<char*>(&bc), 4);
     if (!f) return false;
+
+    constexpr std::size_t MAX_BYTES_PER_VALUE = (sizeof(T) * 8 + 6) / 7;
+    if (na > std::numeric_limits<std::size_t>::max() - nb)
+        return false;
+    const std::size_t totalValues = na + nb;
+    if (totalValues > std::numeric_limits<std::size_t>::max() / MAX_BYTES_PER_VALUE
+        || std::size_t(bc) > totalValues * MAX_BYTES_PER_VALUE)
+        return false;
+    const std::streampos payloadPos = f.tellg();
+    f.seekg(0, std::ios::end);
+    const std::streampos fileEnd = f.tellg();
+    f.seekg(payloadPos);
+    if (payloadPos < 0 || fileEnd < payloadPos
+        || std::uint64_t(bc) > std::uint64_t(fileEnd - payloadPos))
+        return false;
+
     std::vector<std::uint8_t> buf(bc);
     f.read(reinterpret_cast<char*>(buf.data()), bc);
     if (!f) return false;
     std::size_t p = 0;
     auto decode = [&](T* out, std::size_t n) -> bool {
         for (std::size_t i = 0; i < n; ++i) {
-            T r = 0;
+            using U = std::make_unsigned_t<T>;
+            U r = 0;
             std::size_t sh = 0;
             std::uint8_t b;
             do {
                 if (p >= buf.size()) return false;
                 b = buf[p++];
-                r |= T(b & 0x7f) << sh;
+                if (sh >= sizeof(T) * 8) return false;
+                r |= U(U(b & 0x7f) << sh);
                 sh += 7;
             } while (b & 0x80);
-            if (sh < sizeof(T) * 8 && (b & 0x40)) r |= ~T(0) << sh;
-            out[i] = r;
+            if (sh < sizeof(T) * 8 && (b & 0x40))
+                r |= U(std::numeric_limits<U>::max() << sh);
+            out[i] = std::bit_cast<T>(r);
         }
         return true;
     };
@@ -1282,6 +1326,11 @@ bool load_small(const std::string& path) {
 }
 
 bool is_loaded() { return g_big.loaded || g_small.loaded; }
+
+void unload_small() {
+    g_small = Network{};
+    g_finny.invalidate();
+}
 
 void unload() {
     g_big = Network{};

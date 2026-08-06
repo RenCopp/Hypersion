@@ -601,7 +601,15 @@ void cmd_setopt(std::istringstream& is) {
         Search::Threads.clear_all();
     }
     else if (eq("Ponder"))         { parse_bool(Options.ponder); }
-    else if (eq("OwnBook"))        { parse_bool(Options.ownBook); }
+    else if (eq("OwnBook"))        {
+        parse_bool(Options.ownBook);
+        // BookFile may have been selected while OwnBook was disabled. In
+        // that case its handler intentionally left the book closed; enabling
+        // OwnBook must make the configured file effective immediately.
+        if (Options.ownBook && !Book::is_open() && !Options.bookFile.empty()
+            && Options.bookFile != "<empty>")
+            Book::open(Options.bookFile);
+    }
     else if (eq("BookBestMove"))   { parse_bool(Options.bookBest); }
     else if (eq("BookFile"))       {
         Options.bookFile = value;
@@ -614,17 +622,21 @@ void cmd_setopt(std::istringstream& is) {
         Options.evalFile = value;
         if (value.empty() || value == "<empty>") {
             NNUE::unload();   // forces classical fallback for testing
+            pos.invalidate_nnue(true, true);
         } else {
-            NNUE::load_big(value);
+            if (NNUE::load_big(value))
+                pos.invalidate_nnue(true, false);
         }
     }
     else if (eq("EvalFileSmall"))  {
         stop_and_wait_search();
         Options.evalFileSmall = value;
         if (value.empty() || value == "<empty>") {
-            // small net handled by unified unload()
+            NNUE::unload_small();
+            pos.invalidate_nnue(false, true);
         } else {
-            NNUE::load_small(value);
+            if (NNUE::load_small(value))
+                pos.invalidate_nnue(false, true);
         }
     }
     else if (eq("EvalUseSmallOnly")) {
