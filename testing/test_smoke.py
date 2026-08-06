@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 import re
+import struct
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -145,18 +147,67 @@ def t_nnue_replacement_is_transactional():
     if not big.is_file() or not small.is_file():
         return  # CI source builds intentionally do not carry network assets.
     fen = "r1bq1rk1/ppp2ppp/2np1n2/4p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 4 8"
+    # Correct outer hashes followed by an impossible compressed-block length.
+    # Loading this used to attempt a multi-gigabyte allocation before noticing
+    # that the file was truncated.
+    with tempfile.TemporaryDirectory() as tmp:
+        malformed = Path(tmp) / "malformed.nnue"
+        malformed.write_bytes(
+            struct.pack("<III", 0x7AF32F20, 0xEC102EF2, 0)
+            + struct.pack("<I", 0x8F2344B8)
+            + b"COMPRESSED_LEB128"
+            + struct.pack("<I", 0xFFFFFFFF)
+        )
+        out = run_engine(
+            f"position fen {fen}\neval\n"
+            "setoption name EvalFile value does-not-exist.nnue\neval\n"
+            f"setoption name EvalFile value {small}\neval\n"
+            f"setoption name EvalFile value {malformed}\neval\nquit\n"
+        )
+    values = [
+        int(line.split(":", 1)[1].strip())
+        for line in out.splitlines()
+        if "static eval (cp)" in line
+    ]
+    assert len(values) == 4 and len(set(values)) == 1, f"active NNUE changed: {values}"
+    assert "incompatible architecture" in out, "wrong-architecture network was not rejected"
+
+
+@test("EvalFileSmall can be unloaded without dropping the big NNUE")
+def t_nnue_small_slot_unload():
+    big = ROOT / "nn-c288c895ea92.nnue"
+    small = ROOT / "nn-37f18f62d772.nnue"
+    if not big.is_file() or not small.is_file():
+        return
+    # This lopsided position selects the small network; after unloading that
+    # slot, EvalUseSmallOnly must cleanly fall back to the still-loaded big net.
+    fen = "6k1/8/8/8/8/8/4Q3/6K1 w - - 0 1"
     out = run_engine(
-        f"position fen {fen}\neval\n"
-        "setoption name EvalFile value does-not-exist.nnue\neval\n"
-        f"setoption name EvalFile value {small}\neval\nquit\n"
+        f"position fen {fen}\nsetoption name EvalUseSmallOnly value true\neval\n"
+        "setoption name EvalFileSmall value <empty>\neval\nquit\n"
     )
     values = [
         int(line.split(":", 1)[1].strip())
         for line in out.splitlines()
         if "static eval (cp)" in line
     ]
-    assert len(values) == 3 and len(set(values)) == 1, f"active NNUE changed: {values}"
-    assert "incompatible architecture" in out, "wrong-architecture network was not rejected"
+    assert len(values) == 2, f"expected two evals, got {values}"
+    assert values[0] != values[1], f"small NNUE remained active after unload: {values}"
+
+
+@test("OwnBook reopens a BookFile selected while disabled")
+def t_book_reenable():
+    book = ROOT / "Perfect2023.bin"
+    if not book.is_file():
+        return  # Opening books are intentionally absent from source-only CI.
+    out = run_engine(
+        "uci\nsetoption name OwnBook value false\n"
+        f"setoption name BookFile value {book}\n"
+        "setoption name OwnBook value true\n"
+        "position startpos\ngo depth 1\nquit\n"
+    )
+    assert f"book: opened {book}" in out, "OwnBook did not reopen the configured file"
+    assert "info string book move " in out, "reopened book was not probed"
 
 
 @test("eval startpos returns finite cp")

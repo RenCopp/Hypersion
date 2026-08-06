@@ -1994,6 +1994,16 @@ Value Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta, bool is
     Piece qPrevPiece1 = (ss - 1)->movedPiece;
     Move  qPrevMove2  = (ss - 2)->currentMove;
     Piece qPrevPiece2 = (ss - 2)->movedPiece;
+    // 2026-08-07 OWNER-CUTOFF TOMBSTONE: tested Integral's conservative
+    // quiet-TT qsearch gate (non-PV, TT bound != UPPER), motivated by
+    // Stockfish's broader quiet-TT support. Revised-protocol results vs the
+    // frozen correctness baseline, AVX-VNNI + shipping NNUE:
+    //   240g 5+0.05: 75-78-87, -4.3 +/- 35.2 Elo
+    //   199g 10+0.1 SPRT [0,15]: 68-62-69, +10.5 +/- 39.1 Elo,
+    //     LLR +0.111 [-2.94,+2.94] (owner resource cutoff; no boundary)
+    // This is not a statistical rejection, but it showed no robust gain by the
+    // requested >=150-game cutoff. Keep capture-only qsearch unless a materially
+    // different formulation supplies a new reason to test.
     MovePicker mp(pos, ttMove, &mainHist, &captureHist, /*qDepth=*/0,
                   contHist[0].get(), qPrevMove1, qPrevPiece1,
                   contHist[1].get(), qPrevMove2, qPrevPiece2);

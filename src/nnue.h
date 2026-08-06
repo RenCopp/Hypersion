@@ -38,6 +38,9 @@ bool load_small(const std::string& path);
 // True if at least one network slot is populated.
 bool is_loaded();
 
+// Drop the small network only. The big network, if loaded, remains active.
+void unload_small();
+
 // Drop both networks. Frees ~110 MB if a big net was loaded.
 void unload();
 
